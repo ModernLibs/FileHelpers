@@ -1,0 +1,54 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.{csproj,props,targets}]
+indent_size = 2
+
+[*.cs]
+# ──────────────────────────────────────────────────────────────────────────────
+# Sealed class enforcement (INFR-05, D-08)
+# ──────────────────────────────────────────────────────────────────────────────
+# Roslynator: make class sealed
+dotnet_diagnostic.RCS1225.severity = error
+# NetAnalyzers: seal internal types (CA1852)
+# CA1852 fires for internal unsealed concrete types. It does NOT fire for public types —
+# this is by design (public types may be intentionally inheritable by external assemblies).
+# No standard Roslyn analyzer unconditionally enforces sealing for public types.
+# Project convention: all concrete public types MUST be sealed/abstract/static by code review.
+# RCS1225 covers public classes only when all constructors are private (automatic case only).
+dotnet_diagnostic.CA1852.severity = error
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Nullable strictness (design spec §12, D-08)
+# These are normally enabled by <Nullable>enable</Nullable> in Directory.Build.props
+# but explicitly set here to block any suppression via NoWarn in project files
+# ──────────────────────────────────────────────────────────────────────────────
+dotnet_diagnostic.CS8600.severity = error
+dotnet_diagnostic.CS8602.severity = error
+dotnet_diagnostic.CS8603.severity = error
+dotnet_diagnostic.CS8618.severity = error
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Meziantou performance and correctness rules (D-08, Claude's Discretion)
+# ──────────────────────────────────────────────────────────────────────────────
+# MA0004: Use StringComparison parameter for string operations (culture safety)
+dotnet_diagnostic.MA0004.severity = error
+# MA0029: Use LINQ extension method (performance)
+dotnet_diagnostic.MA0029.severity = warning
+# MA0051: Method is too long (maintainability)
+dotnet_diagnostic.MA0051.severity = warning
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Roslynator design rules (Claude's Discretion — aligns with project coding standards)
+# ──────────────────────────────────────────────────────────────────────────────
+# RCS1242: Remove unnecessary else clause
+dotnet_diagnostic.RCS1242.severity = warning
+# RCS1194: Implement exception constructors
+dotnet_diagnostic.RCS1194.severity = warning

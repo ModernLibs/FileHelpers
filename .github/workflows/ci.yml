@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Least-privilege CI token (T-1-08: Elevation of Privilege mitigation)
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    # D-02: Linux-only for now; multi-platform matrix added in Phase 10
+    runs-on: ubuntu-latest
+
+    steps:
+      # Supply chain: pinned major tag versions (T-1-09: Tampering mitigation)
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          # global.json pins exact patch (10.0.105); '10.x' lets setup-dotnet resolve via global.json
+          dotnet-version: '10.x'
+
+      # Cache NuGet packages — keyed on Directory.Packages.props + all .csproj files
+      # This avoids re-downloading packages on every run when versions haven't changed
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      # SDK 10 + MTP 2.2.1: 'dotnet test' cannot route through the VSTest MSBuild
+      # target for MTP 2.x projects (MTP throws a preemptive error on SDK >= 10).
+      # Run test binaries directly instead. --ignore-exit-code 8 makes MTP return
+      # 0 when zero tests are discovered (Phase 1 has no tests yet; Phase 2+ adds them).
+      - name: Test (TUnit)
+        run: >-
+          ./tests/ModernLibs.FileHelpers.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Tests
+          --ignore-exit-code 8
+
+      # xUnit v3 uses its own runner (not MTP --ignore-exit-code); exits 0 for zero tests
+      - name: Test (xUnit mutation)
+        run: >-
+          ./tests/ModernLibs.FileHelpers.Mutation.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Mutation.Tests

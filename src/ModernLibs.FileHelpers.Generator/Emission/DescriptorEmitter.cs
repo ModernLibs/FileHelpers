@@ -1,6 +1,6 @@
 // MA0051: DescriptorEmitter.Emit is a single-responsibility string-building method.
-// The length (87 lines) comes from emitting distinct code sections (header, namespace, descriptor class,
-// parse stub, format stub, fields array, registration class) — all required by the emitter contract.
+// The length comes from emitting distinct code sections (header, namespace, descriptor class,
+// parse body, format stub, fields array, registration class) — all required by the emitter contract.
 // Extracting sub-methods would require passing model, sb, fqType, and TypeName as parameters
 // for marginal readability gain. Suppression is intentional.
 #pragma warning disable MA0051
@@ -49,12 +49,8 @@ internal static class DescriptorEmitter
         sb.AppendLine($"    public static readonly __{model.TypeName}Descriptor Instance = new();");
         sb.AppendLine();
 
-        // Parse stub — Phase 5 wires the real implementation.
-        sb.AppendLine($"    public {fqType} Parse(global::System.ReadOnlySpan<char> line)");
-        sb.AppendLine("    {");
-        sb.AppendLine("        throw new global::System.NotImplementedException(");
-        sb.AppendLine("            \"Parse stub — wired in Phase 5 parsing pipeline.\");");
-        sb.AppendLine("    }");
+        // Real inlined Parse body — Phase 5 implementation.
+        EmitParseBody(sb, model, fqType);
         sb.AppendLine();
 
         // Format stub — Phase 6 wires the real implementation.
@@ -74,12 +70,19 @@ internal static class DescriptorEmitter
         // T-03-09: empty Fields array (Length == 0) emits valid `[]` syntax — no runtime exception.
         sb.AppendLine("    private static readonly global::ModernLibs.FileHelpers.FieldDescriptor[] _fields =");
         sb.AppendLine("    [");
+
+        // Compute running offset for fixed-length records; sentinel -1 for delimited.
+        bool isFixed = string.Equals(model.RecordKind, "FixedLength", System.StringComparison.Ordinal);
+        int runningOffset = 0;
         for (int i = 0; i < model.Fields.Length; i++)
         {
             var field = model.Fields[i];
             string comma = i < model.Fields.Length - 1 ? "," : "";
+            int offset = isFixed ? runningOffset : -1;
+            int width = isFixed ? field.FixedLength : -1;
             // nameof() and typeof() are AOT-safe compile-time literals (T-03-10: accept).
-            sb.AppendLine($"        new(nameof({fqType}.{field.Name}), typeof({field.FullTypeName}), {field.Order}){comma}");
+            sb.AppendLine($"        new(nameof({fqType}.{field.Name}), typeof({field.FullTypeName}), {field.Order}, {offset}, {width}){comma}");
+            if (isFixed && field.FixedLength > 0) runningOffset += field.FixedLength;
         }
         sb.AppendLine("    ];");
         sb.AppendLine("}");
@@ -106,5 +109,271 @@ internal static class DescriptorEmitter
         spc.AddSource(
             $"__{model.TypeName}Descriptor.g.cs",
             Microsoft.CodeAnalysis.Text.SourceText.From(sourceText, System.Text.Encoding.UTF8));
+    }
+
+    /// <summary>
+    /// Emits the fully-inlined <c>Parse</c> method body.
+    /// D-04: no calls to FixedLengthSlicer or any other shared pipeline methods in generated code —
+    /// all field splitting is inlined directly.
+    /// D-05: inline TryParse calls per field type.
+    /// </summary>
+    private static void EmitParseBody(StringBuilder sb, RecordModel model, string fqType)
+    {
+        sb.AppendLine($"    public {fqType} Parse(global::System.ReadOnlySpan<char> line)");
+        sb.AppendLine("    {");
+
+        var fields = model.Fields;
+        int fieldCount = fields.Length;
+
+        if (fieldCount == 0)
+        {
+            // Edge case: no fields — emit direct construction with no field access.
+            sb.AppendLine($"        return new {fqType}();");
+            sb.AppendLine("    }");
+            return;
+        }
+
+        bool isDelimited = string.Equals(model.RecordKind, "Delimited", System.StringComparison.Ordinal);
+
+        if (isDelimited)
+        {
+            EmitDelimitedFieldSplitting(sb, model, fields, fieldCount);
+        }
+        else
+        {
+            EmitFixedLengthFieldSplitting(sb, fields, fieldCount);
+        }
+
+        // Inline TryParse conversions.
+        sb.AppendLine();
+        for (int i = 0; i < fieldCount; i++)
+        {
+            var field = fields[i];
+            string tryParseCode = GetInlineTryParse($"__f{i}", field.TypeName, field.FullTypeName, i);
+            sb.AppendLine($"        {tryParseCode}");
+        }
+
+        // Constructor call.
+        // Use positional constructor only for struct types where all fields are init-only
+        // (positional record struct syntax: readonly record struct Foo(int X, decimal Y)).
+        // For class types, object initializer syntax works with both regular and init-only setters.
+        // Field-based structs (record struct with public fields) also use object initializer.
+        sb.AppendLine();
+        bool isStructType = model.TypeKind.IndexOf("struct", System.StringComparison.OrdinalIgnoreCase) >= 0;
+        bool allInitOnly = fieldCount > 0 && AllFieldsInitOnly(fields, fieldCount);
+        bool usePositionalCtor = isStructType && allInitOnly;
+        EmitConstructorCall(sb, fqType, fields, fieldCount, usePositionalCtor);
+
+        sb.AppendLine("    }");
+    }
+
+    /// <summary>
+    /// Emits sequential IndexOf + slice splitting for delimited records (D-04: fully inlined).
+    /// </summary>
+    private static void EmitDelimitedFieldSplitting(
+        StringBuilder sb,
+        RecordModel model,
+        EquatableArray<FieldModel> fields,
+        int fieldCount)
+    {
+        // Determine delimiter char / string for emitted code.
+        string delim = model.Delimiter;
+        bool isSingleChar = delim.Length == 1;
+        string delimLiteral = isSingleChar
+            ? $"'{EscapeChar(delim[0])}'"
+            : $"\"{EscapeString(delim)}\", global::System.StringComparison.Ordinal";
+        int delimLen = delim.Length;
+
+        for (int i = 0; i < fieldCount; i++)
+        {
+            bool isLast = i == fieldCount - 1;
+
+            if (isLast)
+            {
+                // Last field: consume remainder of the remaining span.
+                string remSpan = i == 0 ? "line" : $"__rem{i}";
+                sb.AppendLine($"        var __f{i} = {remSpan};");
+            }
+            else
+            {
+                string srcSpan = i == 0 ? "line" : $"__rem{i}";
+                sb.AppendLine($"        int __sep{i} = {srcSpan}.IndexOf({delimLiteral});");
+                sb.AppendLine($"        var __f{i} = __sep{i} >= 0 ? {srcSpan}.Slice(0, __sep{i}) : {srcSpan};");
+                sb.AppendLine($"        var __rem{i + 1} = __sep{i} >= 0 ? {srcSpan}.Slice(__sep{i} + {delimLen}) : global::System.ReadOnlySpan<char>.Empty;");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Emits raw <c>line.Slice(offset, width)</c> arithmetic for fixed-length records (D-04: fully inlined).
+    /// Using Math.Min for width clamping guards against short lines (D-03: lenient behavior).
+    /// </summary>
+    private static void EmitFixedLengthFieldSplitting(
+        StringBuilder sb,
+        EquatableArray<FieldModel> fields,
+        int fieldCount)
+    {
+        int runningOffset = 0;
+        for (int i = 0; i < fieldCount; i++)
+        {
+            var field = fields[i];
+            int offset = runningOffset;
+            int width = field.FixedLength > 0 ? field.FixedLength : 0;
+
+            sb.AppendLine($"        var __f{i} = line.Length > {offset} ? line.Slice({offset}, global::System.Math.Min({width}, line.Length - {offset})) : global::System.ReadOnlySpan<char>.Empty;");
+
+            if (field.FixedLength > 0) runningOffset += field.FixedLength;
+        }
+    }
+
+    /// <summary>
+    /// Returns true if every field in the model has <c>IsInitOnly = true</c>,
+    /// indicating positional record constructor syntax is valid.
+    /// Field-based structs (e.g., <c>record struct</c> with public fields) return false.
+    /// </summary>
+    private static bool AllFieldsInitOnly(EquatableArray<FieldModel> fields, int fieldCount)
+    {
+        for (int i = 0; i < fieldCount; i++)
+        {
+            if (!fields[i].IsInitOnly) return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Emits the constructor call.
+    /// Positional syntax (<c>new T(v0, v1)</c>) is used only when all fields are init-only
+    /// (positional record structs/classes). All other types use object initializer syntax.
+    /// </summary>
+    private static void EmitConstructorCall(
+        StringBuilder sb,
+        string fqType,
+        EquatableArray<FieldModel> fields,
+        int fieldCount,
+        bool usePositionalConstructor)
+    {
+        if (usePositionalConstructor)
+        {
+            // Positional constructor: new T(__v0, __v1, __v2)
+            var args = new StringBuilder();
+            for (int i = 0; i < fieldCount; i++)
+            {
+                if (i > 0) args.Append(", ");
+                args.Append($"__v{i}");
+            }
+            sb.AppendLine($"        return new {fqType}({args});");
+        }
+        else
+        {
+            // Object initializer: new T { Prop0 = __v0, Prop1 = __v1, ... }
+            sb.AppendLine($"        return new {fqType}");
+            sb.AppendLine("        {");
+            for (int i = 0; i < fieldCount; i++)
+            {
+                string comma = i < fieldCount - 1 ? "," : "";
+                sb.AppendLine($"            {fields[i].Name} = __v{i}{comma}");
+            }
+            sb.AppendLine("        };");
+        }
+    }
+
+    /// <summary>
+    /// Returns the inline TryParse (or string construction) statement for a single field.
+    /// D-05: type-to-TryParse mapping for Phase 5 types.
+    /// Generator targets netstandard2.0: no range/index syntax; use Substring instead of slice.
+    /// </summary>
+    private static string GetInlineTryParse(string fieldVar, string typeName, string fullTypeName, int fieldIdx)
+    {
+        // Normalize: strip "global::" prefix and "?" nullable suffix for comparison.
+        // Use Substring (not range syntax) — generator targets netstandard2.0.
+        const string globalPrefix = "global::";
+        string normalized = typeName.TrimEnd('?');
+        if (normalized.StartsWith(globalPrefix, System.StringComparison.Ordinal))
+            normalized = normalized.Substring(globalPrefix.Length);
+
+        // Also normalize fullTypeName for fallback matching.
+        string normalizedFull = fullTypeName.TrimEnd('?');
+        if (normalizedFull.StartsWith(globalPrefix, System.StringComparison.Ordinal))
+            normalizedFull = normalizedFull.Substring(globalPrefix.Length);
+
+        string? result = GetTryParseForNormalizedType(fieldVar, normalized, fieldIdx);
+        if (result != null)
+            return result;
+
+        result = GetTryParseForNormalizedType(fieldVar, normalizedFull, fieldIdx);
+        if (result != null)
+            return result;
+
+        // Phase 6: ISpanConverter<T> will handle DateTime, Enum, etc.
+        return $"var __v{fieldIdx} = default({fullTypeName}); // Phase 6: add ISpanConverter<T>";
+    }
+
+    private static string? GetTryParseForNormalizedType(string fieldVar, string typeName, int fieldIdx)
+    {
+        if (string.Equals(typeName, "string", System.StringComparison.Ordinal) ||
+            string.Equals(typeName, "System.String", System.StringComparison.Ordinal))
+            return $"string __v{fieldIdx} = new string({fieldVar});";
+
+        if (string.Equals(typeName, "bool", System.StringComparison.Ordinal) ||
+            string.Equals(typeName, "System.Boolean", System.StringComparison.Ordinal))
+            return $"_ = bool.TryParse({fieldVar}, out bool __v{fieldIdx});";
+
+        if (string.Equals(typeName, "int", System.StringComparison.Ordinal) ||
+            string.Equals(typeName, "System.Int32", System.StringComparison.Ordinal))
+            return $"_ = int.TryParse({fieldVar}, out int __v{fieldIdx});";
+
+        if (string.Equals(typeName, "long", System.StringComparison.Ordinal) ||
+            string.Equals(typeName, "System.Int64", System.StringComparison.Ordinal))
+            return $"_ = long.TryParse({fieldVar}, out long __v{fieldIdx});";
+
+        if (string.Equals(typeName, "short", System.StringComparison.Ordinal) ||
+            string.Equals(typeName, "System.Int16", System.StringComparison.Ordinal))
+            return $"_ = short.TryParse({fieldVar}, out short __v{fieldIdx});";
+
+        if (string.Equals(typeName, "byte", System.StringComparison.Ordinal) ||
+            string.Equals(typeName, "System.Byte", System.StringComparison.Ordinal))
+            return $"_ = byte.TryParse({fieldVar}, out byte __v{fieldIdx});";
+
+        if (string.Equals(typeName, "decimal", System.StringComparison.Ordinal) ||
+            string.Equals(typeName, "System.Decimal", System.StringComparison.Ordinal))
+            return $"_ = decimal.TryParse({fieldVar}, global::System.Globalization.NumberStyles.Any, global::System.Globalization.CultureInfo.InvariantCulture, out decimal __v{fieldIdx});";
+
+        if (string.Equals(typeName, "double", System.StringComparison.Ordinal) ||
+            string.Equals(typeName, "System.Double", System.StringComparison.Ordinal))
+            return $"_ = double.TryParse({fieldVar}, global::System.Globalization.NumberStyles.Any, global::System.Globalization.CultureInfo.InvariantCulture, out double __v{fieldIdx});";
+
+        if (string.Equals(typeName, "float", System.StringComparison.Ordinal) ||
+            string.Equals(typeName, "System.Single", System.StringComparison.Ordinal))
+            return $"_ = float.TryParse({fieldVar}, global::System.Globalization.NumberStyles.Any, global::System.Globalization.CultureInfo.InvariantCulture, out float __v{fieldIdx});";
+
+        return null;
+    }
+
+    private static string EscapeChar(char c) => c switch
+    {
+        '\'' => "\\'",
+        '\\' => "\\\\",
+        '\n' => "\\n",
+        '\r' => "\\r",
+        '\t' => "\\t",
+        _ => c.ToString(),
+    };
+
+    private static string EscapeString(string s)
+    {
+        var sb = new StringBuilder(s.Length);
+        foreach (char c in s)
+        {
+            sb.Append(c switch
+            {
+                '"' => "\\\"",
+                '\\' => "\\\\",
+                '\n' => "\\n",
+                '\r' => "\\r",
+                '\t' => "\\t",
+                _ => c.ToString(),
+            });
+        }
+        return sb.ToString();
     }
 }

@@ -7,7 +7,20 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="TUnit" />
+    <!-- Generator output and caching tests (Phase 3).
+         Using Microsoft.CodeAnalysis.CSharp directly (via generator ProjectReference) rather than
+         SourceGenerators.Testing — that package pulls in Roslyn 3.8.0 which conflicts with 4.14.0
+         and loses AsSourceGenerator/TrackedOutputSteps/IncrementalStepRunReason resolution. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
     <ProjectReference Include="../../src/ModernLibs.FileHelpers/ModernLibs.FileHelpers.csproj" />
+    <!-- Direct reference so tests can instantiate FileHelpersGenerator in Roslyn in-process tests -->
+    <ProjectReference Include="../../src/ModernLibs.FileHelpers.Generator/ModernLibs.FileHelpers.Generator.csproj" />
+    <!-- Analyzer reference so the generator actually runs on this test project at build time,
+         emitting [ModuleInitializer] descriptors for types like SimpleDelimitedRecord.
+         ReferenceOutputAssembly=false avoids double-loading the generator DLL. -->
+    <ProjectReference Include="../../src/ModernLibs.FileHelpers.Generator/ModernLibs.FileHelpers.Generator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

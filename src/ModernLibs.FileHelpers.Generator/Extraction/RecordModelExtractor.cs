@@ -86,6 +86,9 @@ internal static class RecordModelExtractor
             bool isOptional = false;
             bool isHidden = false;
             bool isValueDiscarded = false;
+            GeneratorConverterKind converterKind = GeneratorConverterKind.None;
+            string? converterTypeName = null;
+            EquatableArray<string> converterArgs = default;
 
             // Scan member attributes for field-level overrides
             foreach (var mAttr in member.GetAttributes())
@@ -117,12 +120,48 @@ internal static class RecordModelExtractor
                     case "ModernLibs.FileHelpers.FieldValueDiscardedAttribute":
                         isValueDiscarded = true;
                         break;
+                    case "ModernLibs.FileHelpers.FieldConverterAttribute":
+                    {
+                        if (mAttr.ConstructorArguments.Length == 0) break;
+                        var firstArg = mAttr.ConstructorArguments[0];
+                        if (firstArg.Kind == Microsoft.CodeAnalysis.TypedConstantKind.Type
+                            && firstArg.Value is INamedTypeSymbol typeSym)
+                        {
+                            // Only emit ConverterBaseAdapter when the custom type actually
+                            // inherits from ConverterBase. Phase 7 will add ISpanConverter<T> detection.
+                            if (IsConverterBaseSubtype(typeSym))
+                            {
+                                converterTypeName = typeSym.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                                converterKind = GeneratorConverterKind.None;
+                            }
+                            // else: unrecognised type — leave converterTypeName null → falls back to
+                            // default(T) with TODO comment (Phase 7 will handle ISpanConverter<T>)
+                        }
+                        else if (firstArg.Kind == Microsoft.CodeAnalysis.TypedConstantKind.Enum
+                                 && firstArg.Value is int kindInt)
+                        {
+                            converterKind = (GeneratorConverterKind)kindInt;
+                        }
+                        if (mAttr.ConstructorArguments.Length > 1
+                            && mAttr.ConstructorArguments[1].Kind == Microsoft.CodeAnalysis.TypedConstantKind.Array)
+                        {
+                            var argsArr = mAttr.ConstructorArguments[1].Values;
+                            var strArgs = new string[argsArr.Length];
+                            for (int ai = 0; ai < argsArr.Length; ai++)
+                                strArgs[ai] = argsArr[ai].Value as string ?? string.Empty;
+                            var immutable = System.Collections.Immutable.ImmutableArray.Create(strArgs);
+                            converterArgs = new EquatableArray<string>(immutable);
+                        }
+                        break;
+                    }
                 }
             }
 
             fields.Add(new FieldModel(memberName, memberTypeName, fullTypeName,
                 declarationIndex, order, trimMode, isOptional, isHidden, isValueDiscarded,
-                IsInitOnly: isInitOnly));
+                IsInitOnly: isInitOnly,
+                ConverterKind: converterKind, ConverterTypeName: converterTypeName,
+                ConverterArgs: converterArgs));
         }
 
         // Sort by order for deterministic output (SGEN-11).
@@ -209,6 +248,9 @@ internal static class RecordModelExtractor
             bool isHidden = false;
             bool isValueDiscarded = false;
             int fixedLength = -1; // sentinel: [FieldFixedLength] not found
+            GeneratorConverterKind converterKind = GeneratorConverterKind.None;
+            string? converterTypeName = null;
+            EquatableArray<string> converterArgs = default;
 
             foreach (var mAttr in member.GetAttributes())
             {
@@ -242,12 +284,46 @@ internal static class RecordModelExtractor
                     case "ModernLibs.FileHelpers.FieldValueDiscardedAttribute":
                         isValueDiscarded = true;
                         break;
+                    case "ModernLibs.FileHelpers.FieldConverterAttribute":
+                    {
+                        if (mAttr.ConstructorArguments.Length == 0) break;
+                        var firstArg = mAttr.ConstructorArguments[0];
+                        if (firstArg.Kind == Microsoft.CodeAnalysis.TypedConstantKind.Type
+                            && firstArg.Value is INamedTypeSymbol typeSym)
+                        {
+                            // Only emit ConverterBaseAdapter when the custom type actually
+                            // inherits from ConverterBase. Phase 7 will add ISpanConverter<T> detection.
+                            if (IsConverterBaseSubtype(typeSym))
+                            {
+                                converterTypeName = typeSym.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                                converterKind = GeneratorConverterKind.None;
+                            }
+                        }
+                        else if (firstArg.Kind == Microsoft.CodeAnalysis.TypedConstantKind.Enum
+                                 && firstArg.Value is int kindInt)
+                        {
+                            converterKind = (GeneratorConverterKind)kindInt;
+                        }
+                        if (mAttr.ConstructorArguments.Length > 1
+                            && mAttr.ConstructorArguments[1].Kind == Microsoft.CodeAnalysis.TypedConstantKind.Array)
+                        {
+                            var argsArr = mAttr.ConstructorArguments[1].Values;
+                            var strArgs = new string[argsArr.Length];
+                            for (int ai = 0; ai < argsArr.Length; ai++)
+                                strArgs[ai] = argsArr[ai].Value as string ?? string.Empty;
+                            var immutable = System.Collections.Immutable.ImmutableArray.Create(strArgs);
+                            converterArgs = new EquatableArray<string>(immutable);
+                        }
+                        break;
+                    }
                 }
             }
 
             fields.Add(new FieldModel(memberName, memberTypeName, fullTypeName,
                 declarationIndex, order, trimMode, isOptional, isHidden, isValueDiscarded,
-                FixedLength: fixedLength, IsInitOnly: isInitOnly));
+                FixedLength: fixedLength, IsInitOnly: isInitOnly,
+                ConverterKind: converterKind, ConverterTypeName: converterTypeName,
+                ConverterArgs: converterArgs));
         }
 
         var sortedArray = fields
@@ -259,5 +335,24 @@ internal static class RecordModelExtractor
             ns, typeName, typeKind, isReadOnly, "FixedLength", Delimiter: string.Empty,
             new EquatableArray<FieldModel>(sortedArray),
             FixedMode: fixedMode);
+    }
+
+    /// <summary>
+    /// Returns true if <paramref name="typeSym"/> inherits from
+    /// <c>ModernLibs.FileHelpers.Converters.ConverterBase</c>.
+    /// Used to gate <c>ConverterBaseAdapter&lt;T&gt;</c> emission in Phase 6.
+    /// Phase 7 will add <c>ISpanConverter&lt;T&gt;</c> detection.
+    /// </summary>
+    private static bool IsConverterBaseSubtype(INamedTypeSymbol typeSym)
+    {
+        const string converterBaseFqn = "ModernLibs.FileHelpers.Converters.ConverterBase";
+        INamedTypeSymbol? current = typeSym.BaseType;
+        while (current is not null)
+        {
+            if (string.Equals(current.ToDisplayString(), converterBaseFqn, System.StringComparison.Ordinal))
+                return true;
+            current = current.BaseType;
+        }
+        return false;
     }
 }

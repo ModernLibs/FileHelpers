@@ -80,7 +80,7 @@ public sealed class GeneratorOutputTests
         // SGEN-02 assertions on emitted source text
         await Assert.That(generatedSource).Contains("file sealed class __TradeDescriptor");
         await Assert.That(generatedSource).Contains("IRecordDescriptor<global::Trade>");
-        await Assert.That(generatedSource).Contains("NotImplementedException");
+        await Assert.That(generatedSource).Contains("writer.Advance");
         await Assert.That(generatedSource).Contains("ModuleInitializer");
         await Assert.That(generatedSource).Contains("FileHelperRegistry");
         await Assert.That(generatedSource).Contains("SetDescriptor");

@@ -49,16 +49,15 @@ internal static class DescriptorEmitter
         sb.AppendLine($"    public static readonly __{model.TypeName}Descriptor Instance = new();");
         sb.AppendLine();
 
+        // Static cached converter fields for custom and DateMultiFormat converters (D-15).
+        EmitConverterFields(sb, model.Fields);
+
         // Real inlined Parse body — Phase 5 implementation.
         EmitParseBody(sb, model, fqType);
         sb.AppendLine();
 
-        // Format stub — Phase 6 wires the real implementation.
-        sb.AppendLine($"    public void Format({fqType} record, global::System.Buffers.IBufferWriter<char> writer)");
-        sb.AppendLine("    {");
-        sb.AppendLine("        throw new global::System.NotImplementedException(");
-        sb.AppendLine("            \"Format stub — wired in Phase 6 write pipeline.\");");
-        sb.AppendLine("    }");
+        // Real Format body — Phase 6 implementation via EmitFormatBody.
+        EmitFormatBody(sb, model, fqType);
         sb.AppendLine();
 
         // Fields property backed by a static array — avoids per-call allocation.
@@ -149,7 +148,7 @@ internal static class DescriptorEmitter
         for (int i = 0; i < fieldCount; i++)
         {
             var field = fields[i];
-            string tryParseCode = GetInlineTryParse($"__f{i}", field.TypeName, field.FullTypeName, i);
+            string tryParseCode = GetInlineTryParse($"__f{i}", field, i);
             sb.AppendLine($"        {tryParseCode}");
         }
 
@@ -279,13 +278,29 @@ internal static class DescriptorEmitter
 
     /// <summary>
     /// Returns the inline TryParse (or string construction) statement for a single field.
-    /// D-05: type-to-TryParse mapping for Phase 5 types.
+    /// D-14: decision tree — explicit ConverterKind, custom type, then Phase 5 inline switch,
+    /// then DateTime/DateOnly/TimeOnly fallback via built-in converters.
     /// Generator targets netstandard2.0: no range/index syntax; use Substring instead of slice.
     /// </summary>
-    private static string GetInlineTryParse(string fieldVar, string typeName, string fullTypeName, int fieldIdx)
+    private static string GetInlineTryParse(string fieldVar, FieldModel field, int fieldIdx)
     {
+        string typeName = field.TypeName;
+        string fullTypeName = field.FullTypeName;
+
+        // D-14: Step 1 — explicit ConverterKind annotation
+        if (field.ConverterKind != GeneratorConverterKind.None)
+        {
+            return EmitBuiltInConverterTryParse(fieldVar, field, fieldIdx);
+        }
+
+        // D-14: Step 2 — custom type annotation (ConverterBase subclass wrapped in ConverterBaseAdapter<T>)
+        if (field.ConverterTypeName is not null)
+        {
+            return EmitCustomConverterTryParse(fieldVar, field, fieldIdx);
+        }
+
+        // D-14: Steps 3–5: no annotation → fall through to Phase 5 inline switch
         // Normalize: strip "global::" prefix and "?" nullable suffix for comparison.
-        // Use Substring (not range syntax) — generator targets netstandard2.0.
         const string globalPrefix = "global::";
         string normalized = typeName.TrimEnd('?');
         if (normalized.StartsWith(globalPrefix, System.StringComparison.Ordinal))
@@ -304,8 +319,126 @@ internal static class DescriptorEmitter
         if (result != null)
             return result;
 
-        // Phase 6: ISpanConverter<T> will handle DateTime, Enum, etc.
-        return $"var __v{fieldIdx} = default({fullTypeName}); // Phase 6: add ISpanConverter<T>";
+        // D-14: Step 4 — DateTime/DateOnly/TimeOnly without annotation → built-in converter
+        if (string.Equals(normalized, "DateTime", System.StringComparison.Ordinal) ||
+            string.Equals(normalizedFull, "System.DateTime", System.StringComparison.Ordinal))
+            return $"if (!global::ModernLibs.FileHelpers.Converters.DateTimeConverter.Instance.TryParse({fieldVar}, out var __v{fieldIdx})) __v{fieldIdx} = default;";
+
+        if (string.Equals(normalized, "DateOnly", System.StringComparison.Ordinal) ||
+            string.Equals(normalizedFull, "System.DateOnly", System.StringComparison.Ordinal))
+            return $"if (!global::ModernLibs.FileHelpers.Converters.DateOnlyConverter.Instance.TryParse({fieldVar}, out var __v{fieldIdx})) __v{fieldIdx} = default;";
+
+        if (string.Equals(normalized, "TimeOnly", System.StringComparison.Ordinal) ||
+            string.Equals(normalizedFull, "System.TimeOnly", System.StringComparison.Ordinal))
+            return $"if (!global::ModernLibs.FileHelpers.Converters.TimeOnlyConverter.Instance.TryParse({fieldVar}, out var __v{fieldIdx})) __v{fieldIdx} = default;";
+
+        // D-14: Step 5 — Enum without annotation: deferred to Phase 7 (requires IsEnum in FieldModel)
+        // Emit default(T) with a comment — implicit enum dispatch requires TypeKind.Enum in FieldModel.
+        return $"var __v{fieldIdx} = default({fullTypeName}); // TODO Phase 7: implicit enum dispatch (add IsEnum to FieldModel)";
+    }
+
+    /// <summary>
+    /// Emits a built-in converter TryParse call for the given ConverterKind.
+    /// T-06-04-01: exhaustive switch with InvalidOperationException for unknown values.
+    /// </summary>
+    private static string EmitBuiltInConverterTryParse(string fieldVar, FieldModel field, int fieldIdx)
+    {
+        // DateMultiFormat needs constructor args — handled separately with static cached field
+        if (field.ConverterKind == GeneratorConverterKind.DateMultiFormat)
+            return EmitDateMultiFormatTryParse(fieldVar, field, fieldIdx);
+
+        string converterClass = field.ConverterKind switch
+        {
+            GeneratorConverterKind.Date => "global::ModernLibs.FileHelpers.Converters.DateTimeConverter",
+            GeneratorConverterKind.Byte => "global::ModernLibs.FileHelpers.Converters.ByteConverter",
+            GeneratorConverterKind.SByte => "global::ModernLibs.FileHelpers.Converters.SByteConverter",
+            GeneratorConverterKind.Int16 => "global::ModernLibs.FileHelpers.Converters.Int16Converter",
+            GeneratorConverterKind.Int32 => "global::ModernLibs.FileHelpers.Converters.Int32Converter",
+            GeneratorConverterKind.Int64 => "global::ModernLibs.FileHelpers.Converters.Int64Converter",
+            GeneratorConverterKind.UInt16 => "global::ModernLibs.FileHelpers.Converters.UInt16Converter",
+            GeneratorConverterKind.UInt32 => "global::ModernLibs.FileHelpers.Converters.UInt32Converter",
+            GeneratorConverterKind.UInt64 => "global::ModernLibs.FileHelpers.Converters.UInt64Converter",
+            GeneratorConverterKind.Decimal => "global::ModernLibs.FileHelpers.Converters.DecimalConverter",
+            GeneratorConverterKind.Double => "global::ModernLibs.FileHelpers.Converters.DoubleConverter",
+            GeneratorConverterKind.Single => "global::ModernLibs.FileHelpers.Converters.SingleConverter",
+            GeneratorConverterKind.PercentDouble => "global::ModernLibs.FileHelpers.Converters.PercentDoubleConverter",
+            GeneratorConverterKind.Boolean => "global::ModernLibs.FileHelpers.Converters.BoolConverter",
+            GeneratorConverterKind.Char => "global::ModernLibs.FileHelpers.Converters.CharConverter",
+            GeneratorConverterKind.Guid => "global::ModernLibs.FileHelpers.Converters.GuidConverter",
+            _ => throw new System.InvalidOperationException($"Unhandled GeneratorConverterKind {field.ConverterKind}")
+        };
+
+        return $"if (!{converterClass}.Instance.TryParse({fieldVar}, out var __v{fieldIdx})) __v{fieldIdx} = default;";
+    }
+
+    /// <summary>
+    /// Emits a DateMultiFormatConverter TryParse call using a static cached field.
+    /// The cached field declaration is emitted by <see cref="EmitConverterFields"/>.
+    /// </summary>
+    private static string EmitDateMultiFormatTryParse(string fieldVar, FieldModel field, int fieldIdx)
+    {
+        // __conv_field{fieldIdx} is a static cached DateMultiFormatConverter instance
+        // declared by EmitConverterFields in the generated descriptor class body.
+        return $"if (!__conv_field{fieldIdx}.TryParse({fieldVar}, out var __v{fieldIdx})) __v{fieldIdx} = default;";
+    }
+
+    /// <summary>
+    /// Emits a custom ConverterBase subclass TryParse call via ConverterBaseAdapter.
+    /// The static cached adapter field is declared by <see cref="EmitConverterFields"/>.
+    /// Phase 6: all custom converter types (ConverterTypeName != null) are assumed to be
+    /// ConverterBase subclasses wrapped with ConverterBaseAdapter&lt;T&gt;.
+    /// Direct ISpanConverter&lt;T&gt; implementors are Phase 7 work.
+    /// </summary>
+    private static string EmitCustomConverterTryParse(string fieldVar, FieldModel field, int fieldIdx)
+    {
+        // __conv_field{fieldIdx} is a static cached ConverterBaseAdapter<T> instance
+        // declared by EmitConverterFields in the generated descriptor class body.
+        return $"if (!__conv_field{fieldIdx}.TryParse({fieldVar}, out var __v{fieldIdx})) __v{fieldIdx} = default; // Legacy ConverterBase adapter — allocates strings per field. Implement ISpanConverter<T> for zero-alloc.";
+    }
+
+    /// <summary>
+    /// Emits static cached converter field declarations inside the generated descriptor class.
+    /// Called for fields that have <see cref="FieldModel.ConverterTypeName"/> != null
+    /// or <see cref="FieldModel.ConverterKind"/> == <see cref="GeneratorConverterKind.DateMultiFormat"/>.
+    /// D-15: static cached fields, private static readonly, initialized once.
+    /// </summary>
+    private static void EmitConverterFields(StringBuilder sb, EquatableArray<FieldModel> fields)
+    {
+        bool anyEmitted = false;
+        for (int i = 0; i < fields.Length; i++)
+        {
+            var field = fields[i];
+
+            if (field.ConverterKind == GeneratorConverterKind.DateMultiFormat)
+            {
+                // Build the string[] literal for the formats argument
+                var fmtArgs = field.ConverterArgs;
+                var fmtLiteral = new System.Text.StringBuilder("new string[] { ");
+                for (int ai = 0; ai < fmtArgs.Length; ai++)
+                {
+                    if (ai > 0) fmtLiteral.Append(", ");
+                    fmtLiteral.Append('"');
+                    fmtLiteral.Append(EscapeString(fmtArgs[ai]));
+                    fmtLiteral.Append('"');
+                }
+                fmtLiteral.Append(" }");
+
+                sb.AppendLine($"    private static readonly global::ModernLibs.FileHelpers.Converters.DateMultiFormatConverter __conv_field{i}");
+                sb.AppendLine($"        = new({fmtLiteral});");
+                anyEmitted = true;
+            }
+            else if (field.ConverterTypeName is not null)
+            {
+                // ConverterBase subclass wrapped with ConverterBaseAdapter<T>
+                // Phase 6: assumes all custom types are ConverterBase subclasses (Phase 7 detects ISpanConverter<T>)
+                sb.AppendLine($"    // Legacy ConverterBase adapter — allocates strings per field. Implement ISpanConverter<T> for zero-alloc.");
+                sb.AppendLine($"    private static readonly global::ModernLibs.FileHelpers.Converters.ConverterBaseAdapter<{field.FullTypeName}> __conv_field{i}");
+                sb.AppendLine($"        = new(new {field.ConverterTypeName}());");
+                anyEmitted = true;
+            }
+        }
+
+        if (anyEmitted) sb.AppendLine();
     }
 
     private static string? GetTryParseForNormalizedType(string fieldVar, string typeName, int fieldIdx)
@@ -376,4 +509,377 @@ internal static class DescriptorEmitter
         }
         return sb.ToString();
     }
+
+    // ---- Format body emission (D-16, D-17, D-18, D-19) ----
+
+    /// <summary>
+    /// Emits the fully-inlined <c>Format</c> method body.
+    /// D-16: no line terminator written here — the Phase 7 engine writes CRLF/LF after Format.
+    /// D-19: symmetric in structure to EmitParseBody.
+    /// </summary>
+    private static void EmitFormatBody(StringBuilder sb, RecordModel model, string fqType)
+    {
+        sb.AppendLine($"    public void Format({fqType} record, global::System.Buffers.IBufferWriter<char> writer)");
+        sb.AppendLine("    {");
+
+        bool isDelimited = string.Equals(model.RecordKind, "Delimited", System.StringComparison.Ordinal);
+        if (isDelimited)
+            EmitDelimitedFormatFields(sb, model);
+        else
+            EmitFixedLengthFormatFields(sb, model);
+
+        sb.AppendLine("    }");
+    }
+
+    /// <summary>
+    /// D-17: Emits field writes for delimited records, separated by delimiter, no trailing delimiter.
+    /// Single-char delimiter uses the fast path (Pattern C). Multi-char delimiter uses a for-loop.
+    /// </summary>
+    private static void EmitDelimitedFormatFields(StringBuilder sb, RecordModel model)
+    {
+        // Collect visible fields (same filter as Parse side).
+        var allFields = model.Fields;
+        int totalCount = 0;
+        for (int i = 0; i < allFields.Length; i++)
+        {
+            if (!allFields[i].IsHidden && !allFields[i].IsValueDiscarded)
+                totalCount++;
+        }
+
+        int fieldIdx = 0;
+        for (int i = 0; i < allFields.Length; i++)
+        {
+            var field = allFields[i];
+            if (field.IsHidden || field.IsValueDiscarded) continue;
+
+            bool isLast = fieldIdx == totalCount - 1;
+
+            // Emit field write block
+            string fieldCode = GetFormatFieldCode(field, fieldIdx);
+            sb.AppendLine($"        {fieldCode}");
+
+            // Emit delimiter between fields (not after the last field) — D-17
+            if (!isLast)
+            {
+                string delim = model.Delimiter;
+                if (delim.Length == 1)
+                {
+                    sb.AppendLine($"        {{ writer.GetSpan(1)[0] = '{EscapeChar(delim[0])}'; writer.Advance(1); }}");
+                }
+                else
+                {
+                    // Multi-char delimiter — emit char-by-char via for-loop at generator time
+                    int dlen = delim.Length;
+                    sb.AppendLine($"        {{");
+                    sb.AppendLine($"            var __delim{fieldIdx} = writer.GetSpan({dlen});");
+                    for (int di = 0; di < dlen; di++)
+                    {
+                        sb.AppendLine($"            __delim{fieldIdx}[{di}] = '{EscapeChar(delim[di])}';");
+                    }
+                    sb.AppendLine($"            writer.Advance({dlen});");
+                    sb.AppendLine($"        }}");
+                }
+            }
+
+            fieldIdx++;
+        }
+    }
+
+    /// <summary>
+    /// D-18: Emits field writes for fixed-length records. Each field always advances exactly W chars.
+    /// Pre-fills with spaces, writes value, truncates if longer than W.
+    /// </summary>
+    private static void EmitFixedLengthFormatFields(StringBuilder sb, RecordModel model)
+    {
+        var allFields = model.Fields;
+        int fieldIdx = 0;
+        for (int i = 0; i < allFields.Length; i++)
+        {
+            var field = allFields[i];
+            if (field.IsHidden || field.IsValueDiscarded) continue;
+
+            int w = field.FixedLength > 0 ? field.FixedLength : 1;
+            string fixedCode = GetFixedFormatFieldCode(field, fieldIdx, w);
+            sb.AppendLine($"        {fixedCode}");
+            fieldIdx++;
+        }
+    }
+
+    /// <summary>
+    /// Returns the inline format statement for a single field in a delimited record.
+    /// Patterns A (string), B (numeric TryFormat), D (converter TryFormat).
+    /// </summary>
+    private static string GetFormatFieldCode(FieldModel field, int n)
+    {
+        string fieldRef = $"record.{field.Name}";
+        string typeName = NormalizeTypeName(field.TypeName);
+        string fullTypeName = NormalizeTypeName(field.FullTypeName);
+
+        // Check for explicit converter annotation first (D-14 symmetry for Format)
+        if (field.ConverterKind != GeneratorConverterKind.None &&
+            field.ConverterKind != GeneratorConverterKind.DateMultiFormat)
+        {
+            string converterClass = GetBuiltInConverterClass(field.ConverterKind);
+            int bufSize = GetConverterBufferSize(field.ConverterKind);
+            return $"{{ global::System.Span<char> __buf{n} = stackalloc char[{bufSize}]; {converterClass}.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
+        }
+
+        if (field.ConverterKind == GeneratorConverterKind.DateMultiFormat)
+        {
+            // DateMultiFormat: use static cached field, write first format
+            return $"{{ global::System.Span<char> __buf{n} = stackalloc char[20]; __conv_field{n}.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
+        }
+
+        if (field.ConverterTypeName is not null)
+        {
+            // Custom ConverterBase adapter
+            return $"{{ global::System.Span<char> __buf{n} = stackalloc char[256]; __conv_field{n}.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
+        }
+
+        // Pattern A — string
+        if (IsStringType(typeName, fullTypeName))
+            return $"{{ var __s{n} = {fieldRef} ?? \"\"; var __d{n} = writer.GetSpan(__s{n}.Length); __s{n}.AsSpan().CopyTo(__d{n}); writer.Advance(__s{n}.Length); }}";
+
+        // Pattern special — char
+        if (IsCharType(typeName, fullTypeName))
+            return $"{{ writer.GetSpan(1)[0] = {fieldRef}; writer.Advance(1); }}";
+
+        // Pattern B — integer types (no culture)
+        if (IsIntegerType(typeName, fullTypeName, out int intBufSize))
+            return $"{{ global::System.Span<char> __buf{n} = stackalloc char[{intBufSize}]; {fieldRef}.TryFormat(__buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
+
+        // Pattern D — floating-point (via built-in converters for InvariantCulture)
+        if (IsDecimalType(typeName, fullTypeName))
+            return $"{{ global::System.Span<char> __buf{n} = stackalloc char[32]; global::ModernLibs.FileHelpers.Converters.DecimalConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
+
+        if (IsDoubleType(typeName, fullTypeName))
+            return $"{{ global::System.Span<char> __buf{n} = stackalloc char[24]; global::ModernLibs.FileHelpers.Converters.DoubleConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
+
+        if (IsSingleType(typeName, fullTypeName))
+            return $"{{ global::System.Span<char> __buf{n} = stackalloc char[16]; global::ModernLibs.FileHelpers.Converters.SingleConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
+
+        // Pattern D — bool
+        if (IsBoolType(typeName, fullTypeName))
+            return $"{{ global::System.Span<char> __buf{n} = stackalloc char[6]; global::ModernLibs.FileHelpers.Converters.BoolConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
+
+        // Pattern D — Guid
+        if (IsGuidType(typeName, fullTypeName))
+            return $"{{ global::System.Span<char> __buf{n} = stackalloc char[36]; global::ModernLibs.FileHelpers.Converters.GuidConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
+
+        // Pattern D — DateTime, DateOnly, TimeOnly
+        if (IsDateTimeType(typeName, fullTypeName))
+            return $"{{ global::System.Span<char> __buf{n} = stackalloc char[20]; global::ModernLibs.FileHelpers.Converters.DateTimeConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
+
+        if (IsDateOnlyType(typeName, fullTypeName))
+            return $"{{ global::System.Span<char> __buf{n} = stackalloc char[12]; global::ModernLibs.FileHelpers.Converters.DateOnlyConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
+
+        if (IsTimeOnlyType(typeName, fullTypeName))
+            return $"{{ global::System.Span<char> __buf{n} = stackalloc char[10]; global::ModernLibs.FileHelpers.Converters.TimeOnlyConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
+
+        // Fallback — ToString() for unrecognised types (object, enums without ISpanFormattable, etc.)
+        // Safe for nullable reference types: ?? "" guards against null.
+        return $"{{ var __s{n} = {fieldRef}?.ToString() ?? \"\"; var __d{n} = writer.GetSpan(__s{n}.Length); __s{n}.AsSpan().CopyTo(__d{n}); writer.Advance(__s{n}.Length); }}";
+    }
+
+    /// <summary>
+    /// Returns the inline format statement for a single field in a fixed-length record (Pattern E).
+    /// Always advances exactly W chars; pre-fills with spaces; truncates content > W.
+    /// For string fields: copies up to W chars, leaves remaining as spaces.
+    /// For value types: TryFormat into W-char stackalloc then copy.
+    /// </summary>
+    private static string GetFixedFormatFieldCode(FieldModel field, int n, int w)
+    {
+        string fieldRef = $"record.{field.Name}";
+        string typeName = NormalizeTypeName(field.TypeName);
+        string fullTypeName = NormalizeTypeName(field.FullTypeName);
+
+        // String fields: direct copy up to W chars
+        if (IsStringType(typeName, fullTypeName))
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); var __s{n} = {fieldRef} ?? \"\"; int __cp{n} = global::System.Math.Min(__s{n}.Length, {w}); __s{n}.AsSpan(0, __cp{n}).CopyTo(__d{n}); writer.Advance({w}); }}";
+
+        // Char field
+        if (IsCharType(typeName, fullTypeName))
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); __d{n}[0] = {fieldRef}; writer.Advance({w}); }}";
+
+        // Explicit converter annotation
+        if (field.ConverterKind != GeneratorConverterKind.None &&
+            field.ConverterKind != GeneratorConverterKind.DateMultiFormat)
+        {
+            string converterClass = GetBuiltInConverterClass(field.ConverterKind);
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; {converterClass}.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+        }
+
+        if (field.ConverterKind == GeneratorConverterKind.DateMultiFormat || field.ConverterTypeName is not null)
+        {
+            // Custom: TryFormat via cached adapter field
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; __conv_field{n}.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+        }
+
+        // Pattern E for all other value types: stackalloc W, TryFormat, truncate
+        // Floating-point: use built-in converters for InvariantCulture
+        if (IsDecimalType(typeName, fullTypeName))
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.DecimalConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+
+        if (IsDoubleType(typeName, fullTypeName))
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.DoubleConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+
+        if (IsSingleType(typeName, fullTypeName))
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.SingleConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+
+        if (IsBoolType(typeName, fullTypeName))
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.BoolConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+
+        if (IsGuidType(typeName, fullTypeName))
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.GuidConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+
+        if (IsDateTimeType(typeName, fullTypeName))
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.DateTimeConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+
+        if (IsDateOnlyType(typeName, fullTypeName))
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.DateOnlyConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+
+        if (IsTimeOnlyType(typeName, fullTypeName))
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.TimeOnlyConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+
+        // Generic TryFormat for integers and other ISpanFormattable value types.
+        // For unrecognised reference types (object, etc.): ToString() fallback.
+        bool isValueType = !field.FullTypeName.TrimEnd('?').Equals("object", System.StringComparison.Ordinal) &&
+                           !field.FullTypeName.TrimEnd('?').Equals("System.Object", System.StringComparison.Ordinal) &&
+                           !field.FullTypeName.TrimEnd('?').StartsWith("global::System.Object", System.StringComparison.Ordinal);
+        if (isValueType)
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; {fieldRef}.TryFormat(__buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+        // object/unknown reference type: ToString() with fixed-length truncation
+        return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); var __s{n} = {fieldRef}?.ToString() ?? \"\"; int __cp{n} = global::System.Math.Min(__s{n}.Length, {w}); __s{n}.AsSpan(0, __cp{n}).CopyTo(__d{n}); writer.Advance({w}); }}";
+    }
+
+    // ---- Type classification helpers ----
+
+    private static string NormalizeTypeName(string typeName)
+    {
+        const string globalPrefix = "global::";
+        string normalized = typeName.TrimEnd('?');
+        if (normalized.StartsWith(globalPrefix, System.StringComparison.Ordinal))
+            normalized = normalized.Substring(globalPrefix.Length);
+        return normalized;
+    }
+
+    private static bool IsStringType(string t, string ft) =>
+        string.Equals(t, "string", System.StringComparison.Ordinal) ||
+        string.Equals(ft, "System.String", System.StringComparison.Ordinal);
+
+    private static bool IsCharType(string t, string ft) =>
+        string.Equals(t, "char", System.StringComparison.Ordinal) ||
+        string.Equals(ft, "System.Char", System.StringComparison.Ordinal);
+
+    private static bool IsIntegerType(string t, string ft, out int bufSize)
+    {
+        if (string.Equals(t, "byte", System.StringComparison.Ordinal) ||
+            string.Equals(ft, "System.Byte", System.StringComparison.Ordinal))
+        { bufSize = 4; return true; }
+        if (string.Equals(t, "sbyte", System.StringComparison.Ordinal) ||
+            string.Equals(ft, "System.SByte", System.StringComparison.Ordinal))
+        { bufSize = 4; return true; }
+        if (string.Equals(t, "short", System.StringComparison.Ordinal) ||
+            string.Equals(ft, "System.Int16", System.StringComparison.Ordinal))
+        { bufSize = 6; return true; }
+        if (string.Equals(t, "ushort", System.StringComparison.Ordinal) ||
+            string.Equals(ft, "System.UInt16", System.StringComparison.Ordinal))
+        { bufSize = 6; return true; }
+        if (string.Equals(t, "int", System.StringComparison.Ordinal) ||
+            string.Equals(ft, "System.Int32", System.StringComparison.Ordinal))
+        { bufSize = 12; return true; }
+        if (string.Equals(t, "uint", System.StringComparison.Ordinal) ||
+            string.Equals(ft, "System.UInt32", System.StringComparison.Ordinal))
+        { bufSize = 12; return true; }
+        if (string.Equals(t, "long", System.StringComparison.Ordinal) ||
+            string.Equals(ft, "System.Int64", System.StringComparison.Ordinal))
+        { bufSize = 20; return true; }
+        if (string.Equals(t, "ulong", System.StringComparison.Ordinal) ||
+            string.Equals(ft, "System.UInt64", System.StringComparison.Ordinal))
+        { bufSize = 20; return true; }
+        bufSize = 0;
+        return false;
+    }
+
+    private static bool IsDecimalType(string t, string ft) =>
+        string.Equals(t, "decimal", System.StringComparison.Ordinal) ||
+        string.Equals(ft, "System.Decimal", System.StringComparison.Ordinal);
+
+    private static bool IsDoubleType(string t, string ft) =>
+        string.Equals(t, "double", System.StringComparison.Ordinal) ||
+        string.Equals(ft, "System.Double", System.StringComparison.Ordinal);
+
+    private static bool IsSingleType(string t, string ft) =>
+        string.Equals(t, "float", System.StringComparison.Ordinal) ||
+        string.Equals(ft, "System.Single", System.StringComparison.Ordinal);
+
+    private static bool IsBoolType(string t, string ft) =>
+        string.Equals(t, "bool", System.StringComparison.Ordinal) ||
+        string.Equals(ft, "System.Boolean", System.StringComparison.Ordinal);
+
+    private static bool IsGuidType(string t, string ft) =>
+        string.Equals(t, "Guid", System.StringComparison.Ordinal) ||
+        string.Equals(ft, "System.Guid", System.StringComparison.Ordinal);
+
+    private static bool IsDateTimeType(string t, string ft) =>
+        string.Equals(t, "DateTime", System.StringComparison.Ordinal) ||
+        string.Equals(ft, "System.DateTime", System.StringComparison.Ordinal);
+
+    private static bool IsDateOnlyType(string t, string ft) =>
+        string.Equals(t, "DateOnly", System.StringComparison.Ordinal) ||
+        string.Equals(ft, "System.DateOnly", System.StringComparison.Ordinal);
+
+    private static bool IsTimeOnlyType(string t, string ft) =>
+        string.Equals(t, "TimeOnly", System.StringComparison.Ordinal) ||
+        string.Equals(ft, "System.TimeOnly", System.StringComparison.Ordinal);
+
+    /// <summary>
+    /// Maps a GeneratorConverterKind to its fully-qualified converter class name.
+    /// Symmetric to EmitBuiltInConverterTryParse mapping.
+    /// </summary>
+    private static string GetBuiltInConverterClass(GeneratorConverterKind kind) => kind switch
+    {
+        GeneratorConverterKind.Date => "global::ModernLibs.FileHelpers.Converters.DateTimeConverter",
+        GeneratorConverterKind.Byte => "global::ModernLibs.FileHelpers.Converters.ByteConverter",
+        GeneratorConverterKind.SByte => "global::ModernLibs.FileHelpers.Converters.SByteConverter",
+        GeneratorConverterKind.Int16 => "global::ModernLibs.FileHelpers.Converters.Int16Converter",
+        GeneratorConverterKind.Int32 => "global::ModernLibs.FileHelpers.Converters.Int32Converter",
+        GeneratorConverterKind.Int64 => "global::ModernLibs.FileHelpers.Converters.Int64Converter",
+        GeneratorConverterKind.UInt16 => "global::ModernLibs.FileHelpers.Converters.UInt16Converter",
+        GeneratorConverterKind.UInt32 => "global::ModernLibs.FileHelpers.Converters.UInt32Converter",
+        GeneratorConverterKind.UInt64 => "global::ModernLibs.FileHelpers.Converters.UInt64Converter",
+        GeneratorConverterKind.Decimal => "global::ModernLibs.FileHelpers.Converters.DecimalConverter",
+        GeneratorConverterKind.Double => "global::ModernLibs.FileHelpers.Converters.DoubleConverter",
+        GeneratorConverterKind.Single => "global::ModernLibs.FileHelpers.Converters.SingleConverter",
+        GeneratorConverterKind.PercentDouble => "global::ModernLibs.FileHelpers.Converters.PercentDoubleConverter",
+        GeneratorConverterKind.Boolean => "global::ModernLibs.FileHelpers.Converters.BoolConverter",
+        GeneratorConverterKind.Char => "global::ModernLibs.FileHelpers.Converters.CharConverter",
+        GeneratorConverterKind.Guid => "global::ModernLibs.FileHelpers.Converters.GuidConverter",
+        _ => throw new System.InvalidOperationException($"Unhandled GeneratorConverterKind {kind}")
+    };
+
+    /// <summary>
+    /// Returns a conservative stackalloc buffer size for the given built-in converter kind.
+    /// Sizes from 06-RESEARCH.md §4.
+    /// </summary>
+    private static int GetConverterBufferSize(GeneratorConverterKind kind) => kind switch
+    {
+        GeneratorConverterKind.Byte => 4,
+        GeneratorConverterKind.SByte => 4,
+        GeneratorConverterKind.Int16 => 6,
+        GeneratorConverterKind.UInt16 => 6,
+        GeneratorConverterKind.Int32 => 12,
+        GeneratorConverterKind.UInt32 => 12,
+        GeneratorConverterKind.Int64 => 20,
+        GeneratorConverterKind.UInt64 => 20,
+        GeneratorConverterKind.Single => 16,
+        GeneratorConverterKind.Double => 24,
+        GeneratorConverterKind.Decimal => 32,
+        GeneratorConverterKind.Boolean => 6,
+        GeneratorConverterKind.Char => 1,
+        GeneratorConverterKind.Guid => 36,
+        GeneratorConverterKind.Date => 20,
+        GeneratorConverterKind.PercentDouble => 25,
+        _ => 32,
+    };
 }

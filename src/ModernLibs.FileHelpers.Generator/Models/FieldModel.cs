@@ -13,4 +13,7 @@ internal sealed record FieldModel(
     string? TrimMode,
     bool IsOptional,
     bool IsHidden,
-    bool IsValueDiscarded) : IEquatable<FieldModel>;
+    bool IsValueDiscarded,
+    int FixedLength = -1,   // -1 = not a fixed-length field or attribute missing (sentinel)
+    bool IsInitOnly = false) // true for init-only properties (record class / record struct)
+    : IEquatable<FieldModel>;

@@ -8,4 +8,6 @@ internal static class TrackingNames
 {
     internal const string DelimitedModels = nameof(DelimitedModels);
     internal const string DelimitedFiltered = nameof(DelimitedFiltered);
+    internal const string FixedLengthModels = nameof(FixedLengthModels);
+    internal const string FixedLengthFiltered = nameof(FixedLengthFiltered);
 }

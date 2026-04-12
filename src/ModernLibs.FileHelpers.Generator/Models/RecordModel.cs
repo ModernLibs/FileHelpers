@@ -12,4 +12,6 @@ internal sealed record RecordModel(
     bool IsReadOnly,
     string RecordKind,
     string Delimiter,
-    EquatableArray<FieldModel> Fields);
+    EquatableArray<FieldModel> Fields,
+    string? FixedMode = null) // null for delimited; "ExactLength"/"AllowMoreChars"/etc for fixed
+    ;

@@ -40,4 +40,42 @@ public sealed class ModuleInitializerTests
         await Assert.That(field1Name).IsEqualTo(nameof(SimpleDelimitedRecord.Quantity));
         await Assert.That(field2Name).IsEqualTo(nameof(SimpleDelimitedRecord.Price));
     }
+
+    /// <summary>SGEN-05: FileHelperRegistry&lt;RecordClassFixture&gt;.Descriptor is non-null after module load.</summary>
+    [Test]
+    public async Task Registry_AfterModuleInit_RecordClassDescriptorIsNonNull()
+    {
+        // RecordClassFixture has [DelimitedRecord] and was compiled with the generator active.
+        // The emitted [ModuleInitializer] must have registered the descriptor before this test runs.
+        var descriptor = FileHelperRegistry<RecordClassFixture>.Descriptor;
+
+        await Assert.That(descriptor).IsNotNull();
+
+        // Snapshot fields before any await — ReadOnlySpan<T> cannot cross await boundaries.
+        int fieldCount = descriptor.Fields.Length;
+        string field0Name = descriptor.Fields[0].Name;
+        string field1Name = descriptor.Fields[1].Name;
+
+        await Assert.That(fieldCount).IsEqualTo(2);
+        await Assert.That(field0Name).IsEqualTo(nameof(RecordClassFixture.Name));
+        await Assert.That(field1Name).IsEqualTo(nameof(RecordClassFixture.Age));
+    }
+
+    /// <summary>SGEN-06: FileHelperRegistry&lt;ReadonlyRecordStructFixture&gt;.Descriptor is non-null after module load.</summary>
+    [Test]
+    public async Task Registry_AfterModuleInit_ReadonlyRecordStructDescriptorIsNonNull()
+    {
+        // ReadonlyRecordStructFixture has [DelimitedRecord] and was compiled with the generator active.
+        var descriptor = FileHelperRegistry<ReadonlyRecordStructFixture>.Descriptor;
+
+        await Assert.That(descriptor).IsNotNull();
+
+        int fieldCount = descriptor.Fields.Length;
+        string field0Name = descriptor.Fields[0].Name;
+        string field1Name = descriptor.Fields[1].Name;
+
+        await Assert.That(fieldCount).IsEqualTo(2);
+        await Assert.That(field0Name).IsEqualTo(nameof(ReadonlyRecordStructFixture.Name));
+        await Assert.That(field1Name).IsEqualTo(nameof(ReadonlyRecordStructFixture.Score));
+    }
 }

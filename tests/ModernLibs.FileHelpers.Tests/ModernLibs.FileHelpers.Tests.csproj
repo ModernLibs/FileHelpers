@@ -3,6 +3,11 @@
     <TargetFramework>net10.0</TargetFramework>
     <OutputType>Exe</OutputType>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+    <!-- MLFH004: IntegrationFixtures.PipedRecord uses [FieldConverter(typeof(object))] to
+         smoke-test the Type overload of FieldConverter. The fixture is never parsed at
+         runtime, so the default(T) fall-through warning is noise in this project. The
+         diagnostic still fires (and is warn-as-error) in production consumers. -->
+    <NoWarn>$(NoWarn);MLFH004</NoWarn>
 
   </PropertyGroup>
   <ItemGroup>

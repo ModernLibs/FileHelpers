@@ -2,7 +2,6 @@
 // require passing many local variables, reducing readability without improving maintainability.
 #pragma warning disable MA0051
 using System.Collections.Immutable;
-using System.Globalization;
 using System.Linq;
 using System.Threading;
 using Microsoft.CodeAnalysis;
@@ -48,6 +47,10 @@ internal static class RecordModelExtractor
         // Validate: empty or null delimiter gets null return (diagnostic emitted later, Phase 4)
         if (string.IsNullOrEmpty(delimiter)) return null;
 
+        // Phase 7: extract record-level filtering attributes (IgnoreFirst, IgnoreLast, IgnoreEmptyLines, IgnoreCommentedLines).
+        // These feed RecordOptions on the generated descriptor (D-07).
+        var (igFirst, igLast, igEmpty, commentMarker) = ExtractRecordLevelFilters(typeSymbol, ct);
+
         // Extract fields: public instance fields and properties only
         var fields = ImmutableArray.CreateBuilder<FieldModel>();
         int implicitOrder = 0;
@@ -82,13 +85,17 @@ internal static class RecordModelExtractor
 
             int declarationIndex = implicitOrder++;
             int order = declarationIndex; // default; overridden by [FieldOrder] below
-            string? trimMode = null;
+            int? trimMode = null;
             bool isOptional = false;
             bool isHidden = false;
             bool isValueDiscarded = false;
             GeneratorConverterKind converterKind = GeneratorConverterKind.None;
             string? converterTypeName = null;
             EquatableArray<string> converterArgs = default;
+
+            bool isQuoted = false;
+            char quoteChar = '"';
+            string? unrecognisedConverterType = null;
 
             // Scan member attributes for field-level overrides
             foreach (var mAttr in member.GetAttributes())
@@ -108,7 +115,10 @@ internal static class RecordModelExtractor
                     case "ModernLibs.FileHelpers.FieldTrimAttribute"
                         when mAttr.ConstructorArguments.Length > 0
                              && mAttr.ConstructorArguments[0].Value is int tm:
-                        trimMode = tm.ToString(CultureInfo.InvariantCulture);
+                        // WR-06: store TrimMode as int? matching the enum integer values
+                        // (0=None, 1=Both, 2=Left, 3=Right). The emitter switches on the int
+                        // for type safety — no ToString()/ReFromString() round-trip.
+                        trimMode = tm;
                         break;
                     case "ModernLibs.FileHelpers.FieldOptionalAttribute":
                         isOptional = true;
@@ -120,6 +130,25 @@ internal static class RecordModelExtractor
                     case "ModernLibs.FileHelpers.FieldValueDiscardedAttribute":
                         isValueDiscarded = true;
                         break;
+                    case "ModernLibs.FileHelpers.FieldQuotedAttribute":
+                    {
+                        // Phase 7 D-06: always-quote semantics (generator emits quote-wrap unconditionally).
+                        isQuoted = true;
+                        // Scan constructor args for a char (quote character). Overloads:
+                        //   ()                           — no args
+                        //   (char)                       — quote char
+                        //   (QuoteMode)                  — mode only; keep default quote
+                        //   (char, QuoteMode)            — quote + mode
+                        foreach (var ca in mAttr.ConstructorArguments)
+                        {
+                            if (ca.Value is char qc)
+                            {
+                                quoteChar = qc;
+                                break;
+                            }
+                        }
+                        break;
+                    }
                     case "ModernLibs.FileHelpers.FieldConverterAttribute":
                     {
                         if (mAttr.ConstructorArguments.Length == 0) break;
@@ -134,8 +163,13 @@ internal static class RecordModelExtractor
                                 converterTypeName = typeSym.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                                 converterKind = GeneratorConverterKind.None;
                             }
-                            // else: unrecognised type — leave converterTypeName null → falls back to
-                            // default(T) with TODO comment (Phase 7 will handle ISpanConverter<T>)
+                            else
+                            {
+                                // IN-02: unrecognised type — capture its name so the orchestrator
+                                // can emit MLFH004 at compile time instead of silently falling
+                                // through to default(T).
+                                unrecognisedConverterType = typeSym.ToDisplayString();
+                            }
                         }
                         else if (firstArg.Kind == Microsoft.CodeAnalysis.TypedConstantKind.Enum
                                  && firstArg.Value is int kindInt)
@@ -161,7 +195,9 @@ internal static class RecordModelExtractor
                 declarationIndex, order, trimMode, isOptional, isHidden, isValueDiscarded,
                 IsInitOnly: isInitOnly,
                 ConverterKind: converterKind, ConverterTypeName: converterTypeName,
-                ConverterArgs: converterArgs));
+                ConverterArgs: converterArgs,
+                IsQuoted: isQuoted, QuoteChar: quoteChar,
+                UnrecognisedConverterType: unrecognisedConverterType));
         }
 
         // Sort by order for deterministic output (SGEN-11).
@@ -175,7 +211,11 @@ internal static class RecordModelExtractor
 
         return new RecordModel(
             ns, typeName, typeKind, isReadOnly, "Delimited", delimiter,
-            new EquatableArray<FieldModel>(sortedArray));
+            new EquatableArray<FieldModel>(sortedArray),
+            IgnoreFirst: igFirst,
+            IgnoreLast: igLast,
+            IgnoreEmptyLines: igEmpty,
+            CommentMarker: commentMarker);
     }
 
     internal static RecordModel? ExtractFixedLength(
@@ -212,6 +252,9 @@ internal static class RecordModelExtractor
             };
         }
 
+        // Phase 7: extract record-level filtering attributes for fixed-length records too.
+        var (igFirst, igLast, igEmpty, commentMarker) = ExtractRecordLevelFilters(typeSymbol, ct);
+
         var fields = ImmutableArray.CreateBuilder<FieldModel>();
         int implicitOrder = 0;
 
@@ -243,7 +286,7 @@ internal static class RecordModelExtractor
 
             int declarationIndex = implicitOrder++;
             int order = declarationIndex;
-            string? trimMode = null;
+            int? trimMode = null;
             bool isOptional = false;
             bool isHidden = false;
             bool isValueDiscarded = false;
@@ -251,6 +294,9 @@ internal static class RecordModelExtractor
             GeneratorConverterKind converterKind = GeneratorConverterKind.None;
             string? converterTypeName = null;
             EquatableArray<string> converterArgs = default;
+            bool isQuoted = false;
+            char quoteChar = '"';
+            string? unrecognisedConverterType = null;
 
             foreach (var mAttr in member.GetAttributes())
             {
@@ -272,7 +318,8 @@ internal static class RecordModelExtractor
                     case "ModernLibs.FileHelpers.FieldTrimAttribute"
                         when mAttr.ConstructorArguments.Length > 0
                              && mAttr.ConstructorArguments[0].Value is int tm:
-                        trimMode = tm.ToString(CultureInfo.InvariantCulture);
+                        // WR-06: store TrimMode as int? (see ExtractDelimited for rationale).
+                        trimMode = tm;
                         break;
                     case "ModernLibs.FileHelpers.FieldOptionalAttribute":
                         isOptional = true;
@@ -284,6 +331,19 @@ internal static class RecordModelExtractor
                     case "ModernLibs.FileHelpers.FieldValueDiscardedAttribute":
                         isValueDiscarded = true;
                         break;
+                    case "ModernLibs.FileHelpers.FieldQuotedAttribute":
+                    {
+                        isQuoted = true;
+                        foreach (var ca in mAttr.ConstructorArguments)
+                        {
+                            if (ca.Value is char qc)
+                            {
+                                quoteChar = qc;
+                                break;
+                            }
+                        }
+                        break;
+                    }
                     case "ModernLibs.FileHelpers.FieldConverterAttribute":
                     {
                         if (mAttr.ConstructorArguments.Length == 0) break;
@@ -297,6 +357,11 @@ internal static class RecordModelExtractor
                             {
                                 converterTypeName = typeSym.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                                 converterKind = GeneratorConverterKind.None;
+                            }
+                            else
+                            {
+                                // IN-02: unrecognised type — capture its name so MLFH004 fires.
+                                unrecognisedConverterType = typeSym.ToDisplayString();
                             }
                         }
                         else if (firstArg.Kind == Microsoft.CodeAnalysis.TypedConstantKind.Enum
@@ -323,7 +388,9 @@ internal static class RecordModelExtractor
                 declarationIndex, order, trimMode, isOptional, isHidden, isValueDiscarded,
                 FixedLength: fixedLength, IsInitOnly: isInitOnly,
                 ConverterKind: converterKind, ConverterTypeName: converterTypeName,
-                ConverterArgs: converterArgs));
+                ConverterArgs: converterArgs,
+                IsQuoted: isQuoted, QuoteChar: quoteChar,
+                UnrecognisedConverterType: unrecognisedConverterType));
         }
 
         var sortedArray = fields
@@ -334,7 +401,63 @@ internal static class RecordModelExtractor
         return new RecordModel(
             ns, typeName, typeKind, isReadOnly, "FixedLength", Delimiter: string.Empty,
             new EquatableArray<FieldModel>(sortedArray),
-            FixedMode: fixedMode);
+            FixedMode: fixedMode,
+            IgnoreFirst: igFirst,
+            IgnoreLast: igLast,
+            IgnoreEmptyLines: igEmpty,
+            CommentMarker: commentMarker);
+    }
+
+    /// <summary>
+    /// Extracts record-level filtering attributes (D-07) from the annotated type symbol.
+    /// Scans the type's own attributes (not field attributes) for:
+    ///   [IgnoreFirst(N)]             → IgnoreFirst count
+    ///   [IgnoreLast(N)]              → IgnoreLast count
+    ///   [IgnoreEmptyLines]           → IgnoreEmptyLines flag
+    ///   [IgnoreCommentedLines(char)] → CommentMarker char
+    /// Returns defaults (0, 0, false, '\0') when the attribute is absent.
+    /// </summary>
+    private static (int IgnoreFirst, int IgnoreLast, bool IgnoreEmptyLines, char CommentMarker)
+        ExtractRecordLevelFilters(INamedTypeSymbol typeSymbol, CancellationToken ct)
+    {
+        int igFirst = 0;
+        int igLast = 0;
+        bool igEmpty = false;
+        char commentMarker = '\0';
+
+        foreach (var ta in typeSymbol.GetAttributes())
+        {
+            // WR-07: match the cancellation discipline of ExtractDelimited / ExtractFixedLength.
+            ct.ThrowIfCancellationRequested();
+            string? attrName = ta.AttributeClass?.ToDisplayString();
+            if (attrName is null) continue;
+            switch (attrName)
+            {
+                case "ModernLibs.FileHelpers.IgnoreFirstAttribute":
+                    // (): default 1. (int): explicit count.
+                    igFirst = ta.ConstructorArguments.Length > 0
+                              && ta.ConstructorArguments[0].Value is int n1
+                        ? n1 : 1;
+                    break;
+                case "ModernLibs.FileHelpers.IgnoreLastAttribute":
+                    igLast = ta.ConstructorArguments.Length > 0
+                             && ta.ConstructorArguments[0].Value is int n2
+                        ? n2 : 1;
+                    break;
+                case "ModernLibs.FileHelpers.IgnoreEmptyLinesAttribute":
+                    igEmpty = true;
+                    break;
+                case "ModernLibs.FileHelpers.IgnoreCommentedLinesAttribute":
+                    if (ta.ConstructorArguments.Length > 0
+                        && ta.ConstructorArguments[0].Value is char cm)
+                    {
+                        commentMarker = cm;
+                    }
+                    break;
+            }
+        }
+
+        return (igFirst, igLast, igEmpty, commentMarker);
     }
 
     /// <summary>

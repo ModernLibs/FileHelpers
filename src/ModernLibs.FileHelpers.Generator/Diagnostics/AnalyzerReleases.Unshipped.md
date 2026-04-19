@@ -5,5 +5,6 @@
 Rule ID | Category | Severity | Notes
 --------|----------|----------|-------
 MLFH001 | FileHelpers.Generator | Error | Missing record attribute
-MLFH002 | FileHelpers.Generator | Error | Missing [FieldFixedLength]
+MLFH002 | FileHelpers.Generator | Error | Missing or non-positive [FieldFixedLength]
 MLFH003 | FileHelpers.Generator | Error | Ambiguous field order
+MLFH004 | FileHelpers.Generator | Warning | Unrecognised [FieldConverter(typeof(X))] type

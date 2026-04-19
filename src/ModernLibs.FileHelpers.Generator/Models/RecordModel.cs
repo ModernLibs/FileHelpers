@@ -13,5 +13,9 @@ internal sealed record RecordModel(
     string RecordKind,
     string Delimiter,
     EquatableArray<FieldModel> Fields,
-    string? FixedMode = null) // null for delimited; "ExactLength"/"AllowMoreChars"/etc for fixed
+    string? FixedMode = null,              // null for delimited; "ExactLength"/"AllowMoreChars"/etc for fixed
+    int IgnoreFirst = 0,                    // from [IgnoreFirst(N)]
+    int IgnoreLast = 0,                     // from [IgnoreLast(N)]
+    bool IgnoreEmptyLines = false,          // from [IgnoreEmptyLines]
+    char CommentMarker = '\0')              // from [IgnoreCommentedLines(char)]
     ;

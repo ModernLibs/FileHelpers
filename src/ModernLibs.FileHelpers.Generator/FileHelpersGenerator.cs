@@ -71,27 +71,39 @@ public sealed class FileHelpersGenerator : IIncrementalGenerator
 
     /// <summary>
     /// RegisterSourceOutput handler for the Delimited arm.
-    /// Checks MLFH003 (duplicate [FieldOrder]) before emitting the descriptor.
+    /// Checks MLFH003 (duplicate [FieldOrder]) and MLFH004 (unrecognised [FieldConverter(typeof)]
+    /// type) before emitting the descriptor.
     /// </summary>
     private static void EmitDelimited(SourceProductionContext spc, RecordModel model)
     {
         // MLFH003: consecutive-pairs duplicate detection on the already-sorted Fields array.
         if (ReportDuplicateOrders(spc, model)) return; // suppress descriptor — layout is ambiguous
 
+        // MLFH004 (IN-02): warn on unrecognised FieldConverter types. Non-suppressing — the
+        // field falls through to default(T) at runtime, but we surface the mis-annotation
+        // at compile time so users don't silently get defaulted values.
+        ReportUnrecognisedConverters(spc, model);
+
         DescriptorEmitter.Emit(spc, model);
     }
 
     /// <summary>
     /// RegisterSourceOutput handler for the FixedLength arm.
-    /// Checks MLFH002 (missing [FieldFixedLength]) and MLFH003 (duplicate [FieldOrder]) before emitting.
+    /// Checks MLFH002 (missing [FieldFixedLength]), MLFH003 (duplicate [FieldOrder]), and
+    /// MLFH004 (unrecognised [FieldConverter(typeof)] type) before emitting.
     /// </summary>
     private static void EmitFixedLength(SourceProductionContext spc, RecordModel model)
     {
-        // MLFH002: emit diagnostic for each field missing [FieldFixedLength].
+        // MLFH002: emit diagnostic for each field missing / non-positive [FieldFixedLength].
+        // WR-05: widened the check from `< 0` (attribute missing) to `<= 0` (missing OR
+        // explicitly zero-width). A zero-width field silently reads empty slices and writes
+        // a 1-char space — both asymmetric with the declared schema and invisible to users.
+        // Hidden / NotInFile fields are skipped because they don't participate in the file layout.
         bool hasMissingFixedLength = false;
         foreach (var field in model.Fields)
         {
-            if (field.FixedLength < 0)
+            if (field.IsHidden || field.IsValueDiscarded) continue;
+            if (field.FixedLength <= 0)
             {
                 hasMissingFixedLength = true;
                 spc.ReportDiagnostic(Diagnostic.Create(
@@ -107,7 +119,30 @@ public sealed class FileHelpersGenerator : IIncrementalGenerator
 
         if (hasMissingFixedLength || hasDuplicateOrder) return;
 
+        // MLFH004 (IN-02): warn on unrecognised FieldConverter types. Non-suppressing.
+        ReportUnrecognisedConverters(spc, model);
+
         DescriptorEmitter.Emit(spc, model);
+    }
+
+    /// <summary>
+    /// IN-02: Reports MLFH004 for every field that has an unrecognised <c>[FieldConverter(typeof(X))]</c>
+    /// type — one that is neither a <c>ConverterBase</c> subclass nor a future
+    /// <c>ISpanConverter&lt;T&gt;</c> implementor. Non-suppressing: descriptor emission continues and
+    /// the field falls through to <c>default(T)</c>, but the mis-annotation is now visible at compile time.
+    /// </summary>
+    private static void ReportUnrecognisedConverters(SourceProductionContext spc, RecordModel model)
+    {
+        foreach (var field in model.Fields)
+        {
+            if (field.UnrecognisedConverterType is null) continue;
+            spc.ReportDiagnostic(Diagnostic.Create(
+                DiagnosticDescriptors.MLFH004UnrecognisedConverterType,
+                Location.None,
+                field.Name,
+                model.TypeName,
+                field.UnrecognisedConverterType));
+        }
     }
 
     /// <summary>

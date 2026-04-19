@@ -86,6 +86,6 @@ internal sealed class PipedRecord
     public string? Description;
 
     [FieldOrder(3)]
-    [FieldConverter(typeof(object))]  // uses custom converter type overload
+    [FieldConverter(typeof(object))]  // uses custom converter type overload — MLFH004 expected, suppressed in csproj for this test project
     public object? Payload;
 }

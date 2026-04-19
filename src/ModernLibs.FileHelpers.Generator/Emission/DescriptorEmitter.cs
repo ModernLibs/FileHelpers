@@ -65,6 +65,10 @@ internal static class DescriptorEmitter
         sb.AppendLine("        _fields.AsSpan();");
         sb.AppendLine();
 
+        // Phase 7 D-07: emit RecordOptions initializer from record-level filter attributes.
+        EmitOptionsProperty(sb, model);
+        sb.AppendLine();
+
         // Static _fields array — fields are already sorted by Order in the extractor (SGEN-11).
         // T-03-09: empty Fields array (Length == 0) emits valid `[]` syntax — no runtime exception.
         sb.AppendLine("    private static readonly global::ModernLibs.FileHelpers.FieldDescriptor[] _fields =");
@@ -133,6 +137,22 @@ internal static class DescriptorEmitter
         }
 
         bool isDelimited = string.Equals(model.RecordKind, "Delimited", System.StringComparison.Ordinal);
+        bool hasQuotedField = HasAnyQuotedField(fields, fieldCount);
+
+        // WR-03: when any field is [FieldQuoted], the escape path may rent a char[] from
+        // ArrayPool<char>.Shared. Each quoted field has its own nullable local tracking
+        // its rental; the finally block returns every non-null rental after the constructor
+        // call so downstream TryParse / new string() can safely read through the span.
+        if (hasQuotedField)
+        {
+            for (int i = 0; i < fieldCount; i++)
+            {
+                if (fields[i].IsQuoted)
+                    sb.AppendLine($"        char[]? __qRent{i} = null;");
+            }
+            sb.AppendLine("        try");
+            sb.AppendLine("        {");
+        }
 
         if (isDelimited)
         {
@@ -142,6 +162,14 @@ internal static class DescriptorEmitter
         {
             EmitFixedLengthFieldSplitting(sb, fields, fieldCount);
         }
+
+        // Phase 7 D-06: strip outer quotes and unescape doubled internal quotes BEFORE trim.
+        // (RFC 4180 semantics: the quote wrapper is part of the raw field span on read.)
+        EmitFieldQuotedStripPass(sb, fields, fieldCount);
+
+        // Phase 7 D-05: apply [FieldTrim] to each field span AFTER quote stripping,
+        // so a field like `" Alice "` first becomes ` Alice ` then `Alice`.
+        EmitFieldTrimPass(sb, fields, fieldCount);
 
         // Inline TryParse conversions.
         sb.AppendLine();
@@ -161,13 +189,53 @@ internal static class DescriptorEmitter
         bool isStructType = model.TypeKind.IndexOf("struct", System.StringComparison.OrdinalIgnoreCase) >= 0;
         bool allInitOnly = fieldCount > 0 && AllFieldsInitOnly(fields, fieldCount);
         bool usePositionalCtor = isStructType && allInitOnly;
-        EmitConstructorCall(sb, fqType, fields, fieldCount, usePositionalCtor);
+
+        if (hasQuotedField)
+        {
+            // CLR guarantees: return expression is evaluated, then finally runs, then control
+            // leaves the method. Downstream TryParse / new string() on __f{i} have already
+            // materialised their values out of the rental by the time the finally returns it.
+            EmitConstructorCall(sb, fqType, fields, fieldCount, usePositionalCtor);
+            sb.AppendLine("        }");
+            sb.AppendLine("        finally");
+            sb.AppendLine("        {");
+            for (int i = 0; i < fieldCount; i++)
+            {
+                if (fields[i].IsQuoted)
+                {
+                    sb.AppendLine($"            if (__qRent{i} is not null)");
+                    sb.AppendLine($"                global::System.Buffers.ArrayPool<char>.Shared.Return(__qRent{i});");
+                }
+            }
+            sb.AppendLine("        }");
+        }
+        else
+        {
+            EmitConstructorCall(sb, fqType, fields, fieldCount, usePositionalCtor);
+        }
 
         sb.AppendLine("    }");
     }
 
     /// <summary>
+    /// Returns true if any field in the model is marked with <see cref="FieldModel.IsQuoted"/>.
+    /// Used to decide whether the Parse body wraps its work in a try/finally that returns
+    /// rented char[] buffers from the quoted-field unescape path (WR-03).
+    /// </summary>
+    private static bool HasAnyQuotedField(EquatableArray<FieldModel> fields, int fieldCount)
+    {
+        for (int i = 0; i < fieldCount; i++)
+        {
+            if (fields[i].IsQuoted) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Emits sequential IndexOf + slice splitting for delimited records (D-04: fully inlined).
+    /// WR-04: when any field is <see cref="FieldModel.IsQuoted"/>, emits a quote-aware scanner
+    /// that tracks "inside quotes" state so embedded delimiters inside a quoted payload do not
+    /// prematurely close the field (RFC 4180 / FileHelpers 3.x parity).
     /// </summary>
     private static void EmitDelimitedFieldSplitting(
         StringBuilder sb,
@@ -182,6 +250,14 @@ internal static class DescriptorEmitter
             ? $"'{EscapeChar(delim[0])}'"
             : $"\"{EscapeString(delim)}\", global::System.StringComparison.Ordinal";
         int delimLen = delim.Length;
+
+        // WR-04: quote-aware path when any field is [FieldQuoted].
+        bool anyQuoted = HasAnyQuotedField(fields, fieldCount);
+        if (anyQuoted)
+        {
+            EmitQuoteAwareDelimitedSplitting(sb, fields, fieldCount, delim);
+            return;
+        }
 
         for (int i = 0; i < fieldCount; i++)
         {
@@ -199,6 +275,96 @@ internal static class DescriptorEmitter
                 sb.AppendLine($"        int __sep{i} = {srcSpan}.IndexOf({delimLiteral});");
                 sb.AppendLine($"        var __f{i} = __sep{i} >= 0 ? {srcSpan}.Slice(0, __sep{i}) : {srcSpan};");
                 sb.AppendLine($"        var __rem{i + 1} = __sep{i} >= 0 ? {srcSpan}.Slice(__sep{i} + {delimLen}) : global::System.ReadOnlySpan<char>.Empty;");
+            }
+        }
+    }
+
+    /// <summary>
+    /// WR-04: Emits a quote-aware scanner for delimited records with at least one
+    /// <see cref="FieldModel.IsQuoted"/> field. Tracks "inside quotes" state char-by-char
+    /// so embedded delimiters inside a quoted payload do not terminate the field early.
+    /// The scanner treats doubled quote chars as escapes (RFC 4180) and does not alter
+    /// the raw field span — <see cref="EmitFieldQuotedStripPass"/> still strips the outer
+    /// quote wrapper and unescapes doubled internals afterwards.
+    /// Delimiter is assumed to be a single char for the fast path; multi-char delimiters
+    /// fall back to a per-char scan matching the literal sequence.
+    /// </summary>
+    private static void EmitQuoteAwareDelimitedSplitting(
+        StringBuilder sb,
+        EquatableArray<FieldModel> fields,
+        int fieldCount,
+        string delim)
+    {
+        bool isSingleChar = delim.Length == 1;
+        string delimFirst = $"'{EscapeChar(delim[0])}'";
+
+        // Determine the quote character. In practice FH 3.x uses a single quote char per record;
+        // we use the first quoted field's QuoteChar as the canonical one and assume all quoted
+        // fields agree. Mixed quote chars on one record remain a v1.1 nicety.
+        char qc = '"';
+        for (int i = 0; i < fieldCount; i++)
+        {
+            if (fields[i].IsQuoted) { qc = fields[i].QuoteChar; break; }
+        }
+        string qLit = $"'{EscapeChar(qc)}'";
+
+        sb.AppendLine("        // WR-04: quote-aware delimited splitting — delimiters inside the");
+        sb.AppendLine("        // quoted payload do not terminate the field. Doubled quote chars inside");
+        sb.AppendLine("        // a quoted span are treated as escape pairs and kept raw here —");
+        sb.AppendLine("        // EmitFieldQuotedStripPass strips the outer quotes and collapses pairs.");
+        sb.AppendLine("        int __qsPos = 0;");
+        sb.AppendLine("        int __qsLen = line.Length;");
+        for (int i = 0; i < fieldCount; i++)
+        {
+            bool isLast = i == fieldCount - 1;
+            sb.AppendLine($"        int __qsStart{i} = __qsPos;");
+            if (isLast)
+            {
+                // Consume remainder. Quote state is still correct up to EOL.
+                sb.AppendLine($"        var __f{i} = line.Slice(__qsStart{i});");
+                sb.AppendLine("        __qsPos = __qsLen;");
+            }
+            else
+            {
+                // Inline the scanner with a state local scoped to THIS field's loop.
+                // Use a distinct local name per field (e.g. __qsIn0, __qsIn1) to avoid
+                // cross-field shadowing at the method scope.
+                sb.AppendLine($"        bool __qsIn{i} = false;");
+                sb.AppendLine("        while (__qsPos < __qsLen)");
+                sb.AppendLine("        {");
+                sb.AppendLine("            char __qsCh = line[__qsPos];");
+                sb.AppendLine($"            if (__qsCh == {qLit})");
+                sb.AppendLine("            {");
+                sb.AppendLine("                // Doubled quote inside a quoted span: skip pair and stay inside.");
+                sb.AppendLine($"                if (__qsIn{i} && __qsPos + 1 < __qsLen && line[__qsPos + 1] == {qLit})");
+                sb.AppendLine("                {");
+                sb.AppendLine("                    __qsPos += 2;");
+                sb.AppendLine("                    continue;");
+                sb.AppendLine("                }");
+                sb.AppendLine($"                __qsIn{i} = !__qsIn{i};");
+                sb.AppendLine("                __qsPos++;");
+                sb.AppendLine("                continue;");
+                sb.AppendLine("            }");
+                if (isSingleChar)
+                {
+                    sb.AppendLine($"            if (!__qsIn{i} && __qsCh == {delimFirst}) break;");
+                }
+                else
+                {
+                    // Multi-char delimiter: check full literal match starting at __qsPos.
+                    sb.AppendLine($"            if (!__qsIn{i} && __qsCh == {delimFirst} && __qsPos + {delim.Length} <= __qsLen");
+                    for (int di = 1; di < delim.Length; di++)
+                    {
+                        string delimChLit = $"'{EscapeChar(delim[di])}'";
+                        sb.AppendLine($"                && line[__qsPos + {di}] == {delimChLit}");
+                    }
+                    sb.AppendLine("            ) break;");
+                }
+                sb.AppendLine("            __qsPos++;");
+                sb.AppendLine("        }");
+                sb.AppendLine($"        var __f{i} = line.Slice(__qsStart{i}, __qsPos - __qsStart{i});");
+                // Advance past the delimiter that terminated the field (if any).
+                sb.AppendLine($"        if (__qsPos < __qsLen) __qsPos += {delim.Length};");
             }
         }
     }
@@ -611,6 +777,10 @@ internal static class DescriptorEmitter
     /// </summary>
     private static string GetFormatFieldCode(FieldModel field, int n)
     {
+        // Phase 7 D-06: always-quote semantics — wrap output in quote chars with doubled internals.
+        if (field.IsQuoted)
+            return GetQuotedFormatFieldCode(field, n);
+
         string fieldRef = $"record.{field.Name}";
         string typeName = NormalizeTypeName(field.TypeName);
         string fullTypeName = NormalizeTypeName(field.FullTypeName);
@@ -882,4 +1052,171 @@ internal static class DescriptorEmitter
         GeneratorConverterKind.PercentDouble => 25,
         _ => 32,
     };
+
+    // ---- Phase 7 emission helpers (D-05 FieldTrim, D-06 FieldQuoted, D-07 RecordOptions) ----
+
+    /// <summary>
+    /// D-07: Emits the <c>Options</c> property initializer on the descriptor, pulling record-level
+    /// filter values from <see cref="RecordModel"/> (IgnoreFirst, IgnoreLast, IgnoreEmptyLines,
+    /// CommentMarker, Delimiter). Defaults produce a zero/empty <c>RecordOptions</c>.
+    /// </summary>
+    private static void EmitOptionsProperty(StringBuilder sb, RecordModel model)
+    {
+        string boolLit = model.IgnoreEmptyLines ? "true" : "false";
+        sb.AppendLine("    public global::ModernLibs.FileHelpers.RecordOptions Options =>");
+        sb.AppendLine("        new()");
+        sb.AppendLine("        {");
+        sb.AppendLine($"            IgnoreFirst = {model.IgnoreFirst},");
+        sb.AppendLine($"            IgnoreLast = {model.IgnoreLast},");
+        sb.AppendLine($"            IgnoreEmptyLines = {boolLit},");
+        sb.AppendLine($"            CommentMarker = '{EscapeChar(model.CommentMarker)}',");
+        sb.AppendLine($"            Delimiter = \"{EscapeString(model.Delimiter)}\",");
+        sb.AppendLine("        };");
+    }
+
+    /// <summary>
+    /// D-06 (Parse side): for each <see cref="FieldModel.IsQuoted"/> field, strip the outer quote
+    /// wrapper from the raw <c>__fN</c> span and unescape doubled internal quotes by rewriting
+    /// into a pooled buffer. Emits a local char buffer via <c>stackalloc</c>-backed string
+    /// (safe for small fields; fallback to <c>new string(...)</c> when doubled quotes are present
+    /// because spans over unescaped copies cannot live in stackalloc once they escape scope).
+    /// </summary>
+    private static void EmitFieldQuotedStripPass(
+        StringBuilder sb,
+        EquatableArray<FieldModel> fields,
+        int fieldCount)
+    {
+        for (int i = 0; i < fieldCount; i++)
+        {
+            var field = fields[i];
+            if (!field.IsQuoted) continue;
+
+            string qLit = $"'{EscapeChar(field.QuoteChar)}'";
+            sb.AppendLine();
+            sb.AppendLine($"        // [FieldQuoted] strip + unescape for field '{field.Name}' (D-06).");
+            sb.AppendLine($"        if (__f{i}.Length >= 2 && __f{i}[0] == {qLit} && __f{i}[__f{i}.Length - 1] == {qLit})");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            var __qInner{i} = __f{i}.Slice(1, __f{i}.Length - 2);");
+            sb.AppendLine($"            // WR-02: scan for doubled quote pairs without allocating a char[].");
+            sb.AppendLine($"            // IndexOf(ReadOnlySpan<char>) cannot accept a literal without a heap char[],");
+            sb.AppendLine($"            // so use a scalar scan — inputs are per-field, typically short.");
+            sb.AppendLine($"            bool __hasDoubled{i} = false;");
+            sb.AppendLine($"            for (int __si{i} = 0; __si{i} < __qInner{i}.Length - 1; __si{i}++)");
+            sb.AppendLine("            {");
+            sb.AppendLine($"                if (__qInner{i}[__si{i}] == {qLit} && __qInner{i}[__si{i} + 1] == {qLit})");
+            sb.AppendLine("                {");
+            sb.AppendLine($"                    __hasDoubled{i} = true;");
+            sb.AppendLine("                    break;");
+            sb.AppendLine("                }");
+            sb.AppendLine("            }");
+            sb.AppendLine($"            if (!__hasDoubled{i})");
+            sb.AppendLine("            {");
+            sb.AppendLine($"                __f{i} = __qInner{i};");
+            sb.AppendLine("            }");
+            sb.AppendLine("            else");
+            sb.AppendLine("            {");
+            sb.AppendLine($"                // WR-03: rent from ArrayPool instead of `new char[]` so the escape path");
+            sb.AppendLine($"                // does not allocate on the happy/struct-record parse path. The rental");
+            sb.AppendLine($"                // cannot be returned here because __f{i} is still referenced by later");
+            sb.AppendLine($"                // TryParse / new string() calls. For class fields (string) the downstream");
+            sb.AppendLine($"                // `new string(__f{{i}})` copies out of the rental; for struct fields the");
+            sb.AppendLine($"                // TryParse consumes the span. We stash the rental on a local so a finally");
+            sb.AppendLine($"                // block in the Parse body returns it after the value is materialised.");
+            sb.AppendLine($"                var __qBuf{i} = global::System.Buffers.ArrayPool<char>.Shared.Rent(__qInner{i}.Length);");
+            sb.AppendLine($"                __qRent{i} = __qBuf{i};");
+            sb.AppendLine($"                int __qLen{i} = 0;");
+            sb.AppendLine($"                for (int __qi{i} = 0; __qi{i} < __qInner{i}.Length; __qi{i}++)");
+            sb.AppendLine("                {");
+            sb.AppendLine($"                    char __qc{i} = __qInner{i}[__qi{i}];");
+            sb.AppendLine($"                    if (__qc{i} == {qLit} && __qi{i} + 1 < __qInner{i}.Length && __qInner{i}[__qi{i} + 1] == {qLit})");
+            sb.AppendLine("                    {");
+            sb.AppendLine($"                        __qBuf{i}[__qLen{i}++] = {qLit};");
+            sb.AppendLine($"                        __qi{i}++; // skip the doubled quote's partner");
+            sb.AppendLine("                    }");
+            sb.AppendLine("                    else");
+            sb.AppendLine("                    {");
+            sb.AppendLine($"                        __qBuf{i}[__qLen{i}++] = __qc{i};");
+            sb.AppendLine("                    }");
+            sb.AppendLine("                }");
+            sb.AppendLine($"                __f{i} = new global::System.ReadOnlySpan<char>(__qBuf{i}, 0, __qLen{i});");
+            sb.AppendLine("            }");
+            sb.AppendLine("        }");
+        }
+    }
+
+    /// <summary>
+    /// D-05: for each field with <see cref="FieldModel.TrimMode"/> set, emit an inline
+    /// <c>Trim</c>/<c>TrimStart</c>/<c>TrimEnd</c> on the sliced span. Default trim chars are
+    /// whitespace-equivalent (space and tab) which the no-arg overloads already handle.
+    /// TrimMode enum integer values (ModernLibs.FileHelpers.TrimMode):
+    ///   0 = None, 1 = Both, 2 = Left, 3 = Right.
+    /// </summary>
+    private static void EmitFieldTrimPass(
+        StringBuilder sb,
+        EquatableArray<FieldModel> fields,
+        int fieldCount)
+    {
+        for (int i = 0; i < fieldCount; i++)
+        {
+            var field = fields[i];
+            if (field.TrimMode is null) continue;
+
+            // WR-06: TrimMode is the int value of ModernLibs.FileHelpers.TrimMode
+            // (0=None, 1=Both, 2=Left, 3=Right). Switching on int removes the ToString()
+            // round-trip and detects unknown values at emit time.
+            string method = field.TrimMode switch
+            {
+                1 => "Trim",        // TrimMode.Both
+                2 => "TrimStart",   // TrimMode.Left
+                3 => "TrimEnd",     // TrimMode.Right
+                _ => string.Empty,  // 0 (None) or future unknown — no emission
+            };
+            if (method.Length == 0) continue;
+
+            sb.AppendLine($"        __f{i} = __f{i}.{method}(); // [FieldTrim] D-05");
+        }
+    }
+
+    /// <summary>
+    /// D-06 (Format side): wrap the field value in quote chars, doubling any internal quote
+    /// character. Emits a compact block that computes the escaped length, requests a span from
+    /// the writer, writes the opening quote, copies the value with on-the-fly escaping, then
+    /// writes the closing quote and advances the writer. Assumes a <see cref="string"/> field;
+    /// non-string quoted fields fall back to <c>ToString()</c>.
+    /// </summary>
+    private static string GetQuotedFormatFieldCode(FieldModel field, int n)
+    {
+        string fieldRef = $"record.{field.Name}";
+        string typeName = NormalizeTypeName(field.TypeName);
+        string fullTypeName = NormalizeTypeName(field.FullTypeName);
+        string qLit = $"'{EscapeChar(field.QuoteChar)}'";
+
+        // Resolve the value to a string first. String fields short-circuit to the field itself;
+        // every other type goes through ToString() because FieldQuoted semantics are mostly
+        // used on textual data (RFC 4180) and a converter-driven pipeline for non-string
+        // quoted fields is deferred to v1.1.
+        string getValue = IsStringType(typeName, fullTypeName)
+            ? $"({fieldRef} ?? \"\")"
+            : $"({fieldRef}?.ToString() ?? \"\")";
+
+        return $@"{{
+            string __qv{n} = {getValue};
+            // Count internal quote chars to size the destination span.
+            int __qCount{n} = 0;
+            for (int __qi{n} = 0; __qi{n} < __qv{n}.Length; __qi{n}++)
+                if (__qv{n}[__qi{n}] == {qLit}) __qCount{n}++;
+            int __qTotal{n} = __qv{n}.Length + __qCount{n} + 2; // leading/trailing quote + doubled internals
+            var __qdst{n} = writer.GetSpan(__qTotal{n});
+            __qdst{n}[0] = {qLit};
+            int __qpos{n} = 1;
+            for (int __qi{n} = 0; __qi{n} < __qv{n}.Length; __qi{n}++)
+            {{
+                char __qc{n} = __qv{n}[__qi{n}];
+                __qdst{n}[__qpos{n}++] = __qc{n};
+                if (__qc{n} == {qLit}) __qdst{n}[__qpos{n}++] = {qLit};
+            }}
+            __qdst{n}[__qpos{n}++] = {qLit};
+            writer.Advance(__qTotal{n});
+        }}";
+    }
 }

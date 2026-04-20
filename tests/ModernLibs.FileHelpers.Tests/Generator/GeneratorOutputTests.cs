@@ -77,9 +77,11 @@ public sealed class GeneratorOutputTests
 
         string generatedSource = result.GeneratedTrees[0].GetText().ToString();
 
-        // SGEN-02 assertions on emitted source text
+        // SGEN-02 assertions on emitted source text.
+        // Trade is a class with mutable (non-init-only) fields, so the generator emits
+        // IRecyclableDescriptor<T> (which extends IRecordDescriptor<T>) — Plan 04 ENGI-15.
         await Assert.That(generatedSource).Contains("file sealed class __TradeDescriptor");
-        await Assert.That(generatedSource).Contains("IRecordDescriptor<global::Trade>");
+        await Assert.That(generatedSource).Contains("IRecyclableDescriptor<global::Trade>");
         await Assert.That(generatedSource).Contains("writer.Advance");
         await Assert.That(generatedSource).Contains("ModuleInitializer");
         await Assert.That(generatedSource).Contains("FileHelperRegistry");

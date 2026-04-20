@@ -44,7 +44,23 @@ internal static class DescriptorEmitter
             : $"global::{model.Namespace}.{model.TypeName}";
 
         // ---- file-scoped descriptor class ----
-        sb.AppendLine($"file sealed class __{model.TypeName}Descriptor : global::ModernLibs.FileHelpers.IRecordDescriptor<{fqType}>");
+        // For class record types with mutable (non-init-only) fields, also implement
+        // IRecyclableDescriptor<T> (ENGI-15 / Plan 04).
+        //
+        // Conditions to emit IRecyclableDescriptor<T>:
+        //   1. TypeKind is a reference type (no "struct" in TypeKind string)
+        //   2. All mapped fields are NOT init-only (init setters cannot be called from ParseInto)
+        //
+        // Struct types are excluded: value-type assignment copies by value — recycling is a no-op.
+        // Record-class types with init-only properties are excluded: C# does not allow assigning
+        // init-only properties outside of an object initializer or constructor.
+        bool isReferenceType = model.TypeKind.IndexOf("struct", System.StringComparison.OrdinalIgnoreCase) < 0;
+        bool hasAnyInitOnly = HasAnyInitOnlyField(model.Fields, model.Fields.Length);
+        bool isClassType = isReferenceType && !hasAnyInitOnly;
+        string implements = isClassType
+            ? $"global::ModernLibs.FileHelpers.IRecyclableDescriptor<{fqType}>"
+            : $"global::ModernLibs.FileHelpers.IRecordDescriptor<{fqType}>";
+        sb.AppendLine($"file sealed class __{model.TypeName}Descriptor : {implements}");
         sb.AppendLine("{");
         sb.AppendLine($"    public static readonly __{model.TypeName}Descriptor Instance = new();");
         sb.AppendLine();
@@ -55,6 +71,14 @@ internal static class DescriptorEmitter
         // Real inlined Parse body — Phase 5 implementation.
         EmitParseBody(sb, model, fqType);
         sb.AppendLine();
+
+        // ParseInto body — Phase 8 ENGI-15: emitted only for class record types.
+        // Struct descriptors do not implement IRecyclableDescriptor<T>.
+        if (isClassType)
+        {
+            EmitParseIntoBody(sb, model, fqType);
+            sb.AppendLine();
+        }
 
         // Real Format body — Phase 6 implementation via EmitFormatBody.
         EmitFormatBody(sb, model, fqType);
@@ -215,6 +239,104 @@ internal static class DescriptorEmitter
         }
 
         sb.AppendLine("    }");
+    }
+
+    /// <summary>
+    /// Emits the <c>ParseInto(ReadOnlySpan&lt;char&gt; line, T existing)</c> method body for class record types.
+    /// ENGI-15 / Plan 04: identical field-extraction logic to <see cref="EmitParseBody"/> but
+    /// assigns parsed values to <c>existing.FieldName</c> instead of constructing a new instance.
+    /// Only emitted when <c>model.TypeKind</c> is a class (not struct).
+    /// </summary>
+    private static void EmitParseIntoBody(StringBuilder sb, RecordModel model, string fqType)
+    {
+        sb.AppendLine($"    public void ParseInto(global::System.ReadOnlySpan<char> line, {fqType} existing)");
+        sb.AppendLine("    {");
+
+        var fields = model.Fields;
+        int fieldCount = fields.Length;
+
+        if (fieldCount == 0)
+        {
+            // No fields — nothing to assign.
+            sb.AppendLine("    }");
+            return;
+        }
+
+        bool isDelimited = string.Equals(model.RecordKind, "Delimited", System.StringComparison.Ordinal);
+        bool hasQuotedField = HasAnyQuotedField(fields, fieldCount);
+
+        // Same quoted-field rental guards as Parse — rental is returned in finally after assignments.
+        if (hasQuotedField)
+        {
+            for (int i = 0; i < fieldCount; i++)
+            {
+                if (fields[i].IsQuoted)
+                    sb.AppendLine($"        char[]? __qRent{i} = null;");
+            }
+            sb.AppendLine("        try");
+            sb.AppendLine("        {");
+        }
+
+        if (isDelimited)
+        {
+            EmitDelimitedFieldSplitting(sb, model, fields, fieldCount);
+        }
+        else
+        {
+            EmitFixedLengthFieldSplitting(sb, fields, fieldCount);
+        }
+
+        EmitFieldQuotedStripPass(sb, fields, fieldCount);
+        EmitFieldTrimPass(sb, fields, fieldCount);
+
+        // Inline TryParse conversions — same as Parse.
+        sb.AppendLine();
+        for (int i = 0; i < fieldCount; i++)
+        {
+            var field = fields[i];
+            string tryParseCode = GetInlineTryParse($"__f{i}", field, i);
+            sb.AppendLine($"        {tryParseCode}");
+        }
+
+        // Assign parsed values to existing instance fields/properties instead of constructing new T.
+        sb.AppendLine();
+        if (hasQuotedField)
+        {
+            EmitParseIntoAssignments(sb, fields, fieldCount);
+            sb.AppendLine("        }");
+            sb.AppendLine("        finally");
+            sb.AppendLine("        {");
+            for (int i = 0; i < fieldCount; i++)
+            {
+                if (fields[i].IsQuoted)
+                {
+                    sb.AppendLine($"            if (__qRent{i} is not null)");
+                    sb.AppendLine($"                global::System.Buffers.ArrayPool<char>.Shared.Return(__qRent{i});");
+                }
+            }
+            sb.AppendLine("        }");
+        }
+        else
+        {
+            EmitParseIntoAssignments(sb, fields, fieldCount);
+        }
+
+        sb.AppendLine("    }");
+    }
+
+    /// <summary>
+    /// Emits direct field/property assignments to <c>existing</c> for <see cref="EmitParseIntoBody"/>.
+    /// Replaces the constructor call in <see cref="EmitParseBody"/> with <c>existing.FieldN = __vN;</c> statements.
+    /// </summary>
+    private static void EmitParseIntoAssignments(
+        StringBuilder sb,
+        EquatableArray<FieldModel> fields,
+        int fieldCount)
+    {
+        for (int i = 0; i < fieldCount; i++)
+        {
+            sb.AppendLine($"        existing.{fields[i].Name} = __v{i};");
+        }
     }
 
     /// <summary>
@@ -389,6 +511,21 @@ internal static class DescriptorEmitter
 
             if (field.FixedLength > 0) runningOffset += field.FixedLength;
         }
+    }
+
+    /// <summary>
+    /// Returns true if any field in the model has <c>IsInitOnly = true</c>.
+    /// Used to exclude record-class types with init-only properties from <see cref="IRecyclableDescriptor{T}"/>
+    /// emission — init-only properties cannot be assigned outside an object initializer or constructor,
+    /// so <c>ParseInto</c> would produce CS8852 if emitted for such types.
+    /// </summary>
+    private static bool HasAnyInitOnlyField(EquatableArray<FieldModel> fields, int fieldCount)
+    {
+        for (int i = 0; i < fieldCount; i++)
+        {
+            if (fields[i].IsInitOnly) return true;
+        }
+        return false;
     }
 
     /// <summary>
@@ -720,8 +857,11 @@ internal static class DescriptorEmitter
 
             bool isLast = fieldIdx == totalCount - 1;
 
-            // Emit field write block
-            string fieldCode = GetFormatFieldCode(field, fieldIdx);
+            // Emit field write block.
+            // Pass i (raw field-array index) as rawFieldIndex so __conv_field{i} references
+            // match the declarations emitted by EmitConverterFields (which also uses raw index i).
+            // fieldIdx (visible-field counter) is used only for unique local variable names.
+            string fieldCode = GetFormatFieldCode(field, fieldIdx, rawFieldIndex: i);
             sb.AppendLine($"        {fieldCode}");
 
             // Emit delimiter between fields (not after the last field) — D-17
@@ -765,7 +905,9 @@ internal static class DescriptorEmitter
             if (field.IsHidden || field.IsValueDiscarded) continue;
 
             int w = field.FixedLength > 0 ? field.FixedLength : 1;
-            string fixedCode = GetFixedFormatFieldCode(field, fieldIdx, w);
+            // Pass i (raw field-array index) as rawFieldIndex so __conv_field{i} references
+            // match the declarations emitted by EmitConverterFields (which also uses raw index i).
+            string fixedCode = GetFixedFormatFieldCode(field, fieldIdx, w, rawFieldIndex: i);
             sb.AppendLine($"        {fixedCode}");
             fieldIdx++;
         }
@@ -775,7 +917,11 @@ internal static class DescriptorEmitter
     /// Returns the inline format statement for a single field in a delimited record.
     /// Patterns A (string), B (numeric TryFormat), D (converter TryFormat).
     /// </summary>
-    private static string GetFormatFieldCode(FieldModel field, int n)
+    /// <param name="field">Field model describing the field to format.</param>
+    /// <param name="n">Visible-field counter — used for unique local variable names (__buf{n}, __d{n}, etc.).</param>
+    /// <param name="rawFieldIndex">Raw field-array index — used for __conv_field{rawFieldIndex} references,
+    /// which must match the index used in <see cref="EmitConverterFields"/>.</param>
+    private static string GetFormatFieldCode(FieldModel field, int n, int rawFieldIndex)
     {
         // Phase 7 D-06: always-quote semantics — wrap output in quote chars with doubled internals.
         if (field.IsQuoted)
@@ -796,14 +942,14 @@ internal static class DescriptorEmitter
 
         if (field.ConverterKind == GeneratorConverterKind.DateMultiFormat)
         {
-            // DateMultiFormat: use static cached field, write first format
-            return $"{{ global::System.Span<char> __buf{n} = stackalloc char[20]; __conv_field{n}.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
+            // DateMultiFormat: use static cached field (declared with raw index by EmitConverterFields).
+            return $"{{ global::System.Span<char> __buf{n} = stackalloc char[20]; __conv_field{rawFieldIndex}.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
         }
 
         if (field.ConverterTypeName is not null)
         {
-            // Custom ConverterBase adapter
-            return $"{{ global::System.Span<char> __buf{n} = stackalloc char[256]; __conv_field{n}.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
+            // Custom ConverterBase adapter (declared with raw index by EmitConverterFields).
+            return $"{{ global::System.Span<char> __buf{n} = stackalloc char[256]; __conv_field{rawFieldIndex}.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
         }
 
         // Pattern A — string
@@ -857,7 +1003,12 @@ internal static class DescriptorEmitter
     /// For string fields: copies up to W chars, leaves remaining as spaces.
     /// For value types: TryFormat into W-char stackalloc then copy.
     /// </summary>
-    private static string GetFixedFormatFieldCode(FieldModel field, int n, int w)
+    /// <param name="field">Field model describing the field to format.</param>
+    /// <param name="n">Visible-field counter — used for unique local variable names (__buf{n}, __d{n}, etc.).</param>
+    /// <param name="w">Fixed-length field width in chars.</param>
+    /// <param name="rawFieldIndex">Raw field-array index — used for __conv_field{rawFieldIndex} references,
+    /// which must match the index used in <see cref="EmitConverterFields"/>.</param>
+    private static string GetFixedFormatFieldCode(FieldModel field, int n, int w, int rawFieldIndex)
     {
         string fieldRef = $"record.{field.Name}";
         string typeName = NormalizeTypeName(field.TypeName);
@@ -881,8 +1032,8 @@ internal static class DescriptorEmitter
 
         if (field.ConverterKind == GeneratorConverterKind.DateMultiFormat || field.ConverterTypeName is not null)
         {
-            // Custom: TryFormat via cached adapter field
-            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; __conv_field{n}.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+            // Custom: TryFormat via cached adapter field (declared with raw index by EmitConverterFields).
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; __conv_field{rawFieldIndex}.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
         }
 
         // Pattern E for all other value types: stackalloc W, TryFormat, truncate

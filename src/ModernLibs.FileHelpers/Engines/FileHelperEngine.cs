@@ -55,9 +55,14 @@ namespace ModernLibs.FileHelpers;
 public sealed class FileHelperEngine<T>
 {
     private readonly IRecordDescriptor<T> _descriptor;
+    private readonly Parsing.RecordConditionMatcher? _conditionMatcher;
+    private readonly bool _implementsNotifyRead;    // INTF-05
+    private readonly bool _implementsNotifyWrite;   // INTF-06
 
     /// <summary>
     /// Creates an engine instance backed by the source-generated descriptor for <typeparamref name="T"/>.
+    /// CREC-01, CREC-11: Initializes RecordConditionMatcher if ConditionalRecord is configured.
+    /// INTF-05, INTF-06: Detects interface implementation once at construction.
     /// </summary>
     /// <exception cref="InvalidOperationException">
     /// Thrown when no descriptor is registered for <typeparamref name="T"/> — typically because the
@@ -67,6 +72,18 @@ public sealed class FileHelperEngine<T>
     public FileHelperEngine()
     {
         _descriptor = FileHelperRegistry<T>.Descriptor;
+
+        // INTF-05, INTF-06: Detect interface implementation once at construction
+        // to avoid repeated typeof operations in hot path
+        _implementsNotifyRead = typeof(INotifyRead<T>).IsAssignableFrom(typeof(T));
+        _implementsNotifyWrite = typeof(INotifyWrite<T>).IsAssignableFrom(typeof(T));
+
+        // CREC-11: Initialize matcher once per engine instance
+        var opts = _descriptor.Options;
+        if (opts.Condition != RecordCondition.None && !string.IsNullOrEmpty(opts.ConditionPattern))
+        {
+            _conditionMatcher = new Parsing.RecordConditionMatcher(opts.Condition, opts.ConditionPattern);
+        }
     }
 
     /// <summary>
@@ -241,20 +258,44 @@ public sealed class FileHelperEngine<T>
         int initialSize = Math.Max(4096, _descriptor.Fields.Length * 64);
         using var buf = new RentedBufferWriter(initialSize);
 
-        if (BeforeWriteRecord is not null)
+        // INTF-06, INTF-07: BeforeWrite event and interface notification
+        if (BeforeWriteRecord is not null || _implementsNotifyWrite)
         {
             var beforeArgs = new BeforeWriteEventArgs<T>(this, record, 1);
-            BeforeWriteRecord.Invoke(this, beforeArgs);
-            if (beforeArgs.SkipThisRecord)
-                return;
+
+            if (BeforeWriteRecord is not null)
+            {
+                BeforeWriteRecord.Invoke(this, beforeArgs);
+                if (beforeArgs.SkipThisRecord)
+                    return;
+            }
+
+            if (_implementsNotifyWrite && record is INotifyWrite<T> notifyWrite)
+            {
+                notifyWrite.BeforeWrite(beforeArgs);
+                if (beforeArgs.SkipThisRecord)
+                    return;
+            }
         }
 
         _descriptor.Format(record, buf);
-        if (AfterWriteRecord is not null)
+
+        // INTF-06, INTF-07: AfterWrite event and interface notification
+        if (AfterWriteRecord is not null || _implementsNotifyWrite)
         {
             string formattedLine = buf.WrittenSpan.ToString();
             var afterArgs = new AfterWriteEventArgs<T>(this, record, 1, formattedLine);
-            AfterWriteRecord.Invoke(this, afterArgs);
+
+            if (AfterWriteRecord is not null)
+            {
+                AfterWriteRecord.Invoke(this, afterArgs);
+            }
+
+            if (_implementsNotifyWrite && record is INotifyWrite<T> notifyWrite)
+            {
+                notifyWrite.AfterWrite(afterArgs);
+            }
+
             sw.Write(afterArgs.RecordLine);
         }
         else
@@ -321,6 +362,12 @@ public sealed class FileHelperEngine<T>
             lines.RemoveRange(lines.Count - take, take);
         }
 
+        // Phase 18 MULT-02: Multiline assembly for quoted fields spanning multiple lines
+        if (opts.MultilineMode == MultilineMode.AllowForRead)
+        {
+            lines = AssembleMultilineRecords(lines, NewLineForWrite);
+        }
+
         // Step 5: Parse loop. Track the original line position so LineNumber reflects the file's
         // 1-based index of the last parsed line (D-12) — header lines already consumed from the list
         // still count toward that position.
@@ -337,6 +384,10 @@ public sealed class FileHelperEngine<T>
 
             // D-08: CommentMarker — '\0' signals "no marker"; otherwise skip lines beginning with it.
             if (opts.CommentMarker != '\0' && line.Length > 0 && line[0] == opts.CommentMarker)
+                continue;
+
+            // CREC-10: ConditionalRecord filtering runs before parse attempt
+            if (_conditionMatcher is not null && !_conditionMatcher.ShouldInclude(line.AsSpan()))
                 continue;
 
             string activeLine = line;
@@ -356,7 +407,8 @@ public sealed class FileHelperEngine<T>
             try
             {
                 EnsureDelimitedFieldCount(activeLine, opts.Delimiter, _descriptor.Fields.Length);
-                record = _descriptor.Parse(activeLine.AsSpan());
+                // Phase 14 MLIN-02: Pass lineCount=1 for now (single-line records in batch mode)
+                record = _descriptor.Parse(activeLine.AsSpan(), lineCount: 1);
             }
             catch (Exception ex)
             {
@@ -373,12 +425,26 @@ public sealed class FileHelperEngine<T>
                 break;
             }
 
-            if (AfterReadRecord is not null)
+            // INTF-05, INTF-07: AfterRead event and interface notification
+            // Both event handler and interface method receive same args instance
+            if (AfterReadRecord is not null || _implementsNotifyRead)
             {
                 var afterArgs = new AfterReadEventArgs<T>(this, record, activeLine, originalLineIndex);
-                AfterReadRecord.Invoke(this, afterArgs);
-                if (afterArgs.SkipThisRecord)
-                    continue;
+
+                if (AfterReadRecord is not null)
+                {
+                    AfterReadRecord.Invoke(this, afterArgs);
+                    if (afterArgs.SkipThisRecord)
+                        continue;
+                }
+
+                // INTF-05: Call record's AfterRead method if it implements INotifyRead<T>
+                if (_implementsNotifyRead && record is INotifyRead<T> notifyRead)
+                {
+                    notifyRead.AfterRead(afterArgs);
+                    if (afterArgs.SkipThisRecord)
+                        continue;
+                }
             }
 
             result.Add(record);
@@ -419,22 +485,45 @@ public sealed class FileHelperEngine<T>
         int count = 0;
         foreach (var record in records)
         {
-            if (BeforeWriteRecord is not null)
+            // INTF-06, INTF-07: BeforeWrite event and interface notification
+            if (BeforeWriteRecord is not null || _implementsNotifyWrite)
             {
                 var beforeArgs = new BeforeWriteEventArgs<T>(this, record, count + 1);
-                BeforeWriteRecord.Invoke(this, beforeArgs);
-                if (beforeArgs.SkipThisRecord)
-                    continue;
+
+                if (BeforeWriteRecord is not null)
+                {
+                    BeforeWriteRecord.Invoke(this, beforeArgs);
+                    if (beforeArgs.SkipThisRecord)
+                        continue;
+                }
+
+                if (_implementsNotifyWrite && record is INotifyWrite<T> notifyWrite)
+                {
+                    notifyWrite.BeforeWrite(beforeArgs);
+                    if (beforeArgs.SkipThisRecord)
+                        continue;
+                }
             }
 
             buf.Reset();
             _descriptor.Format(record, buf);
 
-            if (AfterWriteRecord is not null)
+            // INTF-06, INTF-07: AfterWrite event and interface notification
+            if (AfterWriteRecord is not null || _implementsNotifyWrite)
             {
                 string formattedLine = buf.WrittenSpan.ToString();
                 var afterArgs = new AfterWriteEventArgs<T>(this, record, count + 1, formattedLine);
-                AfterWriteRecord.Invoke(this, afterArgs);
+
+                if (AfterWriteRecord is not null)
+                {
+                    AfterWriteRecord.Invoke(this, afterArgs);
+                }
+
+                if (_implementsNotifyWrite && record is INotifyWrite<T> notifyWrite)
+                {
+                    notifyWrite.AfterWrite(afterArgs);
+                }
+
                 writer.Write(afterArgs.RecordLine);
             }
             else
@@ -492,6 +581,63 @@ public sealed class FileHelperEngine<T>
             return false;
 
         return line.AsSpan(index, delimiter.Length).SequenceEqual(delimiter.AsSpan());
+    }
+
+    /// <summary>
+    /// Phase 18 MULT-02: Assembles multiline quoted records from individual lines.
+    /// Lines with unclosed quotes are buffered until the quote closes.
+    /// </summary>
+    private static List<string> AssembleMultilineRecords(List<string> lines, string newLine)
+    {
+        var result = new List<string>(lines.Count);
+        var buffer = new StringBuilder();
+        int bufferStartLineIndex = -1;
+
+        for (int i = 0; i < lines.Count; i++)
+        {
+            var line = lines[i];
+
+            if (buffer.Length == 0)
+            {
+                // Not currently buffering - check if this line starts multiline
+                if (DelimitedFieldEnumerator.HasUnclosedQuote(line.AsSpan()))
+                {
+                    buffer.Append(line);
+                    bufferStartLineIndex = i;
+                    // Continue to next line without adding to result
+                }
+                else
+                {
+                    // Single line record - add directly
+                    result.Add(line);
+                }
+            }
+            else
+            {
+                // Currently buffering - append this line
+                buffer.Append(newLine);
+                buffer.Append(line);
+
+                // Check if quote is now closed
+                var assembled = buffer.ToString();
+                if (!DelimitedFieldEnumerator.HasUnclosedQuote(assembled.AsSpan()))
+                {
+                    // Quote closed - add assembled line to result
+                    result.Add(assembled);
+                    buffer.Clear();
+                    bufferStartLineIndex = -1;
+                }
+                // Else: continue buffering
+            }
+        }
+
+        // Handle unclosed quote at EOF (will trigger ErrorMode during parse)
+        if (buffer.Length > 0)
+        {
+            result.Add(buffer.ToString());
+        }
+
+        return result;
     }
 
     private static FormatException CreateParseContextException(int lineNumber, string line, Exception inner)

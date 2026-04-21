@@ -107,8 +107,14 @@ internal static class DescriptorEmitter
             string comma = i < model.Fields.Length - 1 ? "," : "";
             int offset = isFixed ? runningOffset : -1;
             int width = isFixed ? field.FixedLength : -1;
+            // FDEL-01: Emit per-field delimiter (null if not specified)
+            string delimiterArg = field.Delimiter is not null
+                ? $"\"{EscapeString(field.Delimiter)}\""
+                : "null";
+            // Phase 14 MLIN-01: Emit IsInNewLine for multi-line record support
+            string isInNewLineArg = field.IsInNewLine ? "true" : "false";
             // nameof() and typeof() are AOT-safe compile-time literals (T-03-10: accept).
-            sb.AppendLine($"        new(nameof({fqType}.{field.Name}), typeof({field.FullTypeName}), {field.Order}, {offset}, {width}){comma}");
+            sb.AppendLine($"        new(nameof({fqType}.{field.Name}), typeof({field.FullTypeName}), {field.Order}, {offset}, {width}, {delimiterArg}, {isInNewLineArg}){comma}");
             if (isFixed && field.FixedLength > 0) runningOffset += field.FixedLength;
         }
         sb.AppendLine("    ];");
@@ -143,10 +149,11 @@ internal static class DescriptorEmitter
     /// D-04: no calls to FixedLengthSlicer or any other shared pipeline methods in generated code —
     /// all field splitting is inlined directly.
     /// D-05: inline TryParse calls per field type.
+    /// Phase 14 MLIN-02: Supports multi-line records with lineCount parameter.
     /// </summary>
     private static void EmitParseBody(StringBuilder sb, RecordModel model, string fqType)
     {
-        sb.AppendLine($"    public {fqType} Parse(global::System.ReadOnlySpan<char> line)");
+        sb.AppendLine($"    public {fqType} Parse(global::System.ReadOnlySpan<char> lines, int lineCount)");
         sb.AppendLine("    {");
 
         var fields = model.Fields;
@@ -160,8 +167,38 @@ internal static class DescriptorEmitter
             return;
         }
 
+        // Phase 14 MLIN-02: Calculate expected line count based on IsInNewLine fields
+        sb.AppendLine("        // Phase 14 MLIN-02: Multi-line record support");
+        sb.AppendLine("        int __expectedLineCount = 1;");
+        int newLineFieldCount = 0;
+        for (int i = 0; i < fieldCount; i++)
+        {
+            if (fields[i].IsInNewLine)
+            {
+                newLineFieldCount++;
+                sb.AppendLine($"        if ({i} < fields.Length && fields[{i}].IsInNewLine) __expectedLineCount++;");
+            }
+        }
+        // Actually, we know at generation time, so use constant
+        int expectedLineCount = 1;
+        for (int i = 0; i < fieldCount; i++)
+        {
+            if (fields[i].IsInNewLine) expectedLineCount++;
+        }
+        sb.AppendLine($"        const int __expectedLines = {expectedLineCount}; // 1 + {expectedLineCount - 1} FieldInNewLine fields");
+        sb.AppendLine("        if (lineCount != __expectedLines)");
+        sb.AppendLine("            throw new global::System.FormatException($\"Expected {__expectedLines} lines but received {lineCount}.\");");
+        sb.AppendLine();
+
         bool isDelimited = string.Equals(model.RecordKind, "Delimited", System.StringComparison.Ordinal);
         bool hasQuotedField = HasAnyQuotedField(fields, fieldCount);
+        bool hasMultiLine = expectedLineCount > 1;
+
+        // Phase 14 MLIN-02: For multi-line records, split the lines first
+        if (hasMultiLine)
+        {
+            EmitMultiLineSplitting(sb, expectedLineCount);
+        }
 
         // WR-03: when any field is [FieldQuoted], the escape path may rent a char[] from
         // ArrayPool<char>.Shared. Each quoted field has its own nullable local tracking
@@ -180,11 +217,11 @@ internal static class DescriptorEmitter
 
         if (isDelimited)
         {
-            EmitDelimitedFieldSplitting(sb, model, fields, fieldCount);
+            EmitDelimitedFieldSplitting(sb, model, fields, fieldCount, hasMultiLine);
         }
         else
         {
-            EmitFixedLengthFieldSplitting(sb, fields, fieldCount);
+            EmitFixedLengthFieldSplitting(sb, fields, fieldCount, hasMultiLine);
         }
 
         // Phase 7 D-06: strip outer quotes and unescape doubled internal quotes BEFORE trim.
@@ -194,6 +231,9 @@ internal static class DescriptorEmitter
         // Phase 7 D-05: apply [FieldTrim] to each field span AFTER quote stripping,
         // so a field like `" Alice "` first becomes ` Alice ` then `Alice`.
         EmitFieldTrimPass(sb, fields, fieldCount);
+
+        // Phase 13 FAVL-06: FieldNotEmpty validation after trim, before parse
+        EmitFieldNotEmptyValidation(sb, fields, fieldCount);
 
         // Inline TryParse conversions.
         sb.AppendLine();
@@ -242,14 +282,41 @@ internal static class DescriptorEmitter
     }
 
     /// <summary>
-    /// Emits the <c>ParseInto(ReadOnlySpan&lt;char&gt; line, T existing)</c> method body for class record types.
+    /// Phase 14 MLIN-02: Emits code to split concatenated lines into individual line spans.
+    /// For a record with N lines, emits __line0, __line1, ... __line(N-1) locals.
+    /// </summary>
+    private static void EmitMultiLineSplitting(StringBuilder sb, int lineCount)
+    {
+        sb.AppendLine("        // Phase 14 MLIN-02: Split multi-line record into individual lines");
+        sb.AppendLine("        var __remaining = lines;");
+        for (int i = 0; i < lineCount; i++)
+        {
+            sb.AppendLine($"        int __nl{i} = __remaining.IndexOfAny('\\r', '\\n');");
+            sb.AppendLine($"        var __line{i} = __nl{i} >= 0 ? __remaining.Slice(0, __nl{i}) : __remaining;");
+            if (i < lineCount - 1)
+            {
+                sb.AppendLine($"        if (__nl{i} >= 0)");
+                sb.AppendLine("        {");
+                sb.AppendLine($"            __remaining = __remaining.Slice(__nl{i} + 1);");
+                // Handle CRLF (\r\n) - if we found \r and next char is \n, skip it
+                sb.AppendLine($"            if (__remaining.Length > 0 && __remaining[0] == '\\n')");
+                sb.AppendLine($"                __remaining = __remaining.Slice(1);");
+                sb.AppendLine("        }");
+            }
+        }
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// Emits the <c>ParseInto(ReadOnlySpan&lt;char&gt; lines, int lineCount, T existing)</c> method body for class record types.
     /// ENGI-15 / Plan 04: identical field-extraction logic to <see cref="EmitParseBody"/> but
     /// assigns parsed values to <c>existing.FieldName</c> instead of constructing a new instance.
     /// Only emitted when <c>model.TypeKind</c> is a class (not struct).
+    /// Phase 14 MLIN-02: Supports multi-line records with lineCount parameter.
     /// </summary>
     private static void EmitParseIntoBody(StringBuilder sb, RecordModel model, string fqType)
     {
-        sb.AppendLine($"    public void ParseInto(global::System.ReadOnlySpan<char> line, {fqType} existing)");
+        sb.AppendLine($"    public void ParseInto(global::System.ReadOnlySpan<char> lines, int lineCount, {fqType} existing)");
         sb.AppendLine("    {");
 
         var fields = model.Fields;
@@ -262,8 +329,27 @@ internal static class DescriptorEmitter
             return;
         }
 
+        // Phase 14 MLIN-02: Calculate expected line count based on IsInNewLine fields
+        sb.AppendLine("        // Phase 14 MLIN-02: Multi-line record support");
+        int expectedLineCount = 1;
+        for (int i = 0; i < fieldCount; i++)
+        {
+            if (fields[i].IsInNewLine) expectedLineCount++;
+        }
+        sb.AppendLine($"        const int __expectedLines = {expectedLineCount}; // 1 + {expectedLineCount - 1} FieldInNewLine fields");
+        sb.AppendLine("        if (lineCount != __expectedLines)");
+        sb.AppendLine("            throw new global::System.FormatException($\"Expected {__expectedLines} lines but received {lineCount}.\");");
+        sb.AppendLine();
+
         bool isDelimited = string.Equals(model.RecordKind, "Delimited", System.StringComparison.Ordinal);
         bool hasQuotedField = HasAnyQuotedField(fields, fieldCount);
+        bool hasMultiLine = expectedLineCount > 1;
+
+        // Phase 14 MLIN-02: For multi-line records, split the lines first
+        if (hasMultiLine)
+        {
+            EmitMultiLineSplitting(sb, expectedLineCount);
+        }
 
         // Same quoted-field rental guards as Parse — rental is returned in finally after assignments.
         if (hasQuotedField)
@@ -279,15 +365,18 @@ internal static class DescriptorEmitter
 
         if (isDelimited)
         {
-            EmitDelimitedFieldSplitting(sb, model, fields, fieldCount);
+            EmitDelimitedFieldSplitting(sb, model, fields, fieldCount, hasMultiLine);
         }
         else
         {
-            EmitFixedLengthFieldSplitting(sb, fields, fieldCount);
+            EmitFixedLengthFieldSplitting(sb, fields, fieldCount, hasMultiLine);
         }
 
         EmitFieldQuotedStripPass(sb, fields, fieldCount);
         EmitFieldTrimPass(sb, fields, fieldCount);
+
+        // Phase 13 FAVL-06: FieldNotEmpty validation for ParseInto
+        EmitFieldNotEmptyValidation(sb, fields, fieldCount);
 
         // Inline TryParse conversions — same as Parse.
         sb.AppendLine();
@@ -327,6 +416,7 @@ internal static class DescriptorEmitter
     /// <summary>
     /// Emits direct field/property assignments to <c>existing</c> for <see cref="EmitParseIntoBody"/>.
     /// Replaces the constructor call in <see cref="EmitParseBody"/> with <c>existing.FieldN = __vN;</c> statements.
+    /// FAVL-07, FAVL-10: Fields marked with IsValueDiscarded are skipped in ParseInto.
     /// </summary>
     private static void EmitParseIntoAssignments(
         StringBuilder sb,
@@ -335,6 +425,7 @@ internal static class DescriptorEmitter
     {
         for (int i = 0; i < fieldCount; i++)
         {
+            if (fields[i].IsValueDiscarded) continue;  // FAVL-07: skip discarded
             sb.AppendLine($"        existing.{fields[i].Name} = __v{i};");
         }
     }
@@ -358,42 +449,68 @@ internal static class DescriptorEmitter
     /// WR-04: when any field is <see cref="FieldModel.IsQuoted"/>, emits a quote-aware scanner
     /// that tracks "inside quotes" state so embedded delimiters inside a quoted payload do not
     /// prematurely close the field (RFC 4180 / FileHelpers 3.x parity).
+    /// FDEL-02: per-field delimiter support — each field can have its own delimiter override.
+    /// Phase 14 MLIN-02: For multi-line records, fields with IsInNewLine use their corresponding line.
     /// </summary>
     private static void EmitDelimitedFieldSplitting(
         StringBuilder sb,
         RecordModel model,
         EquatableArray<FieldModel> fields,
-        int fieldCount)
+        int fieldCount,
+        bool hasMultiLine = false)
     {
-        // Determine delimiter char / string for emitted code.
-        string delim = model.Delimiter;
-        bool isSingleChar = delim.Length == 1;
-        string delimLiteral = isSingleChar
-            ? $"'{EscapeChar(delim[0])}'"
-            : $"\"{EscapeString(delim)}\", global::System.StringComparison.Ordinal";
-        int delimLen = delim.Length;
-
         // WR-04: quote-aware path when any field is [FieldQuoted].
         bool anyQuoted = HasAnyQuotedField(fields, fieldCount);
         if (anyQuoted)
         {
-            EmitQuoteAwareDelimitedSplitting(sb, fields, fieldCount, delim);
+            EmitQuoteAwareDelimitedSplitting(sb, model, fields, fieldCount, hasMultiLine);
             return;
         }
 
+        // FDEL-02: Per-field delimiter support
+        // For each field, determine its delimiter: field-specific override or record-level default
+        string recordDelim = model.Delimiter;
+
+        // Phase 14 MLIN-02: Track which line we're on for multi-line records
+        int currentLine = 0;
+        string currentLineVar = hasMultiLine ? "__line0" : "line";
+
         for (int i = 0; i < fieldCount; i++)
         {
-            bool isLast = i == fieldCount - 1;
+            var field = model.Fields[i];
 
-            if (isLast)
+            // Phase 14 MLIN-02: If this field starts on a new line, update current line variable
+            if (hasMultiLine && i > 0 && field.IsInNewLine)
             {
-                // Last field: consume remainder of the remaining span.
-                string remSpan = i == 0 ? "line" : $"__rem{i}";
-                sb.AppendLine($"        var __f{i} = {remSpan};");
+                currentLine++;
+                currentLineVar = $"__line{currentLine}";
+                sb.AppendLine($"        // Phase 14 MLIN-02: Field '{field.Name}' is on new line {currentLine}");
+            }
+
+            // Per-field delimiter: field-specific override or record-level default
+            string delim = field.Delimiter ?? recordDelim;
+            bool isSingleChar = delim.Length == 1;
+            string delimLiteral = isSingleChar
+                ? $"'{EscapeChar(delim[0])}'"
+                : $"\"{EscapeString(delim)}\", global::System.StringComparison.Ordinal";
+            int delimLen = delim.Length;
+
+            bool isLast = i == fieldCount - 1;
+            bool isLastOnThisLine = isLast || (hasMultiLine && i < fieldCount - 1 && fields[i + 1].IsInNewLine);
+
+            if (isLastOnThisLine)
+            {
+                // Last field on this line: consume remainder of the current line span.
+                string srcSpan = i == 0 || (hasMultiLine && field.IsInNewLine)
+                    ? currentLineVar
+                    : $"__rem{i}";
+                sb.AppendLine($"        var __f{i} = {srcSpan};");
             }
             else
             {
-                string srcSpan = i == 0 ? "line" : $"__rem{i}";
+                string srcSpan = i == 0 || (hasMultiLine && field.IsInNewLine)
+                    ? currentLineVar
+                    : $"__rem{i}";
                 sb.AppendLine($"        int __sep{i} = {srcSpan}.IndexOf({delimLiteral});");
                 sb.AppendLine($"        var __f{i} = __sep{i} >= 0 ? {srcSpan}.Slice(0, __sep{i}) : {srcSpan};");
                 sb.AppendLine($"        var __rem{i + 1} = __sep{i} >= 0 ? {srcSpan}.Slice(__sep{i} + {delimLen}) : global::System.ReadOnlySpan<char>.Empty;");
@@ -410,15 +527,20 @@ internal static class DescriptorEmitter
     /// quote wrapper and unescapes doubled internals afterwards.
     /// Delimiter is assumed to be a single char for the fast path; multi-char delimiters
     /// fall back to a per-char scan matching the literal sequence.
+    /// FDEL-02: Per-field delimiter support — each field can have its own delimiter override.
+    /// Phase 14 MLIN-02: For multi-line records, fields with IsInNewLine use their corresponding line.
     /// </summary>
     private static void EmitQuoteAwareDelimitedSplitting(
         StringBuilder sb,
+        RecordModel model,
         EquatableArray<FieldModel> fields,
         int fieldCount,
-        string delim)
+        bool hasMultiLine = false)
     {
-        bool isSingleChar = delim.Length == 1;
-        string delimFirst = $"'{EscapeChar(delim[0])}'";
+        // FDEL-02: For quote-aware splitting with per-field delimiters, we need to
+        // determine the delimiter for each field. The quote scanner advances char-by-char
+        // and needs to know which delimiter to check for at each field boundary.
+        string recordDelim = model.Delimiter;
 
         // Determine the quote character. In practice FH 3.x uses a single quote char per record;
         // we use the first quoted field's QuoteChar as the canonical one and assume all quoted
@@ -434,17 +556,39 @@ internal static class DescriptorEmitter
         sb.AppendLine("        // quoted payload do not terminate the field. Doubled quote chars inside");
         sb.AppendLine("        // a quoted span are treated as escape pairs and kept raw here —");
         sb.AppendLine("        // EmitFieldQuotedStripPass strips the outer quotes and collapses pairs.");
-        sb.AppendLine("        int __qsPos = 0;");
-        sb.AppendLine("        int __qsLen = line.Length;");
+
+        // Phase 14 MLIN-02: Track which line we're on for multi-line records
+        int currentLine = 0;
+
         for (int i = 0; i < fieldCount; i++)
         {
-            bool isLast = i == fieldCount - 1;
-            sb.AppendLine($"        int __qsStart{i} = __qsPos;");
-            if (isLast)
+            var field = model.Fields[i];
+
+            // Phase 14 MLIN-02: If this field starts on a new line, update current line
+            if (hasMultiLine && i > 0 && field.IsInNewLine)
             {
-                // Consume remainder. Quote state is still correct up to EOL.
-                sb.AppendLine($"        var __f{i} = line.Slice(__qsStart{i});");
-                sb.AppendLine("        __qsPos = __qsLen;");
+                currentLine++;
+                sb.AppendLine($"        // Phase 14 MLIN-02: Field '{field.Name}' is on new line {currentLine}");
+            }
+
+            string currentLineVar = hasMultiLine ? $"__line{currentLine}" : "line";
+
+            // FDEL-02: Get per-field delimiter (field override or record default)
+            string delim = field.Delimiter ?? recordDelim;
+            bool isSingleChar = delim.Length == 1;
+            string delimFirst = $"'{EscapeChar(delim[0])}'";
+
+            bool isLast = i == fieldCount - 1;
+            bool isLastOnThisLine = isLast || (hasMultiLine && i < fieldCount - 1 && fields[i + 1].IsInNewLine);
+
+            sb.AppendLine($"        int __qsStart{i} = 0;");
+            sb.AppendLine($"        int __qsPos{i} = 0;");
+            sb.AppendLine($"        int __qsLen{i} = {currentLineVar}.Length;");
+
+            if (isLastOnThisLine)
+            {
+                // Consume remainder of this line. Quote state is still correct up to EOL.
+                sb.AppendLine($"        var __f{i} = {currentLineVar}.Slice(__qsStart{i});");
             }
             else
             {
@@ -452,19 +596,19 @@ internal static class DescriptorEmitter
                 // Use a distinct local name per field (e.g. __qsIn0, __qsIn1) to avoid
                 // cross-field shadowing at the method scope.
                 sb.AppendLine($"        bool __qsIn{i} = false;");
-                sb.AppendLine("        while (__qsPos < __qsLen)");
+                sb.AppendLine($"        while (__qsPos{i} < __qsLen{i})");
                 sb.AppendLine("        {");
-                sb.AppendLine("            char __qsCh = line[__qsPos];");
+                sb.AppendLine($"            char __qsCh = {currentLineVar}[__qsPos{i}];");
                 sb.AppendLine($"            if (__qsCh == {qLit})");
                 sb.AppendLine("            {");
                 sb.AppendLine("                // Doubled quote inside a quoted span: skip pair and stay inside.");
-                sb.AppendLine($"                if (__qsIn{i} && __qsPos + 1 < __qsLen && line[__qsPos + 1] == {qLit})");
+                sb.AppendLine($"                if (__qsIn{i} && __qsPos{i} + 1 < __qsLen{i} && {currentLineVar}[__qsPos{i} + 1] == {qLit})");
                 sb.AppendLine("                {");
-                sb.AppendLine("                    __qsPos += 2;");
+                sb.AppendLine($"                    __qsPos{i} += 2;");
                 sb.AppendLine("                    continue;");
                 sb.AppendLine("                }");
                 sb.AppendLine($"                __qsIn{i} = !__qsIn{i};");
-                sb.AppendLine("                __qsPos++;");
+                sb.AppendLine($"                __qsPos{i}++;");
                 sb.AppendLine("                continue;");
                 sb.AppendLine("            }");
                 if (isSingleChar)
@@ -474,19 +618,17 @@ internal static class DescriptorEmitter
                 else
                 {
                     // Multi-char delimiter: check full literal match starting at __qsPos.
-                    sb.AppendLine($"            if (!__qsIn{i} && __qsCh == {delimFirst} && __qsPos + {delim.Length} <= __qsLen");
+                    sb.AppendLine($"            if (!__qsIn{i} && __qsCh == {delimFirst} && __qsPos{i} + {delim.Length} <= __qsLen{i}");
                     for (int di = 1; di < delim.Length; di++)
                     {
                         string delimChLit = $"'{EscapeChar(delim[di])}'";
-                        sb.AppendLine($"                && line[__qsPos + {di}] == {delimChLit}");
+                        sb.AppendLine($"                && {currentLineVar}[__qsPos{i} + {di}] == {delimChLit}");
                     }
                     sb.AppendLine("            ) break;");
                 }
-                sb.AppendLine("            __qsPos++;");
+                sb.AppendLine($"            __qsPos{i}++;");
                 sb.AppendLine("        }");
-                sb.AppendLine($"        var __f{i} = line.Slice(__qsStart{i}, __qsPos - __qsStart{i});");
-                // Advance past the delimiter that terminated the field (if any).
-                sb.AppendLine($"        if (__qsPos < __qsLen) __qsPos += {delim.Length};");
+                sb.AppendLine($"        var __f{i} = {currentLineVar}.Slice(__qsStart{i}, __qsPos{i} - __qsStart{i});");
             }
         }
     }
@@ -494,20 +636,36 @@ internal static class DescriptorEmitter
     /// <summary>
     /// Emits raw <c>line.Slice(offset, width)</c> arithmetic for fixed-length records (D-04: fully inlined).
     /// Using Math.Min for width clamping guards against short lines (D-03: lenient behavior).
+    /// Phase 14 MLIN-02: For multi-line records, fields with IsInNewLine use their corresponding line.
     /// </summary>
     private static void EmitFixedLengthFieldSplitting(
         StringBuilder sb,
         EquatableArray<FieldModel> fields,
-        int fieldCount)
+        int fieldCount,
+        bool hasMultiLine = false)
     {
+        // Phase 14 MLIN-02: Track which line we're on for multi-line records
+        int currentLine = 0;
+        string currentLineVar = hasMultiLine ? "__line0" : "line";
+
         int runningOffset = 0;
         for (int i = 0; i < fieldCount; i++)
         {
             var field = fields[i];
+
+            // Phase 14 MLIN-02: If this field starts on a new line, update current line
+            if (hasMultiLine && i > 0 && field.IsInNewLine)
+            {
+                currentLine++;
+                currentLineVar = $"__line{currentLine}";
+                runningOffset = 0; // Reset offset for new line
+                sb.AppendLine($"        // Phase 14 MLIN-02: Field '{field.Name}' is on new line {currentLine}");
+            }
+
             int offset = runningOffset;
             int width = field.FixedLength > 0 ? field.FixedLength : 0;
 
-            sb.AppendLine($"        var __f{i} = line.Length > {offset} ? line.Slice({offset}, global::System.Math.Min({width}, line.Length - {offset})) : global::System.ReadOnlySpan<char>.Empty;");
+            sb.AppendLine($"        var __f{i} = {currentLineVar}.Length > {offset} ? {currentLineVar}.Slice({offset}, global::System.Math.Min({width}, {currentLineVar}.Length - {offset})) : global::System.ReadOnlySpan<char>.Empty;");
 
             if (field.FixedLength > 0) runningOffset += field.FixedLength;
         }
@@ -546,6 +704,7 @@ internal static class DescriptorEmitter
     /// Emits the constructor call.
     /// Positional syntax (<c>new T(v0, v1)</c>) is used only when all fields are init-only
     /// (positional record structs/classes). All other types use object initializer syntax.
+    /// FAVL-07, FAVL-10: Fields marked with IsValueDiscarded are skipped in the constructor.
     /// </summary>
     private static void EmitConstructorCall(
         StringBuilder sb,
@@ -554,26 +713,40 @@ internal static class DescriptorEmitter
         int fieldCount,
         bool usePositionalConstructor)
     {
+        // Count visible (non-discarded) fields first
+        int visibleCount = 0;
+        for (int i = 0; i < fieldCount; i++)
+        {
+            if (!fields[i].IsValueDiscarded) visibleCount++;
+        }
+
         if (usePositionalConstructor)
         {
-            // Positional constructor: new T(__v0, __v1, __v2)
+            // Positional constructor: new T(__v0, __v1, __v2) - skip discarded fields
             var args = new StringBuilder();
+            int visibleIndex = 0;
             for (int i = 0; i < fieldCount; i++)
             {
-                if (i > 0) args.Append(", ");
+                if (fields[i].IsValueDiscarded) continue;  // FAVL-07: skip discarded
+                if (visibleIndex > 0) args.Append(", ");
                 args.Append($"__v{i}");
+                visibleIndex++;
             }
             sb.AppendLine($"        return new {fqType}({args});");
         }
         else
         {
-            // Object initializer: new T { Prop0 = __v0, Prop1 = __v1, ... }
+            // Object initializer: new T { Prop0 = __v0, Prop1 = __v1, ... } - skip discarded fields
             sb.AppendLine($"        return new {fqType}");
             sb.AppendLine("        {");
+            int visibleIndex = 0;
             for (int i = 0; i < fieldCount; i++)
             {
-                string comma = i < fieldCount - 1 ? "," : "";
+                if (fields[i].IsValueDiscarded) continue;  // FAVL-07: skip discarded
+                bool isLastVisible = visibleIndex == visibleCount - 1;
+                string comma = isLastVisible ? "" : ",";
                 sb.AppendLine($"            {fields[i].Name} = __v{i}{comma}");
+                visibleIndex++;
             }
             sb.AppendLine("        };");
         }
@@ -837,6 +1010,8 @@ internal static class DescriptorEmitter
     /// <summary>
     /// D-17: Emits field writes for delimited records, separated by delimiter, no trailing delimiter.
     /// Single-char delimiter uses the fast path (Pattern C). Multi-char delimiter uses a for-loop.
+    /// FDEL-02: Per-field delimiter support — delimiter between fields is determined by the NEXT field's
+    /// delimiter override, or the record-level default if no override is specified.
     /// </summary>
     private static void EmitDelimitedFormatFields(StringBuilder sb, RecordModel model)
     {
@@ -849,13 +1024,16 @@ internal static class DescriptorEmitter
                 totalCount++;
         }
 
+        string recordDelim = model.Delimiter;
+
         int fieldIdx = 0;
+        int visibleFieldIdx = 0;
         for (int i = 0; i < allFields.Length; i++)
         {
             var field = allFields[i];
             if (field.IsHidden || field.IsValueDiscarded) continue;
 
-            bool isLast = fieldIdx == totalCount - 1;
+            bool isLastVisible = visibleFieldIdx == totalCount - 1;
 
             // Emit field write block.
             // Pass i (raw field-array index) as rawFieldIndex so __conv_field{i} references
@@ -865,22 +1043,34 @@ internal static class DescriptorEmitter
             sb.AppendLine($"        {fieldCode}");
 
             // Emit delimiter between fields (not after the last field) — D-17
-            if (!isLast)
+            // FDEL-02: The delimiter precedes the NEXT field, so we find the next visible
+            // field and use its delimiter override, or fall back to record-level default.
+            if (!isLastVisible)
             {
-                string delim = model.Delimiter;
-                if (delim.Length == 1)
+                // Find the next visible field to get its delimiter
+                string nextDelimiter = recordDelim;
+                for (int j = i + 1; j < allFields.Length; j++)
                 {
-                    sb.AppendLine($"        {{ writer.GetSpan(1)[0] = '{EscapeChar(delim[0])}'; writer.Advance(1); }}");
+                    if (!allFields[j].IsHidden && !allFields[j].IsValueDiscarded)
+                    {
+                        nextDelimiter = allFields[j].Delimiter ?? recordDelim;
+                        break;
+                    }
+                }
+
+                if (nextDelimiter.Length == 1)
+                {
+                    sb.AppendLine($"        {{ writer.GetSpan(1)[0] = '{EscapeChar(nextDelimiter[0])}'; writer.Advance(1); }}");
                 }
                 else
                 {
                     // Multi-char delimiter — emit char-by-char via for-loop at generator time
-                    int dlen = delim.Length;
+                    int dlen = nextDelimiter.Length;
                     sb.AppendLine($"        {{");
                     sb.AppendLine($"            var __delim{fieldIdx} = writer.GetSpan({dlen});");
                     for (int di = 0; di < dlen; di++)
                     {
-                        sb.AppendLine($"            __delim{fieldIdx}[{di}] = '{EscapeChar(delim[di])}';");
+                        sb.AppendLine($"            __delim{fieldIdx}[{di}] = '{EscapeChar(nextDelimiter[di])}';");
                     }
                     sb.AppendLine($"            writer.Advance({dlen});");
                     sb.AppendLine($"        }}");
@@ -888,12 +1078,14 @@ internal static class DescriptorEmitter
             }
 
             fieldIdx++;
+            visibleFieldIdx++;
         }
     }
 
     /// <summary>
     /// D-18: Emits field writes for fixed-length records. Each field always advances exactly W chars.
     /// Pre-fills with spaces, writes value, truncates if longer than W.
+    /// FAVL-07, FAVL-10: Discarded fields still occupy space (write empty padding) to maintain alignment.
     /// </summary>
     private static void EmitFixedLengthFormatFields(StringBuilder sb, RecordModel model)
     {
@@ -902,9 +1094,19 @@ internal static class DescriptorEmitter
         for (int i = 0; i < allFields.Length; i++)
         {
             var field = allFields[i];
-            if (field.IsHidden || field.IsValueDiscarded) continue;
+            if (field.IsHidden) continue;
 
             int w = field.FixedLength > 0 ? field.FixedLength : 1;
+
+            // FAVL-07, FAVL-10: Discarded fields occupy space but write empty padding
+            if (field.IsValueDiscarded)
+            {
+                // Write empty space for discarded field (maintains fixed-length alignment)
+                sb.AppendLine($"        {{ var __d{i} = writer.GetSpan({w}); __d{i}.Fill(' '); writer.Advance({w}); }} // [FieldValueDiscarded]");
+                fieldIdx++;
+                continue;
+            }
+
             // Pass i (raw field-array index) as rawFieldIndex so __conv_field{i} references
             // match the declarations emitted by EmitConverterFields (which also uses raw index i).
             string fixedCode = GetFixedFormatFieldCode(field, fieldIdx, w, rawFieldIndex: i);
@@ -952,9 +1154,18 @@ internal static class DescriptorEmitter
             return $"{{ global::System.Span<char> __buf{n} = stackalloc char[256]; __conv_field{rawFieldIndex}.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
         }
 
-        // Pattern A — string
+        // Pattern A — string (with optional alignment for delimited records with FieldFixedLength)
         if (IsStringType(typeName, fullTypeName))
+        {
+            // Phase 12: If AlignMode is set and FixedLength is specified, apply alignment
+            if (field.AlignMode.HasValue && field.FixedLength > 0)
+            {
+                string padChar = field.AlignChar.HasValue ? $"'{EscapeChar(field.AlignChar.Value)}'" : "' '";
+                int w = field.FixedLength;
+                return EmitDelimitedAlignedStringCode(n, w, fieldRef, padChar, field.AlignMode.Value);
+            }
             return $"{{ var __s{n} = {fieldRef} ?? \"\"; var __d{n} = writer.GetSpan(__s{n}.Length); __s{n}.AsSpan().CopyTo(__d{n}); writer.Advance(__s{n}.Length); }}";
+        }
 
         // Pattern special — char
         if (IsCharType(typeName, fullTypeName))
@@ -1002,6 +1213,7 @@ internal static class DescriptorEmitter
     /// Always advances exactly W chars; pre-fills with spaces; truncates content > W.
     /// For string fields: copies up to W chars, leaves remaining as spaces.
     /// For value types: TryFormat into W-char stackalloc then copy.
+    /// Phase 12: Supports [FieldAlign] for Left, Right, and Center alignment with custom pad chars.
     /// </summary>
     /// <param name="field">Field model describing the field to format.</param>
     /// <param name="n">Visible-field counter — used for unique local variable names (__buf{n}, __d{n}, etc.).</param>
@@ -1014,7 +1226,16 @@ internal static class DescriptorEmitter
         string typeName = NormalizeTypeName(field.TypeName);
         string fullTypeName = NormalizeTypeName(field.FullTypeName);
 
-        // String fields: direct copy up to W chars
+        // Determine pad character: use AlignChar if specified, otherwise space
+        string padChar = field.AlignChar.HasValue ? $"'{EscapeChar(field.AlignChar.Value)}'" : "' '";
+
+        // Phase 12: If AlignMode is specified, emit alignment-aware code
+        if (field.AlignMode.HasValue)
+        {
+            return EmitAlignedFieldCode(field, n, w, rawFieldIndex, typeName, fullTypeName, fieldRef, padChar);
+        }
+
+        // String fields: direct copy up to W chars (no alignment)
         if (IsStringType(typeName, fullTypeName))
             return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); var __s{n} = {fieldRef} ?? \"\"; int __cp{n} = global::System.Math.Min(__s{n}.Length, {w}); __s{n}.AsSpan(0, __cp{n}).CopyTo(__d{n}); writer.Advance({w}); }}";
 
@@ -1071,6 +1292,152 @@ internal static class DescriptorEmitter
             return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; {fieldRef}.TryFormat(__buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
         // object/unknown reference type: ToString() with fixed-length truncation
         return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); var __s{n} = {fieldRef}?.ToString() ?? \"\"; int __cp{n} = global::System.Math.Min(__s{n}.Length, {w}); __s{n}.AsSpan(0, __cp{n}).CopyTo(__d{n}); writer.Advance({w}); }}";
+    }
+
+    /// <summary>
+    /// Phase 12: Emits alignment-aware field formatting code for fixed-length records.
+    /// Handles Left (0), Center (1), and Right (2) alignment with custom pad characters.
+    /// </summary>
+    private static string EmitAlignedFieldCode(FieldModel field, int n, int w, int rawFieldIndex, string typeName, string fullTypeName, string fieldRef, string padChar)
+    {
+        // For string fields: apply alignment directly to the string value
+        if (IsStringType(typeName, fullTypeName))
+        {
+            return EmitAlignedStringFieldCode(n, w, fieldRef, padChar, field.AlignMode!.Value);
+        }
+
+        // For value types: format to buffer first, then apply alignment
+        string formatToBufferCode = GetValueFormatToBufferCode(field, n, w, rawFieldIndex, typeName, fullTypeName, fieldRef);
+
+        // Generate alignment code that works with the formatted buffer
+        return EmitAlignedValueFieldCode(n, w, padChar, field.AlignMode!.Value, formatToBufferCode);
+    }
+
+    /// <summary>
+    /// Emits alignment code for string fields.
+    /// </summary>
+    private static string EmitAlignedStringFieldCode(int n, int w, string fieldRef, string padChar, int alignMode)
+    {
+        // Left alignment (0): value first, then padding
+        if (alignMode == 0)
+        {
+            return $"{{ var __d{n} = writer.GetSpan({w}); var __s{n} = {fieldRef} ?? \"\"; int __cp{n} = global::System.Math.Min(__s{n}.Length, {w}); __s{n}.AsSpan(0, __cp{n}).CopyTo(__d{n}); if (__cp{n} < {w}) __d{n}.Slice(__cp{n}).Fill({padChar}); writer.Advance({w}); }}";
+        }
+
+        // Right alignment (2): padding first, then value
+        if (alignMode == 2)
+        {
+            return $"{{ var __d{n} = writer.GetSpan({w}); var __s{n} = {fieldRef} ?? \"\"; int __cp{n} = global::System.Math.Min(__s{n}.Length, {w}); int __pad{n} = {w} - __cp{n}; if (__pad{n} > 0) __d{n}.Slice(0, __pad{n}).Fill({padChar}); __s{n}.AsSpan(0, __cp{n}).CopyTo(__d{n}.Slice(__pad{n})); writer.Advance({w}); }}";
+        }
+
+        // Center alignment (1): left pad, value, right pad (extra on left if odd)
+        // alignMode == 1 (Center)
+        return $"{{ var __d{n} = writer.GetSpan({w}); var __s{n} = {fieldRef} ?? \"\"; int __cp{n} = global::System.Math.Min(__s{n}.Length, {w}); int __totalPad{n} = {w} - __cp{n}; int __leftPad{n} = __totalPad{n} / 2; int __rightPad{n} = __totalPad{n} - __leftPad{n}; if (__leftPad{n} > 0) __d{n}.Slice(0, __leftPad{n}).Fill({padChar}); __s{n}.AsSpan(0, __cp{n}).CopyTo(__d{n}.Slice(__leftPad{n})); if (__rightPad{n} > 0) __d{n}.Slice(__leftPad{n} + __cp{n}).Fill({padChar}); writer.Advance({w}); }}";
+    }
+
+    /// <summary>
+    /// Gets the code to format a value type to a temporary buffer.
+    /// Returns the code that sets up __buf{n} and __cw{n} (chars written).
+    /// </summary>
+    private static string GetValueFormatToBufferCode(FieldModel field, int n, int w, int rawFieldIndex, string typeName, string fullTypeName, string fieldRef)
+    {
+        // Char field - special case
+        if (IsCharType(typeName, fullTypeName))
+        {
+            return $"global::System.Span<char> __buf{n} = stackalloc char[1]; __buf{n}[0] = {fieldRef}; int __cw{n} = 1;";
+        }
+
+        // Explicit converter annotation
+        if (field.ConverterKind != GeneratorConverterKind.None &&
+            field.ConverterKind != GeneratorConverterKind.DateMultiFormat)
+        {
+            string converterClass = GetBuiltInConverterClass(field.ConverterKind);
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{w}]; {converterClass}.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+        }
+
+        if (field.ConverterKind == GeneratorConverterKind.DateMultiFormat || field.ConverterTypeName is not null)
+        {
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{w}]; __conv_field{rawFieldIndex}.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+        }
+
+        // Built-in type converters
+        if (IsDecimalType(typeName, fullTypeName))
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.DecimalConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+
+        if (IsDoubleType(typeName, fullTypeName))
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.DoubleConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+
+        if (IsSingleType(typeName, fullTypeName))
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.SingleConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+
+        if (IsBoolType(typeName, fullTypeName))
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.BoolConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+
+        if (IsGuidType(typeName, fullTypeName))
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.GuidConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+
+        if (IsDateTimeType(typeName, fullTypeName))
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.DateTimeConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+
+        if (IsDateOnlyType(typeName, fullTypeName))
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.DateOnlyConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+
+        if (IsTimeOnlyType(typeName, fullTypeName))
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.TimeOnlyConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+
+        // Generic ISpanFormattable fallback
+        bool isValueType = !field.FullTypeName.TrimEnd('?').Equals("object", System.StringComparison.Ordinal) &&
+                           !field.FullTypeName.TrimEnd('?').Equals("System.Object", System.StringComparison.Ordinal) &&
+                           !field.FullTypeName.TrimEnd('?').StartsWith("global::System.Object", System.StringComparison.Ordinal);
+        if (isValueType)
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{w}]; {fieldRef}.TryFormat(__buf{n}, out int __cw{n});";
+
+        // object/unknown reference type: ToString() then treat as string
+        return $"var __str{n} = {fieldRef}?.ToString() ?? \"\"; global::System.Span<char> __buf{n} = __str{n}.Length <= {w} ? stackalloc char[__str{n}.Length] : new char[__str{n}.Length]; __str{n}.AsSpan().CopyTo(__buf{n}); int __cw{n} = __str{n}.Length;";
+    }
+
+    /// <summary>
+    /// Emits alignment code for value fields that have been formatted to a buffer.
+    /// The formatToBufferCode must define __buf{n} (Span<char>) and __cw{n} (int chars written).
+    /// </summary>
+    private static string EmitAlignedValueFieldCode(int n, int w, string padChar, int alignMode, string formatToBufferCode)
+    {
+        // Left alignment (0): value first, then padding
+        if (alignMode == 0)
+        {
+            return $"{{ {formatToBufferCode} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); var __d{n} = writer.GetSpan({w}); __buf{n}.Slice(0, __cp{n}).CopyTo(__d{n}); if (__cp{n} < {w}) __d{n}.Slice(__cp{n}).Fill({padChar}); writer.Advance({w}); }}";
+        }
+
+        // Right alignment (2): padding first, then value
+        if (alignMode == 2)
+        {
+            return $"{{ {formatToBufferCode} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); int __pad{n} = {w} - __cp{n}; var __d{n} = writer.GetSpan({w}); if (__pad{n} > 0) __d{n}.Slice(0, __pad{n}).Fill({padChar}); __buf{n}.Slice(0, __cp{n}).CopyTo(__d{n}.Slice(__pad{n})); writer.Advance({w}); }}";
+        }
+
+        // Center alignment (1): left pad, value, right pad
+        return $"{{ {formatToBufferCode} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); int __totalPad{n} = {w} - __cp{n}; int __leftPad{n} = __totalPad{n} / 2; int __rightPad{n} = __totalPad{n} - __leftPad{n}; var __d{n} = writer.GetSpan({w}); if (__leftPad{n} > 0) __d{n}.Slice(0, __leftPad{n}).Fill({padChar}); __buf{n}.Slice(0, __cp{n}).CopyTo(__d{n}.Slice(__leftPad{n})); if (__rightPad{n} > 0) __d{n}.Slice(__leftPad{n} + __cp{n}).Fill({padChar}); writer.Advance({w}); }}";
+    }
+
+    /// <summary>
+    /// Phase 12: Emits alignment code for delimited string fields that also have FieldFixedLength.
+    /// For delimited records, alignment pads the field value to the specified FixedLength width.
+    /// </summary>
+    private static string EmitDelimitedAlignedStringCode(int n, int w, string fieldRef, string padChar, int alignMode)
+    {
+        // Left alignment (0): value first, then padding
+        if (alignMode == 0)
+        {
+            return $"{{ var __s{n} = {fieldRef} ?? \"\"; int __cp{n} = global::System.Math.Min(__s{n}.Length, {w}); var __d{n} = writer.GetSpan({w}); __s{n}.AsSpan(0, __cp{n}).CopyTo(__d{n}); if (__cp{n} < {w}) __d{n}.Slice(__cp{n}).Fill({padChar}); writer.Advance({w}); }}";
+        }
+
+        // Right alignment (2): padding first, then value
+        if (alignMode == 2)
+        {
+            return $"{{ var __s{n} = {fieldRef} ?? \"\"; int __cp{n} = global::System.Math.Min(__s{n}.Length, {w}); int __pad{n} = {w} - __cp{n}; var __d{n} = writer.GetSpan({w}); if (__pad{n} > 0) __d{n}.Slice(0, __pad{n}).Fill({padChar}); __s{n}.AsSpan(0, __cp{n}).CopyTo(__d{n}.Slice(__pad{n})); writer.Advance({w}); }}";
+        }
+
+        // Center alignment (1): left pad, value, right pad (extra on right if odd)
+        return $"{{ var __s{n} = {fieldRef} ?? \"\"; int __cp{n} = global::System.Math.Min(__s{n}.Length, {w}); int __totalPad{n} = {w} - __cp{n}; int __leftPad{n} = __totalPad{n} / 2; int __rightPad{n} = __totalPad{n} - __leftPad{n}; var __d{n} = writer.GetSpan({w}); if (__leftPad{n} > 0) __d{n}.Slice(0, __leftPad{n}).Fill({padChar}); __s{n}.AsSpan(0, __cp{n}).CopyTo(__d{n}.Slice(__leftPad{n})); if (__rightPad{n} > 0) __d{n}.Slice(__leftPad{n} + __cp{n}).Fill({padChar}); writer.Advance({w}); }}";
     }
 
     // ---- Type classification helpers ----
@@ -1207,13 +1574,22 @@ internal static class DescriptorEmitter
     // ---- Phase 7 emission helpers (D-05 FieldTrim, D-06 FieldQuoted, D-07 RecordOptions) ----
 
     /// <summary>
-    /// D-07: Emits the <c>Options</c> property initializer on the descriptor, pulling record-level
+    /// D-07, CREC-01: Emits the <c>Options</c> property initializer on the descriptor, pulling record-level
     /// filter values from <see cref="RecordModel"/> (IgnoreFirst, IgnoreLast, IgnoreEmptyLines,
-    /// CommentMarker, Delimiter). Defaults produce a zero/empty <c>RecordOptions</c>.
+    /// CommentMarker, Delimiter, Condition, ConditionPattern). Defaults produce a zero/empty <c>RecordOptions</c>.
+    /// Phase 14 MLIN-02: Also emits LineCountPerLogicalRecord calculated from IsInNewLine field count.
     /// </summary>
     private static void EmitOptionsProperty(StringBuilder sb, RecordModel model)
     {
         string boolLit = model.IgnoreEmptyLines ? "true" : "false";
+
+        // Phase 14 MLIN-02: Calculate LineCountPerLogicalRecord = 1 + count(IsInNewLine fields)
+        int lineCount = 1;
+        foreach (var field in model.Fields)
+        {
+            if (field.IsInNewLine) lineCount++;
+        }
+
         sb.AppendLine("    public global::ModernLibs.FileHelpers.RecordOptions Options =>");
         sb.AppendLine("        new()");
         sb.AppendLine("        {");
@@ -1222,6 +1598,13 @@ internal static class DescriptorEmitter
         sb.AppendLine($"            IgnoreEmptyLines = {boolLit},");
         sb.AppendLine($"            CommentMarker = '{EscapeChar(model.CommentMarker)}',");
         sb.AppendLine($"            Delimiter = \"{EscapeString(model.Delimiter)}\",");
+        // CREC-01: Emit Condition and ConditionPattern from ConditionalRecordAttribute
+        sb.AppendLine($"            Condition = (global::ModernLibs.FileHelpers.RecordCondition){model.Condition},");
+        sb.AppendLine($"            ConditionPattern = \"{EscapeString(model.ConditionPattern)}\",");
+        // Phase 14 MLIN-02: Emit LineCountPerLogicalRecord for multi-line record support
+        sb.AppendLine($"            LineCountPerLogicalRecord = {lineCount},");
+        // Phase 18 MULT-01: Emit MultilineMode for multiline quoted field support
+        sb.AppendLine($"            MultilineMode = (global::ModernLibs.FileHelpers.MultilineMode){model.MultilineMode},");
         sb.AppendLine("        };");
     }
 
@@ -1325,6 +1708,34 @@ internal static class DescriptorEmitter
             if (method.Length == 0) continue;
 
             sb.AppendLine($"        __f{i} = __f{i}.{method}(); // [FieldTrim] D-05");
+        }
+    }
+
+    /// <summary>
+    /// FAVL-06, FAVL-09: Emits validation that checks if the field span is empty,
+    /// null (empty span), or whitespace. Validation runs AFTER trim so that
+    /// "   " (spaces trimmed to empty) correctly fails.
+    /// </summary>
+    private static void EmitFieldNotEmptyValidation(
+        StringBuilder sb,
+        EquatableArray<FieldModel> fields,
+        int fieldCount)
+    {
+        for (int i = 0; i < fieldCount; i++)
+        {
+            var field = fields[i];
+            if (!field.IsNotEmpty) continue;
+
+            // Skip validation for discarded fields (no assignment means no validation needed)
+            if (field.IsValueDiscarded) continue;
+
+            sb.AppendLine();
+            sb.AppendLine($"        // [FieldNotEmpty] validation for field '{field.Name}' (FAVL-06).");
+            // Check: IsEmpty || IsWhiteSpace - covers empty string, null-equivalent, whitespace
+            sb.AppendLine($"        if (__f{i}.IsEmpty || __f{i}.IsWhiteSpace())");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            throw new global::System.FormatException($\"Field '{field.Name}' cannot be empty or whitespace.\");");
+            sb.AppendLine("        }");
         }
     }
 

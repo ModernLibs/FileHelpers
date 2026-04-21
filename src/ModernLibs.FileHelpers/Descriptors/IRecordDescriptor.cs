@@ -9,8 +9,14 @@ namespace ModernLibs.FileHelpers;
 /// <typeparam name="T">The annotated record type.</typeparam>
 public interface IRecordDescriptor<T>
 {
-    /// <summary>Parses a single record line into an instance of <typeparamref name="T"/>.</summary>
-    T Parse(ReadOnlySpan<char> line);
+    /// <summary>
+    /// Parses a logical record from one or more physical lines.
+    /// Phase 14 MLIN-02: Supports multi-line records spanning multiple physical lines.
+    /// </summary>
+    /// <param name="lines">Span containing the physical line(s). For multi-line records,
+    /// lines are concatenated with their original newline terminators preserved.</param>
+    /// <param name="lineCount">Number of physical lines in this logical record (1 for single-line).</param>
+    T Parse(ReadOnlySpan<char> lines, int lineCount);
 
     /// <summary>
     /// Formats a record instance into <paramref name="writer"/>.
@@ -31,6 +37,7 @@ public interface IRecordDescriptor<T>
     /// D-07: surfaced so the engine can honor <see cref="IgnoreFirstAttribute"/>,
     /// <see cref="IgnoreLastAttribute"/>, <see cref="IgnoreEmptyLinesAttribute"/>, and
     /// <see cref="IgnoreCommentedLinesAttribute"/> without reflection.
+    /// Phase 14 MLIN-02: Includes LineCountPerLogicalRecord for multi-line support.
     /// </summary>
     RecordOptions Options { get; }
 }

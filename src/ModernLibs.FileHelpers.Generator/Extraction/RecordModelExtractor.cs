@@ -47,9 +47,18 @@ internal static class RecordModelExtractor
         // Validate: empty or null delimiter gets null return (diagnostic emitted later, Phase 4)
         if (string.IsNullOrEmpty(delimiter)) return null;
 
-        // Phase 7: extract record-level filtering attributes (IgnoreFirst, IgnoreLast, IgnoreEmptyLines, IgnoreCommentedLines).
-        // These feed RecordOptions on the generated descriptor (D-07).
-        var (igFirst, igLast, igEmpty, commentMarker) = ExtractRecordLevelFilters(typeSymbol, ct);
+        // Phase 7 + Phase 15: extract record-level filtering attributes (IgnoreFirst, IgnoreLast, IgnoreEmptyLines, IgnoreCommentedLines, ConditionalRecord).
+        // These feed RecordOptions on the generated descriptor (D-07, CREC-01).
+        var (igFirst, igLast, igEmpty, commentMarker, condition, conditionPattern) = ExtractRecordLevelFilters(typeSymbol, ct);
+
+        // Phase 18 MULT-01: Extract MultilineMode from DelimitedRecordAttribute
+        int multilineMode = 3; // Default to NotAllow = 3
+        var multilineArg = attr.NamedArguments.FirstOrDefault(
+            kv => string.Equals(kv.Key, "MultilineMode", System.StringComparison.Ordinal)).Value;
+        if (multilineArg is { Kind: TypedConstantKind.Enum } namedArg && namedArg.Value is int mm)
+        {
+            multilineMode = mm;
+        }
 
         // Extract fields: public instance fields and properties only
         var fields = ImmutableArray.CreateBuilder<FieldModel>();
@@ -89,13 +98,19 @@ internal static class RecordModelExtractor
             bool isOptional = false;
             bool isHidden = false;
             bool isValueDiscarded = false;
+            bool isNotEmpty = false;  // Phase 13 FAVL-06: FieldNotEmpty extraction
+            bool isInNewLine = false; // Phase 14 MLIN-01: FieldInNewLine extraction
             GeneratorConverterKind converterKind = GeneratorConverterKind.None;
             string? converterTypeName = null;
             EquatableArray<string> converterArgs = default;
 
             bool isQuoted = false;
             char quoteChar = '"';
+            string? fieldDelimiter = null;  // FDEL-01: per-field delimiter override from [FieldDelimiter]
             string? unrecognisedConverterType = null;
+            int? alignMode = null;  // Phase 12: 0=Left, 1=Center, 2=Right
+            char? alignChar = null; // Phase 12: custom pad char, null = space
+            int fixedLength = -1;   // Phase 12: FieldFixedLength for alignment width in delimited records
 
             // Scan member attributes for field-level overrides
             foreach (var mAttr in member.GetAttributes())
@@ -111,6 +126,12 @@ internal static class RecordModelExtractor
                         when mAttr.ConstructorArguments.Length > 0
                              && mAttr.ConstructorArguments[0].Value is int o:
                         order = o;
+                        break;
+                    case "ModernLibs.FileHelpers.FieldFixedLengthAttribute"
+                        when mAttr.ConstructorArguments.Length > 0
+                             && mAttr.ConstructorArguments[0].Value is int fl:
+                        // Phase 12: Extract FixedLength for delimited records (used with FieldAlign)
+                        fixedLength = fl;
                         break;
                     case "ModernLibs.FileHelpers.FieldTrimAttribute"
                         when mAttr.ConstructorArguments.Length > 0
@@ -129,6 +150,12 @@ internal static class RecordModelExtractor
                         break;
                     case "ModernLibs.FileHelpers.FieldValueDiscardedAttribute":
                         isValueDiscarded = true;
+                        break;
+                    case "ModernLibs.FileHelpers.FieldNotEmptyAttribute":
+                        isNotEmpty = true;  // Phase 13 FAVL-06
+                        break;
+                    case "ModernLibs.FileHelpers.FieldInNewLineAttribute":
+                        isInNewLine = true;  // Phase 14 MLIN-01
                         break;
                     case "ModernLibs.FileHelpers.FieldQuotedAttribute":
                     {
@@ -149,6 +176,27 @@ internal static class RecordModelExtractor
                         }
                         break;
                     }
+                    case "ModernLibs.FileHelpers.FieldDelimiterAttribute"
+                             when mAttr.ConstructorArguments.Length > 0
+                             && mAttr.ConstructorArguments[0].Value is string del:
+                        // FDEL-01: extract per-field delimiter override
+                        fieldDelimiter = del;
+                        break;
+                    case "ModernLibs.FileHelpers.FieldAlignAttribute":
+                        // Phase 12: Extract alignment mode and optional pad character
+                        // First constructor arg is AlignMode (int): 0=Left, 1=Center, 2=Right
+                        if (mAttr.ConstructorArguments.Length > 0
+                            && mAttr.ConstructorArguments[0].Value is int am)
+                        {
+                            alignMode = am;
+                        }
+                        // Second constructor arg is AlignChar (char), if present
+                        if (mAttr.ConstructorArguments.Length > 1
+                            && mAttr.ConstructorArguments[1].Value is char ac)
+                        {
+                            alignChar = ac;
+                        }
+                        break;
                     case "ModernLibs.FileHelpers.FieldConverterAttribute":
                     {
                         if (mAttr.ConstructorArguments.Length == 0) break;
@@ -193,11 +241,16 @@ internal static class RecordModelExtractor
 
             fields.Add(new FieldModel(memberName, memberTypeName, fullTypeName,
                 declarationIndex, order, trimMode, isOptional, isHidden, isValueDiscarded,
-                IsInitOnly: isInitOnly,
+                FixedLength: fixedLength, IsInitOnly: isInitOnly,
                 ConverterKind: converterKind, ConverterTypeName: converterTypeName,
                 ConverterArgs: converterArgs,
                 IsQuoted: isQuoted, QuoteChar: quoteChar,
-                UnrecognisedConverterType: unrecognisedConverterType));
+                Delimiter: fieldDelimiter,
+                UnrecognisedConverterType: unrecognisedConverterType,
+                AlignMode: alignMode,
+                AlignChar: alignChar,
+                IsNotEmpty: isNotEmpty,  // Phase 13 FAVL-06
+                IsInNewLine: isInNewLine));  // Phase 14 MLIN-01
         }
 
         // Sort by order for deterministic output (SGEN-11).
@@ -215,7 +268,10 @@ internal static class RecordModelExtractor
             IgnoreFirst: igFirst,
             IgnoreLast: igLast,
             IgnoreEmptyLines: igEmpty,
-            CommentMarker: commentMarker);
+            CommentMarker: commentMarker,
+            Condition: condition,
+            ConditionPattern: conditionPattern,
+            MultilineMode: multilineMode);
     }
 
     internal static RecordModel? ExtractFixedLength(
@@ -252,8 +308,8 @@ internal static class RecordModelExtractor
             };
         }
 
-        // Phase 7: extract record-level filtering attributes for fixed-length records too.
-        var (igFirst, igLast, igEmpty, commentMarker) = ExtractRecordLevelFilters(typeSymbol, ct);
+        // Phase 7 + Phase 15: extract record-level filtering attributes for fixed-length records too.
+        var (igFirst, igLast, igEmpty, commentMarker, condition, conditionPattern) = ExtractRecordLevelFilters(typeSymbol, ct);
 
         var fields = ImmutableArray.CreateBuilder<FieldModel>();
         int implicitOrder = 0;
@@ -290,13 +346,18 @@ internal static class RecordModelExtractor
             bool isOptional = false;
             bool isHidden = false;
             bool isValueDiscarded = false;
+            bool isNotEmpty = false;  // Phase 13 FAVL-06: FieldNotEmpty extraction
+            bool isInNewLine = false; // Phase 14 MLIN-01: FieldInNewLine extraction
             int fixedLength = -1; // sentinel: [FieldFixedLength] not found
             GeneratorConverterKind converterKind = GeneratorConverterKind.None;
             string? converterTypeName = null;
             EquatableArray<string> converterArgs = default;
             bool isQuoted = false;
             char quoteChar = '"';
+            string? fieldDelimiter = null;  // FDEL-01: per-field delimiter override from [FieldDelimiter]
             string? unrecognisedConverterType = null;
+            int? alignMode = null;  // Phase 12: 0=Left, 1=Center, 2=Right
+            char? alignChar = null; // Phase 12: custom pad char, null = space
 
             foreach (var mAttr in member.GetAttributes())
             {
@@ -331,6 +392,12 @@ internal static class RecordModelExtractor
                     case "ModernLibs.FileHelpers.FieldValueDiscardedAttribute":
                         isValueDiscarded = true;
                         break;
+                    case "ModernLibs.FileHelpers.FieldNotEmptyAttribute":
+                        isNotEmpty = true;  // Phase 13 FAVL-06
+                        break;
+                    case "ModernLibs.FileHelpers.FieldInNewLineAttribute":
+                        isInNewLine = true;  // Phase 14 MLIN-01
+                        break;
                     case "ModernLibs.FileHelpers.FieldQuotedAttribute":
                     {
                         isQuoted = true;
@@ -344,6 +411,27 @@ internal static class RecordModelExtractor
                         }
                         break;
                     }
+                    case "ModernLibs.FileHelpers.FieldDelimiterAttribute"
+                             when mAttr.ConstructorArguments.Length > 0
+                             && mAttr.ConstructorArguments[0].Value is string del:
+                        // FDEL-01: extract per-field delimiter override (extracted for consistency even for fixed-length)
+                        fieldDelimiter = del;
+                        break;
+                    case "ModernLibs.FileHelpers.FieldAlignAttribute":
+                        // Phase 12: Extract alignment mode and optional pad character
+                        // First constructor arg is AlignMode (int): 0=Left, 1=Center, 2=Right
+                        if (mAttr.ConstructorArguments.Length > 0
+                            && mAttr.ConstructorArguments[0].Value is int am)
+                        {
+                            alignMode = am;
+                        }
+                        // Second constructor arg is AlignChar (char), if present
+                        if (mAttr.ConstructorArguments.Length > 1
+                            && mAttr.ConstructorArguments[1].Value is char ac)
+                        {
+                            alignChar = ac;
+                        }
+                        break;
                     case "ModernLibs.FileHelpers.FieldConverterAttribute":
                     {
                         if (mAttr.ConstructorArguments.Length == 0) break;
@@ -390,7 +478,12 @@ internal static class RecordModelExtractor
                 ConverterKind: converterKind, ConverterTypeName: converterTypeName,
                 ConverterArgs: converterArgs,
                 IsQuoted: isQuoted, QuoteChar: quoteChar,
-                UnrecognisedConverterType: unrecognisedConverterType));
+                Delimiter: fieldDelimiter,
+                UnrecognisedConverterType: unrecognisedConverterType,
+                AlignMode: alignMode,
+                AlignChar: alignChar,
+                IsNotEmpty: isNotEmpty,  // Phase 13 FAVL-06
+                IsInNewLine: isInNewLine));  // Phase 14 MLIN-01
         }
 
         var sortedArray = fields
@@ -405,25 +498,30 @@ internal static class RecordModelExtractor
             IgnoreFirst: igFirst,
             IgnoreLast: igLast,
             IgnoreEmptyLines: igEmpty,
-            CommentMarker: commentMarker);
+            CommentMarker: commentMarker,
+            Condition: condition,
+            ConditionPattern: conditionPattern);
     }
 
     /// <summary>
-    /// Extracts record-level filtering attributes (D-07) from the annotated type symbol.
+    /// Extracts record-level filtering attributes (D-07, CREC-01) from the annotated type symbol.
     /// Scans the type's own attributes (not field attributes) for:
     ///   [IgnoreFirst(N)]             → IgnoreFirst count
     ///   [IgnoreLast(N)]              → IgnoreLast count
     ///   [IgnoreEmptyLines]           → IgnoreEmptyLines flag
     ///   [IgnoreCommentedLines(char)] → CommentMarker char
-    /// Returns defaults (0, 0, false, '\0') when the attribute is absent.
+    ///   [ConditionalRecord(condition, pattern)] → Condition and ConditionPattern
+    /// Returns defaults (0, 0, false, '\0', 0, "") when the attribute is absent.
     /// </summary>
-    private static (int IgnoreFirst, int IgnoreLast, bool IgnoreEmptyLines, char CommentMarker)
+    private static (int IgnoreFirst, int IgnoreLast, bool IgnoreEmptyLines, char CommentMarker, int Condition, string ConditionPattern)
         ExtractRecordLevelFilters(INamedTypeSymbol typeSymbol, CancellationToken ct)
     {
         int igFirst = 0;
         int igLast = 0;
         bool igEmpty = false;
         char commentMarker = '\0';
+        int condition = 0; // RecordCondition.None = 0
+        string conditionPattern = string.Empty;
 
         foreach (var ta in typeSymbol.GetAttributes())
         {
@@ -454,10 +552,24 @@ internal static class RecordModelExtractor
                         commentMarker = cm;
                     }
                     break;
+                case "ModernLibs.FileHelpers.ConditionalRecordAttribute":
+                    // CREC-01: Extract condition type and pattern from constructor args
+                    if (ta.ConstructorArguments.Length >= 2)
+                    {
+                        if (ta.ConstructorArguments[0].Value is int condValue)
+                        {
+                            condition = condValue;
+                        }
+                        if (ta.ConstructorArguments[1].Value is string pattern)
+                        {
+                            conditionPattern = pattern ?? string.Empty;
+                        }
+                    }
+                    break;
             }
         }
 
-        return (igFirst, igLast, igEmpty, commentMarker);
+        return (igFirst, igLast, igEmpty, commentMarker, condition, conditionPattern);
     }
 
     /// <summary>

@@ -246,4 +246,101 @@ public sealed class RecordAttributeTests
         bool anyPlace = attr.AnyPlace;
         await Assert.That(anyPlace).IsFalse();
     }
+
+    // ------- ConditionalRecordAttribute -------
+
+    [Test]
+    [DisplayName("ConditionalRecordAttribute constructor stores condition and pattern correctly")]
+    public async Task ConditionalRecordAttribute_Constructor_StoresConditionAndPattern()
+    {
+        // Arrange & Act: Create attribute with IncludeIfBegins condition
+        var attr = new ConditionalRecordAttribute(RecordCondition.IncludeIfBegins, "HDR");
+
+        // Assert: Condition and pattern stored correctly
+        await Assert.That(attr.Condition).IsEqualTo(RecordCondition.IncludeIfBegins);
+        await Assert.That(attr.ConditionPattern).IsEqualTo("HDR");
+    }
+
+    [Test]
+    [DisplayName("ConditionalRecordAttribute handles null pattern by storing empty string")]
+    public async Task ConditionalRecordAttribute_NullPattern_StoresEmptyString()
+    {
+        // Arrange & Act: Create attribute with null pattern
+        var attr = new ConditionalRecordAttribute(RecordCondition.IncludeIfContains, null!);
+
+        // Assert: Null pattern coalesced to empty string
+        await Assert.That(attr.ConditionPattern).IsEqualTo(string.Empty);
+    }
+
+    [Test]
+    [DisplayName("ConditionalRecordAttribute has AllowMultiple=false in AttributeUsage")]
+    public async Task ConditionalRecordAttribute_AttributeUsage_AllowMultiple_IsFalse()
+    {
+        // Arrange: Get AttributeUsageAttribute for ConditionalRecordAttribute
+        var usage = (AttributeUsageAttribute)Attribute.GetCustomAttribute(
+            typeof(ConditionalRecordAttribute), typeof(AttributeUsageAttribute))!;
+
+        // Act: Read AllowMultiple property
+        bool allowMultiple = usage.AllowMultiple;
+
+        // Assert: AllowMultiple is false
+        await Assert.That(allowMultiple).IsFalse();
+    }
+
+    [Test]
+    [DisplayName("ConditionalRecordAttribute has Inherited=false in AttributeUsage")]
+    public async Task ConditionalRecordAttribute_AttributeUsage_Inherited_IsFalse()
+    {
+        // Arrange: Get AttributeUsageAttribute for ConditionalRecordAttribute
+        var usage = (AttributeUsageAttribute)Attribute.GetCustomAttribute(
+            typeof(ConditionalRecordAttribute), typeof(AttributeUsageAttribute))!;
+
+        // Act: Read Inherited property
+        bool inherited = usage.Inherited;
+
+        // Assert: Inherited is false
+        await Assert.That(inherited).IsFalse();
+    }
+
+    [Test]
+    [DisplayName("ConditionalRecordAttribute targets Class and Struct in AttributeUsage")]
+    public async Task ConditionalRecordAttribute_Targets_ClassAndStruct()
+    {
+        // Arrange: Get AttributeUsageAttribute for ConditionalRecordAttribute
+        var usage = (AttributeUsageAttribute)Attribute.GetCustomAttribute(
+            typeof(ConditionalRecordAttribute), typeof(AttributeUsageAttribute))!;
+        bool hasClass = usage.ValidOn.HasFlag(AttributeTargets.Class);
+
+        // Act: Check for Struct target
+        bool hasStruct = usage.ValidOn.HasFlag(AttributeTargets.Struct);
+
+        // Assert: Targets both Class and Struct
+        await Assert.That(hasClass).IsTrue();
+        await Assert.That(hasStruct).IsTrue();
+    }
+
+    [Test]
+    [DisplayName("ConditionalRecordAttribute all 8 condition types can be constructed")]
+    public async Task ConditionalRecordAttribute_AllConditions_CanBeConstructed()
+    {
+        // Arrange & Act: Create attributes for all 8 condition types
+        var includeBegins = new ConditionalRecordAttribute(RecordCondition.IncludeIfBegins, "prefix");
+        var includeContains = new ConditionalRecordAttribute(RecordCondition.IncludeIfContains, "substring");
+        var includeEnds = new ConditionalRecordAttribute(RecordCondition.IncludeIfEnds, "suffix");
+        var includeRegex = new ConditionalRecordAttribute(RecordCondition.IncludeIfRegex, "^pattern");
+        var excludeBegins = new ConditionalRecordAttribute(RecordCondition.ExcludeIfBegins, "prefix");
+        var excludeContains = new ConditionalRecordAttribute(RecordCondition.ExcludeIfContains, "substring");
+        var excludeEnds = new ConditionalRecordAttribute(RecordCondition.ExcludeIfEnds, "suffix");
+        var excludeRegex = new ConditionalRecordAttribute(RecordCondition.ExcludeIfRegex, "^pattern");
+
+        // Assert: All conditions stored correctly
+        await Assert.That(includeBegins.Condition).IsEqualTo(RecordCondition.IncludeIfBegins);
+        await Assert.That(includeContains.Condition).IsEqualTo(RecordCondition.IncludeIfContains);
+        await Assert.That(includeEnds.Condition).IsEqualTo(RecordCondition.IncludeIfEnds);
+        await Assert.That(includeRegex.Condition).IsEqualTo(RecordCondition.IncludeIfRegex);
+        await Assert.That(excludeBegins.Condition).IsEqualTo(RecordCondition.ExcludeIfBegins);
+        await Assert.That(excludeContains.Condition).IsEqualTo(RecordCondition.ExcludeIfContains);
+        await Assert.That(excludeEnds.Condition).IsEqualTo(RecordCondition.ExcludeIfEnds);
+        await Assert.That(excludeRegex.Condition).IsEqualTo(RecordCondition.ExcludeIfRegex);
+    }
 }

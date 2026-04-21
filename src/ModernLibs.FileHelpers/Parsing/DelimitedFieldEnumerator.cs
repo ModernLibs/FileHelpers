@@ -18,7 +18,9 @@ public ref struct DelimitedFieldEnumerator
 {
     private ReadOnlySpan<char> _remaining;
     private ReadOnlySpan<char> _current;
-    private readonly ReadOnlySpan<char> _delimiter;
+    private readonly ReadOnlySpan<char> _defaultDelimiter;
+    private ReadOnlySpan<string?> _fieldDelimiters;
+    private int _fieldIndex;
     private bool _atEnd;
 
     /// <summary>
@@ -29,9 +31,31 @@ public ref struct DelimitedFieldEnumerator
     public DelimitedFieldEnumerator(ReadOnlySpan<char> line, ReadOnlySpan<char> delimiter)
     {
         _remaining = line;
-        _delimiter = delimiter;
+        _defaultDelimiter = delimiter;
         _current = default;
         _atEnd = false;
+        _fieldDelimiters = default;
+        _fieldIndex = 0;
+    }
+
+    /// <summary>
+    /// Initializes a new <see cref="DelimitedFieldEnumerator"/> with per-field delimiter overrides.
+    /// </summary>
+    /// <param name="line">The record line to split (must not include line terminator).</param>
+    /// <param name="defaultDelimiter">The default field delimiter when no per-field override exists.</param>
+    /// <param name="fieldDelimiters">Array of per-field delimiter overrides. Null entries use default.</param>
+    /// <remarks>
+    /// FDEL-04: Per-field delimiter support for mixed-delimiter records.
+    /// The delimiter at index N is used to find the end of field N.
+    /// </remarks>
+    public DelimitedFieldEnumerator(ReadOnlySpan<char> line, ReadOnlySpan<char> defaultDelimiter, ReadOnlySpan<string?> fieldDelimiters)
+    {
+        _remaining = line;
+        _defaultDelimiter = defaultDelimiter;
+        _fieldDelimiters = fieldDelimiters;
+        _current = default;
+        _atEnd = false;
+        _fieldIndex = 0;
     }
 
     /// <summary>Returns this enumerator to support the foreach duck-type pattern.</summary>
@@ -39,6 +63,34 @@ public ref struct DelimitedFieldEnumerator
 
     /// <summary>The current field span. Valid until the next <see cref="MoveNext"/> call.</summary>
     public ReadOnlySpan<char> Current => _current;
+
+    /// <summary>
+    /// Gets the delimiter for the current field position.
+    /// Returns per-field delimiter if specified, otherwise the default delimiter.
+    /// </summary>
+    private ReadOnlySpan<char> GetCurrentDelimiter()
+    {
+        // Check if we have a per-field delimiter for the current position
+        if (_fieldIndex < _fieldDelimiters.Length && _fieldDelimiters[_fieldIndex] is not null)
+        {
+            string? del = _fieldDelimiters[_fieldIndex];
+            if (!string.IsNullOrEmpty(del))
+            {
+                return del.AsSpan();
+            }
+        }
+        return _defaultDelimiter;
+    }
+
+    /// <summary>
+    /// Returns true if the line contains an unclosed quoted field.
+    /// Used by engines to detect multiline quoted fields that need line buffering.
+    /// Phase 18 MULT-07: Quote balance detection for multiline support.
+    /// </summary>
+    public static bool HasUnclosedQuote(ReadOnlySpan<char> line)
+    {
+        return Parsing.QuoteBalanceScanner.HasUnclosedQuote(line);
+    }
 
     /// <summary>
     /// Advances to the next field. Returns <see langword="true"/> if a field was yielded;
@@ -60,12 +112,15 @@ public ref struct DelimitedFieldEnumerator
             return true;
         }
 
+        // Get the delimiter for the current field position (FDEL-04)
+        ReadOnlySpan<char> delimiter = GetCurrentDelimiter();
+
         // Fast path: field does not start with a quote.
         if (span[0] != '"')
         {
-            int delimIdx = _delimiter.Length == 1
-                ? span.IndexOf(_delimiter[0])
-                : span.IndexOf(_delimiter, StringComparison.Ordinal);
+            int delimIdx = delimiter.Length == 1
+                ? span.IndexOf(delimiter[0])
+                : span.IndexOf(delimiter, StringComparison.Ordinal);
 
             if (delimIdx < 0)
             {
@@ -76,20 +131,26 @@ public ref struct DelimitedFieldEnumerator
             else
             {
                 _current = span[..delimIdx];
-                _remaining = span[(delimIdx + _delimiter.Length)..];
+                _remaining = span[(delimIdx + delimiter.Length)..];
             }
+            _fieldIndex++;
             return true;
         }
 
         // Quoted path (D-02, D-03): field starts with '"'.
-        return MoveNextQuoted(span);
+        bool result = MoveNextQuoted(span, delimiter);
+        if (result)
+        {
+            _fieldIndex++;
+        }
+        return result;
     }
 
     /// <summary>
     /// Handles RFC 4180 quoted field parsing: fast no-escape path and full "" unescape path.
     /// Lenient: never throws on malformed/unclosed quoted fields (D-03).
     /// </summary>
-    private bool MoveNextQuoted(ReadOnlySpan<char> span)
+    private bool MoveNextQuoted(ReadOnlySpan<char> span, ReadOnlySpan<char> delimiter)
     {
         // span[0] == '"' guaranteed by caller.
         var inner = span[1..]; // skip opening quote
@@ -117,12 +178,12 @@ public ref struct DelimitedFieldEnumerator
             // Skip delimiter after closing quote (RFC 4180: quoted field ends before delimiter).
             if (!afterClose.IsEmpty)
             {
-                int delimIdx = _delimiter.Length == 1
-                    ? afterClose.IndexOf(_delimiter[0])
-                    : afterClose.IndexOf(_delimiter, StringComparison.Ordinal);
+                int delimIdx = delimiter.Length == 1
+                    ? afterClose.IndexOf(delimiter[0])
+                    : afterClose.IndexOf(delimiter, StringComparison.Ordinal);
                 if (delimIdx == 0)
                 {
-                    _remaining = afterClose[_delimiter.Length..];
+                    _remaining = afterClose[delimiter.Length..];
                 }
                 else if (delimIdx < 0)
                 {
@@ -132,7 +193,7 @@ public ref struct DelimitedFieldEnumerator
                 else
                 {
                     // Lenient: content between closing quote and delimiter — advance past delimiter.
-                    _remaining = afterClose[(delimIdx + _delimiter.Length)..];
+                    _remaining = afterClose[(delimIdx + delimiter.Length)..];
                 }
             }
             else
@@ -191,12 +252,12 @@ public ref struct DelimitedFieldEnumerator
             // Skip delimiter after closing quote.
             if (!remaining.IsEmpty)
             {
-                int delimIdx = _delimiter.Length == 1
-                    ? remaining.IndexOf(_delimiter[0])
-                    : remaining.IndexOf(_delimiter, StringComparison.Ordinal);
+                int delimIdx = delimiter.Length == 1
+                    ? remaining.IndexOf(delimiter[0])
+                    : remaining.IndexOf(delimiter, StringComparison.Ordinal);
                 if (delimIdx == 0)
                 {
-                    _remaining = remaining[_delimiter.Length..];
+                    _remaining = remaining[delimiter.Length..];
                 }
                 else if (delimIdx < 0)
                 {
@@ -205,7 +266,7 @@ public ref struct DelimitedFieldEnumerator
                 }
                 else
                 {
-                    _remaining = remaining[(delimIdx + _delimiter.Length)..];
+                    _remaining = remaining[(delimIdx + delimiter.Length)..];
                 }
             }
             else

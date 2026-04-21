@@ -16,16 +16,22 @@ namespace ModernLibs.FileHelpers;
 /// copies by value — recycling is meaningless. The engine checks <c>_recyclable != null</c>
 /// to activate the path, so struct descriptors (which will not implement this interface)
 /// fall through to the normal <c>Parse</c> path.</para>
+///
+/// <para>Phase 14 MLIN-02: Supports multi-line records. The <paramref name="lineCount"/> parameter
+/// indicates how many physical lines constitute this logical record.</para>
 /// </summary>
 /// <typeparam name="T">A reference-type record annotated with
 /// <see cref="DelimitedRecordAttribute"/> or <see cref="FixedLengthRecordAttribute"/>.</typeparam>
 public interface IRecyclableDescriptor<T> : IRecordDescriptor<T>
 {
     /// <summary>
-    /// Parses <paramref name="line"/> and assigns all field values to the existing
+    /// Parses lines and assigns all field values to the existing
     /// <paramref name="existing"/> instance rather than constructing a new one.
+    /// Phase 14 MLIN-02: Supports multi-line records spanning multiple physical lines.
     /// </summary>
-    /// <param name="line">The raw record line (without line terminator).</param>
+    /// <param name="lines">Span containing the physical line(s). For multi-line records,
+    /// lines are concatenated with their original newline terminators preserved.</param>
+    /// <param name="lineCount">Number of physical lines in this logical record (1 for single-line).</param>
     /// <param name="existing">The instance to mutate in-place.</param>
-    void ParseInto(ReadOnlySpan<char> line, T existing);
+    void ParseInto(ReadOnlySpan<char> lines, int lineCount, T existing);
 }

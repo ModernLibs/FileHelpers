@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using System.Threading;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -71,8 +72,8 @@ public sealed class FileHelpersGenerator : IIncrementalGenerator
 
     /// <summary>
     /// RegisterSourceOutput handler for the Delimited arm.
-    /// Checks MLFH003 (duplicate [FieldOrder]) and MLFH004 (unrecognised [FieldConverter(typeof)]
-    /// type) before emitting the descriptor.
+    /// Checks MLFH003 (duplicate [FieldOrder]), MLFH004 (unrecognised [FieldConverter(typeof)]
+    /// type), and MLFH005 (invalid ConditionalRecord regex) before emitting the descriptor.
     /// </summary>
     private static void EmitDelimited(SourceProductionContext spc, RecordModel model)
     {
@@ -84,13 +85,17 @@ public sealed class FileHelpersGenerator : IIncrementalGenerator
         // at compile time so users don't silently get defaulted values.
         ReportUnrecognisedConverters(spc, model);
 
+        // MLFH005 (CREC-11): validate ConditionalRecord regex patterns at compile time
+        if (ReportInvalidConditionalRecordRegex(spc, model)) return; // suppress descriptor for invalid regex
+
         DescriptorEmitter.Emit(spc, model);
     }
 
     /// <summary>
     /// RegisterSourceOutput handler for the FixedLength arm.
-    /// Checks MLFH002 (missing [FieldFixedLength]), MLFH003 (duplicate [FieldOrder]), and
-    /// MLFH004 (unrecognised [FieldConverter(typeof)] type) before emitting.
+    /// Checks MLFH002 (missing [FieldFixedLength]), MLFH003 (duplicate [FieldOrder]),
+    /// MLFH004 (unrecognised [FieldConverter(typeof)] type), and MLFH005 (invalid ConditionalRecord
+    /// regex) before emitting.
     /// </summary>
     private static void EmitFixedLength(SourceProductionContext spc, RecordModel model)
     {
@@ -121,6 +126,9 @@ public sealed class FileHelpersGenerator : IIncrementalGenerator
 
         // MLFH004 (IN-02): warn on unrecognised FieldConverter types. Non-suppressing.
         ReportUnrecognisedConverters(spc, model);
+
+        // MLFH005 (CREC-11): validate ConditionalRecord regex patterns at compile time
+        if (ReportInvalidConditionalRecordRegex(spc, model)) return; // suppress descriptor for invalid regex
 
         DescriptorEmitter.Emit(spc, model);
     }
@@ -168,6 +176,42 @@ public sealed class FileHelpersGenerator : IIncrementalGenerator
 
         return hasDuplicateOrder;
     }
+
+    /// <summary>
+    /// CREC-11: Validates ConditionalRecord regex patterns at compile time.
+    /// If the condition is IncludeIfRegex (5) or ExcludeIfRegex (10), attempts to compile
+    /// the pattern. If compilation fails, emits MLFH005 and returns true to suppress
+    /// descriptor emission (the pattern is invalid and would crash at runtime).
+    /// </summary>
+#pragma warning disable MA0009 // User-provided regex pattern validation - we test-compile to catch errors early
+    private static bool ReportInvalidConditionalRecordRegex(SourceProductionContext spc, RecordModel model)
+    {
+        // RecordCondition.IncludeIfRegex = 5, ExcludeIfRegex = 10
+        if (model.Condition is not 5 and not 10)
+            return false; // Not a regex condition — no validation needed
+
+        string pattern = model.ConditionPattern;
+        if (string.IsNullOrEmpty(pattern))
+            return false; // Empty pattern will be handled at runtime (matches nothing)
+
+        try
+        {
+            // Attempt to compile the regex to validate the pattern
+            _ = new Regex(pattern);
+            return false; // Valid regex
+        }
+        catch (ArgumentException ex)
+        {
+            // Invalid regex pattern — emit MLFH005
+            spc.ReportDiagnostic(Diagnostic.Create(
+                DiagnosticDescriptors.MLFH005InvalidRegexPattern,
+                Location.None,
+                pattern,
+                ex.Message));
+            return true; // Suppress descriptor emission
+        }
+    }
+#pragma warning restore MA0009
 
     /// <summary>
     /// Checks whether the single type argument of a FileHelperRegistry&lt;T&gt; or

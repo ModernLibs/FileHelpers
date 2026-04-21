@@ -108,7 +108,7 @@ public sealed class EnumTests
     }
 
     [Test]
-    [DisplayName("RecordCondition enum has expected values: None=0, IncludeIfContains=1, ExcludeIfMatchRegex=10")]
+    [DisplayName("RecordCondition enum has expected values: None=0, IncludeIfContains=1, ExcludeIfRegex=10")]
     public async Task RecordCondition_Values()
     {
         // Arrange: Get enum values as integers
@@ -116,12 +116,12 @@ public sealed class EnumTests
         int includeIfContains = (int)RecordCondition.IncludeIfContains;
 
         // Act: Get remaining enum value
-        int excludeIfMatchRegex = (int)RecordCondition.ExcludeIfMatchRegex;
+        int excludeIfRegex = (int)RecordCondition.ExcludeIfRegex;
 
         // Assert: All values match expected
         await Assert.That(none).IsEqualTo(0);
         await Assert.That(includeIfContains).IsEqualTo(1);
-        await Assert.That(excludeIfMatchRegex).IsEqualTo(10);
+        await Assert.That(excludeIfRegex).IsEqualTo(10);
     }
 
     [Test]

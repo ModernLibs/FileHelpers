@@ -12,6 +12,13 @@ public sealed class DelimitedRecordAttribute : Attribute
     /// <summary>The string used to separate fields in each record line.</summary>
     public string Separator { get; }
 
+    /// <summary>
+    /// Indicates whether quoted fields may span multiple lines.
+    /// Defaults to <see cref="MultilineMode.NotAllow"/> for backward compatibility.
+    /// Phase 18 MULT-01: Multiline quoted field support.
+    /// </summary>
+    public MultilineMode MultilineMode { get; set; } = MultilineMode.NotAllow;
+
     /// <summary>Marks this type as a delimited record.</summary>
     /// <param name="delimiter">The separator string used to split fields (e.g., <c>","</c>, <c>"\t"</c>, <c>"|"</c>).</param>
     public DelimitedRecordAttribute(string delimiter)

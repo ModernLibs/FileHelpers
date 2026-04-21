@@ -44,6 +44,9 @@ namespace ModernLibs.FileHelpers;
 public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
 {
     private readonly IRecordDescriptor<T> _descriptor;
+    private readonly RecordConditionMatcher? _conditionMatcher;
+    private readonly bool _implementsNotifyRead;    // INTF-05
+    private readonly bool _implementsNotifyWrite;   // INTF-06
 
     // ---- Reader state -------------------------------------------------------
     private TextReader? _reader;
@@ -52,6 +55,10 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
     private int _currentLineNumber;    // physical line number for _currentLine
     private Queue<BufferedLine>? _tailBuffer; // ring buffer for IgnoreLast
     private bool _earlyStop;
+
+    // Phase 18 MULT-02: Multiline field assembly state for streaming mode
+    private readonly StringBuilder _multilineBuffer = new();
+    private int _multilineStartLineNumber;
 
     // ---- Writer state -------------------------------------------------------
     private TextWriter? _writer;
@@ -74,6 +81,7 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
 
     /// <summary>
     /// Creates an engine instance backed by the source-generated descriptor for <typeparamref name="T"/>.
+    /// CREC-01, CREC-11: Initializes RecordConditionMatcher if ConditionalRecord is configured.
     /// </summary>
     /// <exception cref="InvalidOperationException">
     /// Thrown when no descriptor is registered for <typeparamref name="T"/> — typically because
@@ -86,6 +94,17 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
         // Cast once at construction: non-null only for class record types (IRecyclableDescriptor<T>
         // is emitted by the source generator for class types only). Struct types return null here.
         _recyclable = _descriptor as IRecyclableDescriptor<T>;
+
+        // INTF-05, INTF-06: Detect interface implementation once at construction
+        _implementsNotifyRead = typeof(INotifyRead<T>).IsAssignableFrom(typeof(T));
+        _implementsNotifyWrite = typeof(INotifyWrite<T>).IsAssignableFrom(typeof(T));
+
+        // CREC-11: Initialize matcher once per engine instance
+        var opts = _descriptor.Options;
+        if (opts.Condition != RecordCondition.None && !string.IsNullOrEmpty(opts.ConditionPattern))
+        {
+            _conditionMatcher = new RecordConditionMatcher(opts.Condition, opts.ConditionPattern);
+        }
     }
 
     // =========================================================================
@@ -245,6 +264,23 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
             if (opts.IgnoreEmptyLines && line.Length == 0) continue;
             if (opts.CommentMarker != '\0' && line.Length > 0 && line[0] == opts.CommentMarker) continue;
 
+            // CREC-10: ConditionalRecord filtering runs before parse attempt
+            if (_conditionMatcher is not null && !_conditionMatcher.ShouldInclude(line.AsSpan()))
+                continue;
+
+            // Phase 18 MULT-02: Multiline assembly for quoted fields
+            if (opts.MultilineMode == MultilineMode.AllowForRead)
+            {
+                var assemblyResult = AssembleMultilineLine(line, lineNumber);
+                if (!assemblyResult.IsComplete)
+                {
+                    // Need more lines - skip to next iteration
+                    continue;
+                }
+                line = assemblyResult.AssembledLine ?? line;
+                lineNumber = assemblyResult.AssembledLineNumber;
+            }
+
             string activeLine = line;
             if (BeforeReadRecord is not null)
             {
@@ -266,42 +302,57 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
                     activeLine = beforeArgs.RecordLine;
             }
 
-            // Parse — RecycleRecords path wired in Plan 04.
+            // Parse — Phase 14 MLIN-02: Multi-line record support
             T record;
             try
             {
                 EnsureDelimitedFieldCount(activeLine, opts.Delimiter, _descriptor.Fields.Length);
+                // Phase 14 MLIN-02: Pass lineCount=1 for now (single-line records in streaming mode)
                 if (RecycleRecords && _recyclable is not null && _recycled is not null)
                 {
-                    _recyclable.ParseInto(activeLine.AsSpan(), _recycled);
+                    _recyclable.ParseInto(activeLine.AsSpan(), lineCount: 1, _recycled);
                     record = _recycled;
                 }
                 else
                 {
-                    record = _descriptor.Parse(activeLine.AsSpan());
+                    record = _descriptor.Parse(activeLine.AsSpan(), lineCount: 1);
                 }
             }
             catch (Exception ex)
             {
+                // Phase 18 MULT-04: Use multiline start line number for error reporting
+                int errorLineNumber = _multilineBuffer.Length > 0 ? _multilineStartLineNumber : lineNumber;
                 switch (_errorManager.ErrorMode)
                 {
                     case ErrorMode.ThrowException:
-                        throw CreateParseContextException(lineNumber, activeLine, ex);
+                        throw CreateParseContextException(errorLineNumber, activeLine, ex);
                     case ErrorMode.IgnoreAndContinue:
                         continue;
                     case ErrorMode.SaveAndContinue:
-                        _errorManager.AddError(new ErrorInfo(lineNumber, activeLine, ex));
+                        _errorManager.AddError(new ErrorInfo(errorLineNumber, activeLine, ex));
                         continue;
                 }
                 break;
             }
 
-            if (AfterReadRecord is not null)
+            // INTF-05, INTF-07: AfterRead event and interface notification
+            if (AfterReadRecord is not null || _implementsNotifyRead)
             {
                 var afterArgs = new AfterReadEventArgs<T>(this, record, activeLine, lineNumber);
-                AfterReadRecord.Invoke(this, afterArgs);
-                if (afterArgs.SkipThisRecord)
-                    continue;
+
+                if (AfterReadRecord is not null)
+                {
+                    AfterReadRecord.Invoke(this, afterArgs);
+                    if (afterArgs.SkipThisRecord)
+                        continue;
+                }
+
+                if (_implementsNotifyRead && record is INotifyRead<T> notifyRead)
+                {
+                    notifyRead.AfterRead(afterArgs);
+                    if (afterArgs.SkipThisRecord)
+                        continue;
+                }
             }
 
             LineNumber = lineNumber;
@@ -376,6 +427,11 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
         int ignoredFirst = 0;
         int lineNumber = 0;
 
+        // Phase 18 MULT-06: Multiline support for async streaming
+        var lineBuffer = new StringBuilder();
+        int multilineStartLine = 0;
+        bool isBuffering = false;
+
         using var stream = File.OpenRead(filePath);
         await using var lineReader = new PipelineLineReader(stream, Encoding);
 
@@ -390,33 +446,149 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
                 continue;
             }
 
-            // IgnoreEmptyLines
+            // Phase 18 MULT-06: Multiline assembly for async streaming
+            if (opts.MultilineMode == MultilineMode.AllowForRead)
+            {
+                if (!isBuffering)
+                {
+                    // Check if this line starts a multiline quoted field
+                    if (DelimitedFieldEnumerator.HasUnclosedQuote(line.Span))
+                    {
+                        lineBuffer.Clear();
+                        lineBuffer.Append(line.Span);
+                        multilineStartLine = lineNumber;
+                        isBuffering = true;
+                        continue;  // Need more lines
+                    }
+                }
+                else
+                {
+                    // Currently assembling multiline
+                    lineBuffer.Append(Environment.NewLine);
+                    lineBuffer.Append(line.Span);
+
+                    var assembled = lineBuffer.ToString();
+                    if (!DelimitedFieldEnumerator.HasUnclosedQuote(assembled.AsSpan()))
+                    {
+                        // Quote closed - process assembled line
+                        isBuffering = false;
+                        var assembledSpan = assembled.AsSpan();
+
+                        // Apply remaining filters and parse
+                        if (opts.IgnoreEmptyLines && assembledSpan.IsEmpty)
+                        {
+                            lineBuffer.Clear();
+                            continue;
+                        }
+
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        // Phase 18: Parse multiline record - error handling outside try-catch for yield compatibility
+                        var parseResult = TryParseRecord(assembled, opts.Delimiter, _descriptor.Fields.Length, multilineStartLine, out var parsed);
+                        if (!parseResult.Success)
+                        {
+                            // Error handled in TryParseRecord
+                            lineBuffer.Clear();
+                            if (parseResult.ShouldContinue)
+                                continue;
+                            yield break;
+                        }
+
+                        lineBuffer.Clear();
+
+                        // INTF-05, INTF-07: AfterRead interface notification
+                        if (_implementsNotifyRead && parsed is INotifyRead<T> notifyRead)
+                        {
+                            var afterArgs = new AfterReadEventArgs<T>(this, parsed, assembled, multilineStartLine);
+                            notifyRead.AfterRead(afterArgs);
+                            if (afterArgs.SkipThisRecord)
+                                continue;
+                        }
+
+                        yield return parsed!;
+                    }
+                    continue;  // Still buffering or just processed
+                }
+            }
+
+            // IgnoreEmptyLines (single-line path)
             if (opts.IgnoreEmptyLines && line.Length == 0) continue;
 
             // CommentMarker
             if (opts.CommentMarker != '\0' && line.Length > 0 && line.Span[0] == opts.CommentMarker) continue;
 
+            // CREC-10: ConditionalRecord filtering runs before parse attempt
+            if (_conditionMatcher is not null && !_conditionMatcher.ShouldInclude(line.Span))
+                continue;
+
             cancellationToken.ThrowIfCancellationRequested();
-            T parsed = default!;
-            try
+
+            // Phase 18: Parse single-line record - error handling outside try-catch for yield compatibility
+            var singleParseResult = TryParseRecord(line.Span.ToString(), opts.Delimiter, _descriptor.Fields.Length, lineNumber, out var singleParsed);
+            if (!singleParseResult.Success)
             {
-                EnsureDelimitedFieldCount(line.ToString(), opts.Delimiter, _descriptor.Fields.Length);
-                parsed = _descriptor.Parse(line.Span);
+                if (singleParseResult.ShouldContinue)
+                    continue;
+                yield break;
             }
-            catch (Exception ex)
+
+            // INTF-05, INTF-07: AfterRead interface notification for async enumerable
+            if (_implementsNotifyRead && singleParsed is INotifyRead<T> notifyReadSingle)
             {
-                switch (_errorManager.ErrorMode)
-                {
-                    case ErrorMode.ThrowException:
-                        throw CreateParseContextException(lineNumber, line.ToString(), ex);
-                    case ErrorMode.IgnoreAndContinue:
-                        continue;
-                    case ErrorMode.SaveAndContinue:
-                        _errorManager.AddError(new ErrorInfo(lineNumber, line.ToString(), ex));
-                        continue;
-                }
+                var afterArgs = new AfterReadEventArgs<T>(this, singleParsed!, line.Span.ToString(), lineNumber);
+                notifyReadSingle.AfterRead(afterArgs);
+                if (afterArgs.SkipThisRecord)
+                    continue;
             }
-            yield return parsed;
+
+            yield return singleParsed!;
+        }
+
+        // Phase 18 MULT-04: Handle any remaining buffered multiline content at EOF
+        if (isBuffering && lineBuffer.Length > 0)
+        {
+            var finalLine = lineBuffer.ToString();
+            var finalParseResult = TryParseRecord(finalLine, opts.Delimiter, _descriptor.Fields.Length, multilineStartLine, out var finalParsed);
+            if (finalParseResult.Success)
+            {
+                yield return finalParsed!;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Phase 18: Helper method to parse a record with error handling outside try-catch
+    /// to allow yield return in calling async iterator.
+    /// </summary>
+    private (bool Success, bool ShouldContinue) TryParseRecord(
+        string line,
+        string delimiter,
+        int fieldCount,
+        int lineNumber,
+        out T? record)
+    {
+        record = default;
+
+        try
+        {
+            EnsureDelimitedFieldCount(line, delimiter, fieldCount);
+            record = _descriptor.Parse(line.AsSpan(), lineCount: 1);
+            return (true, true);
+        }
+        catch (Exception ex)
+        {
+            switch (_errorManager.ErrorMode)
+            {
+                case ErrorMode.ThrowException:
+                    throw CreateParseContextException(lineNumber, line, ex);
+                case ErrorMode.IgnoreAndContinue:
+                    return (false, true);
+                case ErrorMode.SaveAndContinue:
+                    _errorManager.AddError(new ErrorInfo(lineNumber, line, ex));
+                    return (false, true);
+                default:
+                    return (false, false);
+            }
         }
     }
 
@@ -492,21 +664,45 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
     {
         ThrowIfNoWriter();
 
-        if (BeforeWriteRecord is not null)
+        // INTF-06, INTF-07: BeforeWrite event and interface notification
+        if (BeforeWriteRecord is not null || _implementsNotifyWrite)
         {
             var beforeArgs = new BeforeWriteEventArgs<T>(this, record, TotalRecords + 1);
-            BeforeWriteRecord.Invoke(this, beforeArgs);
-            if (beforeArgs.SkipThisRecord)
-                return;
+
+            if (BeforeWriteRecord is not null)
+            {
+                BeforeWriteRecord.Invoke(this, beforeArgs);
+                if (beforeArgs.SkipThisRecord)
+                    return;
+            }
+
+            if (_implementsNotifyWrite && record is INotifyWrite<T> notifyWrite)
+            {
+                notifyWrite.BeforeWrite(beforeArgs);
+                if (beforeArgs.SkipThisRecord)
+                    return;
+            }
         }
 
         _writeBuf!.Reset();
         _descriptor.Format(record, _writeBuf);
-        if (AfterWriteRecord is not null)
+
+        // INTF-06, INTF-07: AfterWrite event and interface notification
+        if (AfterWriteRecord is not null || _implementsNotifyWrite)
         {
             string formattedLine = _writeBuf.WrittenSpan.ToString();
             var afterArgs = new AfterWriteEventArgs<T>(this, record, TotalRecords + 1, formattedLine);
-            AfterWriteRecord.Invoke(this, afterArgs);
+
+            if (AfterWriteRecord is not null)
+            {
+                AfterWriteRecord.Invoke(this, afterArgs);
+            }
+
+            if (_implementsNotifyWrite && record is INotifyWrite<T> notifyWrite)
+            {
+                notifyWrite.AfterWrite(afterArgs);
+            }
+
             _writer!.Write(afterArgs.RecordLine);
         }
         else
@@ -726,6 +922,58 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
             values.Add(line.Text);
 
         return string.Join(NewLineForWrite, values);
+    }
+
+    /// <summary>
+    /// Phase 18 MULT-02: Assembles multiline quoted fields in streaming mode.
+    /// Checks if the current line starts a multiline field, and if so, buffers additional lines.
+    /// </summary>
+    private (string? AssembledLine, int AssembledLineNumber, bool IsComplete) AssembleMultilineLine(string line, int lineNumber)
+    {
+        var opts = _descriptor.Options;
+
+        // If not in multiline mode, return as-is
+        if (opts.MultilineMode != MultilineMode.AllowForRead)
+        {
+            return (line, lineNumber, true);
+        }
+
+        // Check if we need to start buffering
+        if (_multilineBuffer.Length == 0)
+        {
+            // Check if this line starts a multiline quoted field
+            if (DelimitedFieldEnumerator.HasUnclosedQuote(line.AsSpan()))
+            {
+                // Start buffering
+                _multilineBuffer.Clear();
+                _multilineBuffer.Append(line);
+                _multilineStartLineNumber = lineNumber;
+                return (null, lineNumber, false);  // Need more lines
+            }
+
+            // Single-line record
+            return (line, lineNumber, true);
+        }
+        else
+        {
+            // Already buffering - append this line
+            _multilineBuffer.Append(NewLineForWrite);
+            _multilineBuffer.Append(line);
+
+            // Check if quote is now closed
+            var assembled = _multilineBuffer.ToString();
+            if (!DelimitedFieldEnumerator.HasUnclosedQuote(assembled.AsSpan()))
+            {
+                // Quote closed - return assembled line
+                var result = assembled;
+                int resultLineNumber = _currentLineNumber > 0 ? _currentLineNumber : _multilineStartLineNumber;
+                _multilineBuffer.Clear();
+                return (result, resultLineNumber, true);
+            }
+
+            // Still buffering - need more lines
+            return (null, lineNumber, false);
+        }
     }
 
     private static FormatException CreateParseContextException(int lineNumber, string line, Exception inner)

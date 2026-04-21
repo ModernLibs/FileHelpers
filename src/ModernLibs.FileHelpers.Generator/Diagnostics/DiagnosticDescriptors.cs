@@ -62,4 +62,17 @@ internal static class DiagnosticDescriptors
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
         description: "Custom field converters must derive from ModernLibs.FileHelpers.Converters.ConverterBase. If the supplied type does not derive from ConverterBase (and is not one of the future ISpanConverter<T> implementors), the generator cannot wire up conversion and the field silently becomes default(T). Either derive your converter from ConverterBase or use one of the built-in ConverterKind enum values.");
+
+    /// <summary>
+    /// MLFH005: <c>[ConditionalRecord(RecordCondition.IncludeIfRegex | ExcludeIfRegex, "pattern")]</c>
+    /// uses an invalid regular expression pattern. CREC-11: Compile-time regex validation.
+    /// </summary>
+    internal static readonly DiagnosticDescriptor MLFH005InvalidRegexPattern = new(
+        id: "MLFH005",
+        title: "Invalid ConditionalRecord regex pattern",
+        messageFormat: "ConditionalRecord regex pattern '{0}' is invalid: {1}",
+        category: "FileHelpers.Generator",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "The regex pattern provided to ConditionalRecordAttribute is not a valid regular expression. Fix the pattern syntax or use a non-regex condition type (IncludeIfBegins, IncludeIfContains, IncludeIfEnds, ExcludeIfBegins, ExcludeIfContains, ExcludeIfEnds).");
 }

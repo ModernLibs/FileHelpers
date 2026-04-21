@@ -5,6 +5,10 @@
 #pragma warning disable CA1000
 // MA0004: Library code; ConfigureAwait(false) not used per project pattern (callers control context).
 #pragma warning disable MA0004
+// CA1710/MA0046: Delegate names and signatures intentionally match FileHelpers compatibility surface.
+#pragma warning disable CA1710, MA0046
+// CS0067: Event wiring is phased; declarations exist before full usage.
+#pragma warning disable CS0067
 
 using System.Collections;
 using System.Runtime.CompilerServices;
@@ -45,7 +49,9 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
     private TextReader? _reader;
     private bool _ownsReader;
     private string? _currentLine;      // pre-fetched content line (null = EOF)
-    private Queue<string>? _tailBuffer; // ring buffer for IgnoreLast
+    private int _currentLineNumber;    // physical line number for _currentLine
+    private Queue<BufferedLine>? _tailBuffer; // ring buffer for IgnoreLast
+    private bool _earlyStop;
 
     // ---- Writer state -------------------------------------------------------
     private TextWriter? _writer;
@@ -59,6 +65,7 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
     // Struct descriptors do not implement IRecyclableDescriptor<T>; cast returns null.
     private readonly IRecyclableDescriptor<T>? _recyclable;
     private T? _recycled;
+    private readonly ErrorManager _errorManager = new();
 
     // ---- Lifecycle ----------------------------------------------------------
     // NOTE: No _disposed flag — this engine is intentionally reusable after Close()/Dispose().
@@ -125,6 +132,22 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
     /// <summary>The last record returned by <see cref="ReadNext()"/>.</summary>
     public T? LastRecord { get; private set; }
 
+    /// <summary>ERRH-05: Shared error manager instance for this engine.</summary>
+    public ErrorManager ErrorManager => _errorManager;
+
+    /// <summary>ERRH-05: Shortcut to <see cref="ErrorManager.ErrorMode"/>.</summary>
+    public ErrorMode ErrorMode
+    {
+        get => _errorManager.ErrorMode;
+        set => _errorManager.ErrorMode = value;
+    }
+
+    public event BeforeReadHandler<T>? BeforeReadRecord;
+    public event AfterReadHandler<T>? AfterReadRecord;
+    public event BeforeWriteHandler<T>? BeforeWriteRecord;
+    public event AfterWriteHandler<T>? AfterWriteRecord;
+    public event ProgressChangeHandler? Progress;
+
     // =========================================================================
     // Blocking streaming read — ENGI-09
     // =========================================================================
@@ -188,54 +211,112 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
     public T? ReadNext()
     {
         ThrowIfNoReader();
+        if (_earlyStop)
+            return default;
         var opts = _descriptor.Options;
 
         // Ring-buffer / filter loop — advances until a parseable line is dequeued.
         while (_currentLine is not null)
         {
             string line = _currentLine;
+            int lineNumber = _currentLineNumber;
 
             // Pre-fetch the next raw line before any filtering so the ring buffer always
             // holds the most-recent N lines (where N = opts.IgnoreLast).
             _currentLine = _reader!.ReadLine();
-            if (_currentLine is not null) LineNumber++;
+            if (_currentLine is not null)
+                _currentLineNumber++;
+            else
+                _currentLineNumber = 0;
 
             // IgnoreLast ring buffer: hold lines in the queue; only yield after the
             // queue overflows (the oldest dequeued line is safe to parse).
             if (opts.IgnoreLast > 0)
             {
-                _tailBuffer!.Enqueue(line);
+                _tailBuffer!.Enqueue(new BufferedLine(line, lineNumber));
                 if (_tailBuffer.Count <= opts.IgnoreLast)
                     continue; // buffer not yet full — don't yield this line yet
-                line = _tailBuffer.Dequeue();
+                var dequeued = _tailBuffer.Dequeue();
+                line = dequeued.Text;
+                lineNumber = dequeued.LineNumber;
             }
 
             // Line-level filters
             if (opts.IgnoreEmptyLines && line.Length == 0) continue;
             if (opts.CommentMarker != '\0' && line.Length > 0 && line[0] == opts.CommentMarker) continue;
 
-            // Parse — RecycleRecords path wired in Plan 04.
-            T record;
-            if (RecycleRecords && _recyclable is not null && _recycled is not null)
+            string activeLine = line;
+            if (BeforeReadRecord is not null)
             {
-                _recyclable.ParseInto(line.AsSpan(), _recycled);
-                record = _recycled;
-            }
-            else
-            {
-                record = _descriptor.Parse(line.AsSpan());
+                var beforeArgs = new BeforeReadEventArgs<T>(this, activeLine, lineNumber);
+                BeforeReadRecord.Invoke(this, beforeArgs);
+                if (beforeArgs.StopReading)
+                {
+                    _earlyStop = true;
+                    if (opts.IgnoreLast > 0 && _tailBuffer!.Count > 0)
+                    {
+                        FooterText = JoinBufferedLines(_tailBuffer);
+                        _tailBuffer.Clear();
+                    }
+                    return default;
+                }
+                if (beforeArgs.SkipThisRecord)
+                    continue;
+                if (beforeArgs.RecordLineChanged)
+                    activeLine = beforeArgs.RecordLine;
             }
 
+            // Parse — RecycleRecords path wired in Plan 04.
+            T record;
+            try
+            {
+                EnsureDelimitedFieldCount(activeLine, opts.Delimiter, _descriptor.Fields.Length);
+                if (RecycleRecords && _recyclable is not null && _recycled is not null)
+                {
+                    _recyclable.ParseInto(activeLine.AsSpan(), _recycled);
+                    record = _recycled;
+                }
+                else
+                {
+                    record = _descriptor.Parse(activeLine.AsSpan());
+                }
+            }
+            catch (Exception ex)
+            {
+                switch (_errorManager.ErrorMode)
+                {
+                    case ErrorMode.ThrowException:
+                        throw CreateParseContextException(lineNumber, activeLine, ex);
+                    case ErrorMode.IgnoreAndContinue:
+                        continue;
+                    case ErrorMode.SaveAndContinue:
+                        _errorManager.AddError(new ErrorInfo(lineNumber, activeLine, ex));
+                        continue;
+                }
+                break;
+            }
+
+            if (AfterReadRecord is not null)
+            {
+                var afterArgs = new AfterReadEventArgs<T>(this, record, activeLine, lineNumber);
+                AfterReadRecord.Invoke(this, afterArgs);
+                if (afterArgs.SkipThisRecord)
+                    continue;
+            }
+
+            LineNumber = lineNumber;
             TotalRecords++;
             LastRecord = record;
             _recycled = record;
+            if (Progress is not null)
+                Progress.Invoke(this, new ProgressEventArgs(TotalRecords, -1, 0L, 0L));
             return record;
         }
 
         // EOF: drain remaining tail buffer lines into FooterText.
         if (opts.IgnoreLast > 0 && _tailBuffer!.Count > 0)
         {
-            FooterText = string.Join(NewLineForWrite, _tailBuffer);
+            FooterText = JoinBufferedLines(_tailBuffer);
             _tailBuffer.Clear();
         }
 
@@ -293,12 +374,15 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
 
         var opts = _descriptor.Options;
         int ignoredFirst = 0;
+        int lineNumber = 0;
 
         using var stream = File.OpenRead(filePath);
         await using var lineReader = new PipelineLineReader(stream, Encoding);
 
         await foreach (var line in lineReader.ReadLinesAsync(cancellationToken))
         {
+            lineNumber++;
+
             // IgnoreFirst: skip the first N lines (header rows)
             if (ignoredFirst < opts.IgnoreFirst)
             {
@@ -313,7 +397,26 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
             if (opts.CommentMarker != '\0' && line.Length > 0 && line.Span[0] == opts.CommentMarker) continue;
 
             cancellationToken.ThrowIfCancellationRequested();
-            yield return _descriptor.Parse(line.Span);
+            T parsed = default!;
+            try
+            {
+                EnsureDelimitedFieldCount(line.ToString(), opts.Delimiter, _descriptor.Fields.Length);
+                parsed = _descriptor.Parse(line.Span);
+            }
+            catch (Exception ex)
+            {
+                switch (_errorManager.ErrorMode)
+                {
+                    case ErrorMode.ThrowException:
+                        throw CreateParseContextException(lineNumber, line.ToString(), ex);
+                    case ErrorMode.IgnoreAndContinue:
+                        continue;
+                    case ErrorMode.SaveAndContinue:
+                        _errorManager.AddError(new ErrorInfo(lineNumber, line.ToString(), ex));
+                        continue;
+                }
+            }
+            yield return parsed;
         }
     }
 
@@ -388,9 +491,28 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
     public void WriteNext(T record)
     {
         ThrowIfNoWriter();
+
+        if (BeforeWriteRecord is not null)
+        {
+            var beforeArgs = new BeforeWriteEventArgs<T>(this, record, TotalRecords + 1);
+            BeforeWriteRecord.Invoke(this, beforeArgs);
+            if (beforeArgs.SkipThisRecord)
+                return;
+        }
+
         _writeBuf!.Reset();
         _descriptor.Format(record, _writeBuf);
-        _writer!.Write(_writeBuf.WrittenSpan);
+        if (AfterWriteRecord is not null)
+        {
+            string formattedLine = _writeBuf.WrittenSpan.ToString();
+            var afterArgs = new AfterWriteEventArgs<T>(this, record, TotalRecords + 1, formattedLine);
+            AfterWriteRecord.Invoke(this, afterArgs);
+            _writer!.Write(afterArgs.RecordLine);
+        }
+        else
+        {
+            _writer!.Write(_writeBuf.WrittenSpan);
+        }
         _writer.Write(NewLineForWrite);
         TotalRecords++;
     }
@@ -492,6 +614,12 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
         var opts = _descriptor.Options;
         LineNumber = 0;
         TotalRecords = 0;
+        HeaderText = null;
+        FooterText = null;
+        _currentLineNumber = 0;
+        _tailBuffer = null;
+        _errorManager.ClearErrors();
+        _earlyStop = false;
 
         // Consume IgnoreFirst header lines and capture them into HeaderText.
         var headerLines = new List<string>(opts.IgnoreFirst);
@@ -500,18 +628,18 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
             string? line = _reader!.ReadLine();
             if (line is null) break;
             headerLines.Add(line);
-            LineNumber++;
+            _currentLineNumber++;
         }
         if (headerLines.Count > 0)
             HeaderText = string.Join(NewLineForWrite, headerLines);
 
         // Initialise ring buffer for IgnoreLast (capacity = N+1 to detect overflow).
         if (opts.IgnoreLast > 0)
-            _tailBuffer = new Queue<string>(opts.IgnoreLast + 1);
+            _tailBuffer = new Queue<BufferedLine>(opts.IgnoreLast + 1);
 
         // Pre-read first content line.
         _currentLine = _reader!.ReadLine();
-        if (_currentLine is not null) LineNumber++;
+        if (_currentLine is not null) _currentLineNumber++;
     }
 
     private void InitWriteSession()
@@ -550,4 +678,60 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
         if (_writer is null)
             throw new InvalidOperationException("No write session is open. Call BeginWriteFile, BeginWriteStream, or BeginWriteString first.");
     }
+
+    private static void EnsureDelimitedFieldCount(string line, string delimiter, int expectedFieldCount)
+    {
+        if (string.IsNullOrEmpty(delimiter))
+            return;
+
+        int count = 1;
+        bool inQuotes = false;
+        for (int i = 0; i < line.Length; i++)
+        {
+            if (line[i] == '"')
+            {
+                if (inQuotes && i + 1 < line.Length && line[i + 1] == '"')
+                {
+                    i++;
+                    continue;
+                }
+
+                inQuotes = !inQuotes;
+                continue;
+            }
+
+            if (!inQuotes && IsDelimiterAt(line, delimiter, i))
+            {
+                count++;
+                i += delimiter.Length - 1;
+            }
+        }
+
+        if (count != expectedFieldCount)
+            throw new FormatException($"Expected {expectedFieldCount} fields but found {count}.");
+    }
+
+    private static bool IsDelimiterAt(string line, string delimiter, int index)
+    {
+        if (index + delimiter.Length > line.Length)
+            return false;
+
+        return line.AsSpan(index, delimiter.Length).SequenceEqual(delimiter.AsSpan());
+    }
+
+    private string JoinBufferedLines(Queue<BufferedLine> lines)
+    {
+        var values = new List<string>(lines.Count);
+        foreach (var line in lines)
+            values.Add(line.Text);
+
+        return string.Join(NewLineForWrite, values);
+    }
+
+    private static FormatException CreateParseContextException(int lineNumber, string line, Exception inner)
+    {
+        return new FormatException($"Error parsing line {lineNumber}: '{line}'. {inner.Message}", inner);
+    }
+
+    private readonly record struct BufferedLine(string Text, int LineNumber);
 }

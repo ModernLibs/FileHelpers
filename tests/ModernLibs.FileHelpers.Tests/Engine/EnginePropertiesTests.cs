@@ -23,25 +23,35 @@ public sealed class EnginePropertiesTests
 {
     /// <summary>ENGI-08: LineNumber reflects the 1-based index of the last successfully parsed line.</summary>
     [Test]
+    [DisplayName("LineNumber reflects last parsed line (3) after reading header plus two data rows")]
     public async Task LineNumber_AfterRead_ReflectsLastParsedLine()
     {
         // CsvOrder has [IgnoreFirst(1)] — header on line 1, data on lines 2 and 3.
         // Last parsed line is the second data line → original line number 3.
+        // Arrange: Create engine and input with header + 2 data rows
         var engine = new FileHelperEngine<CsvOrder>();
         var input = "HEADER\r\n1,Alice,10\r\n2,Bob,20";
+
+        // Act: Parse input
         _ = engine.ReadString(input);
 
+        // Assert: LineNumber equals 3 (last parsed physical line)
         await Assert.That(engine.LineNumber).IsEqualTo(3);
     }
 
     /// <summary>ENGI-08: TotalRecords equals the count of records returned from the last Read call.</summary>
     [Test]
+    [DisplayName("TotalRecords equals 3 after reading three data rows from input")]
     public async Task TotalRecords_AfterRead_ReflectsCount()
     {
+        // Arrange: Create engine and input with header + 3 data rows
         var engine = new FileHelperEngine<CsvOrder>();
         var input = "HEADER\r\n1,Alice,10\r\n2,Bob,20\r\n3,Carol,30";
+
+        // Act: Parse input
         var records = engine.ReadString(input);
 
+        // Assert: Records.Length and TotalRecords both equal 3
         await Assert.That(records.Length).IsEqualTo(3);
         await Assert.That(engine.TotalRecords).IsEqualTo(3);
     }
@@ -52,39 +62,60 @@ public sealed class EnginePropertiesTests
     /// (Write tests live in Wave 4; this placeholder proves the read-side coherence only.)
     /// </summary>
     [Test]
+    [DisplayName("TotalRecords updates to 1 after second read with single record overwrites previous value")]
     public async Task TotalRecords_AfterWrite_ReflectsCount()
     {
+        // Arrange: Create engine and perform first read with 3 records
         var engine = new FileHelperEngine<CsvOrder>();
         _ = engine.ReadString("HEADER\r\n1,Alice,10\r\n2,Bob,20\r\n3,Carol,30");
+
+        // Assert: TotalRecords is 3 after first read
         await Assert.That(engine.TotalRecords).IsEqualTo(3);
 
         // Second read with a different count must replace, not accumulate.
+        // Act: Perform second read with 1 record
         _ = engine.ReadString("HEADER\r\n1,Alice,10");
+
+        // Assert: TotalRecords updated to 1 (not accumulated)
         await Assert.That(engine.TotalRecords).IsEqualTo(1);
     }
 
     /// <summary>D-09: NewLineForWrite defaults to "\r\n" (FileHelpers 3.x compat).</summary>
     [Test]
+    [DisplayName("NewLineForWrite property defaults to CRLF (\\r\\n) for FileHelpers 3.x compatibility")]
     public async Task NewLineForWrite_DefaultIsCRLF()
     {
+        // Arrange: Create new engine instance
         var engine = new FileHelperEngine<CsvOrder>();
+
+        // Act: Read default NewLineForWrite value
+        // Assert: Default value is "\r\n"
         await Assert.That(engine.NewLineForWrite).IsEqualTo("\r\n");
     }
 
     /// <summary>ENGI-16: Encoding defaults to UTF-8.</summary>
     [Test]
+    [DisplayName("Encoding property defaults to UTF-8")]
     public async Task Encoding_DefaultIsUtf8()
     {
+        // Arrange: Create new engine instance
         var engine = new FileHelperEngine<CsvOrder>();
+
+        // Act: Read default Encoding value
+        // Assert: Default encoding is UTF-8
         await Assert.That(engine.Encoding).IsEqualTo(Encoding.UTF8);
     }
 
     /// <summary>ENGI-16: Encoding can be changed (e.g., Latin1) and is honored on ReadFile.</summary>
     [Test]
+    [DisplayName("Encoding property can be set to Latin1 and is used when reading files")]
     public async Task Encoding_CanBeChanged()
     {
+        // Arrange: Create engine and set Encoding to Latin1
         var engine = new FileHelperEngine<CsvOrder>();
         engine.Encoding = Encoding.Latin1;
+
+        // Assert: Encoding property reflects new value
         await Assert.That(engine.Encoding).IsEqualTo(Encoding.Latin1);
 
         // Round-trip a plain-ASCII payload through a Latin1-encoded file: ReadFile must use
@@ -96,8 +127,11 @@ public sealed class EnginePropertiesTests
         {
             // Write with Latin1 (ASCII-only payload is byte-identical to UTF-8 here).
             await File.WriteAllTextAsync(tempPath, "HEADER\r\n99,Latin1Record,42.00", Encoding.Latin1);
+
+            // Act: Read file with Latin1 encoding set
             var records = engine.ReadFile(tempPath);
 
+            // Assert: Record parsed correctly using Latin1 encoding
             await Assert.That(records.Length).IsEqualTo(1);
             await Assert.That(records[0].OrderId).IsEqualTo(99);
             await Assert.That(records[0].CustomerName).IsEqualTo("Latin1Record");
@@ -117,8 +151,10 @@ public sealed class EnginePropertiesTests
     /// ASCII-only variant above which would pass under a faulty UTF-8 fallback.
     /// </summary>
     [Test]
+    [DisplayName("Encoding Latin1 correctly reads non-ASCII characters (Résumé) without mojibake")]
     public async Task Encoding_NonAscii_IsHonoredOnReadFile()
     {
+        // Arrange: Create engine with Latin1 encoding for non-ASCII test
         var engine = new FileHelperEngine<CsvOrder>
         {
             Encoding = Encoding.Latin1,
@@ -133,8 +169,10 @@ public sealed class EnginePropertiesTests
             // Encoding setter is actually honored by ReadFile's StreamReader construction.
             await File.WriteAllTextAsync(tempPath, "HEADER\r\n99,Résumé,42.00", Encoding.Latin1);
 
+            // Act: Read file with Latin1 encoding and non-ASCII content
             var records = engine.ReadFile(tempPath);
 
+            // Assert: Record parsed with correct non-ASCII characters preserved
             await Assert.That(records.Length).IsEqualTo(1);
             await Assert.That(records[0].OrderId).IsEqualTo(99);
             await Assert.That(records[0].CustomerName).IsEqualTo("Résumé");

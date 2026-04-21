@@ -17,13 +17,16 @@ public sealed class ModuleInitializerTests
 {
     /// <summary>SGEN-03: FileHelperRegistry&lt;SimpleDelimitedRecord&gt;.Descriptor is non-null after module load.</summary>
     [Test]
+    [DisplayName("FileHelperRegistry<SimpleDelimitedRecord>.Descriptor is non-null after module init (SGEN-03)")]
     public async Task Registry_AfterModuleInit_DescriptorIsNonNull()
     {
         // The generator processed SimpleDelimitedRecord at compile time.
         // The emitted [ModuleInitializer] ran before this test method executed.
         // FileHelperRegistry<SimpleDelimitedRecord>.Descriptor must therefore be non-null.
+        // Arrange: Get descriptor from registry
         var descriptor = FileHelperRegistry<SimpleDelimitedRecord>.Descriptor;
 
+        // Assert: Descriptor is non-null
         await Assert.That(descriptor).IsNotNull();
 
         // Snapshot Fields into an array before any await — ReadOnlySpan<T> cannot cross await boundaries.
@@ -43,12 +46,15 @@ public sealed class ModuleInitializerTests
 
     /// <summary>SGEN-05: FileHelperRegistry&lt;RecordClassFixture&gt;.Descriptor is non-null after module load.</summary>
     [Test]
+    [DisplayName("FileHelperRegistry<RecordClassFixture>.Descriptor is non-null after module init (SGEN-05)")]
     public async Task Registry_AfterModuleInit_RecordClassDescriptorIsNonNull()
     {
         // RecordClassFixture has [DelimitedRecord] and was compiled with the generator active.
         // The emitted [ModuleInitializer] must have registered the descriptor before this test runs.
+        // Arrange: Get descriptor from registry
         var descriptor = FileHelperRegistry<RecordClassFixture>.Descriptor;
 
+        // Assert: Descriptor is non-null
         await Assert.That(descriptor).IsNotNull();
 
         // Snapshot fields before any await — ReadOnlySpan<T> cannot cross await boundaries.
@@ -63,11 +69,14 @@ public sealed class ModuleInitializerTests
 
     /// <summary>SGEN-06: FileHelperRegistry&lt;ReadonlyRecordStructFixture&gt;.Descriptor is non-null after module load.</summary>
     [Test]
+    [DisplayName("FileHelperRegistry<ReadonlyRecordStructFixture>.Descriptor is non-null after module init (SGEN-06)")]
     public async Task Registry_AfterModuleInit_ReadonlyRecordStructDescriptorIsNonNull()
     {
         // ReadonlyRecordStructFixture has [DelimitedRecord] and was compiled with the generator active.
+        // Arrange: Get descriptor from registry
         var descriptor = FileHelperRegistry<ReadonlyRecordStructFixture>.Descriptor;
 
+        // Assert: Descriptor is non-null
         await Assert.That(descriptor).IsNotNull();
 
         int fieldCount = descriptor.Fields.Length;

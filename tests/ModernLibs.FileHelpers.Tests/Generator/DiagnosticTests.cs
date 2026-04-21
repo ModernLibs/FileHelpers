@@ -44,8 +44,10 @@ public sealed class DiagnosticTests
 
     /// <summary>SGEN-07: MLFH001 — type used with engine lacks record attribute.</summary>
     [Test]
+    [DisplayName("Generator emits MLFH001 diagnostic when type lacks record attribute")]
     public async Task MFH001_TypeLacksRecordAttribute_EmitsDiagnostic()
     {
+        // Arrange: Create compilation with undecorated type used with FileHelperRegistry
         var source = """
             using ModernLibs.FileHelpers;
             public sealed class Undecorated
@@ -68,7 +70,10 @@ public sealed class DiagnosticTests
         driver = driver.RunGenerators(compilation);
         var result = driver.GetRunResult();
 
+        // Act: Find MLFH001 diagnostic
         var mfh001 = result.Diagnostics.FirstOrDefault(d => string.Equals(d.Id, "MLFH001", StringComparison.Ordinal));
+
+        // Assert: MLFH001 diagnostic emitted with Error severity and mentions Undecorated
         await Assert.That(mfh001).IsNotNull();
         await Assert.That(mfh001!.Severity).IsEqualTo(DiagnosticSeverity.Error);
         await Assert.That(mfh001.GetMessage(CultureInfo.InvariantCulture)).Contains("Undecorated");
@@ -78,8 +83,10 @@ public sealed class DiagnosticTests
 
     /// <summary>MLFH002: FixedLengthRecord with a field missing [FieldFixedLength] emits MLFH002 and suppresses descriptor.</summary>
     [Test]
+    [DisplayName("Generator emits MLFH002 and suppresses descriptor when FixedLengthRecord field lacks FieldFixedLength")]
     public async Task MFH002_FixedLengthRecord_FieldMissingFixedLength_EmitsDiagnosticAndSuppressesDescriptor()
     {
+        // Arrange: Create compilation with FixedLengthRecord where Symbol field lacks [FieldFixedLength]
         var source = """
             using ModernLibs.FileHelpers;
             [FixedLengthRecord]
@@ -102,6 +109,10 @@ public sealed class DiagnosticTests
         var mfh002 = result.Diagnostics
             .Where(d => string.Equals(d.Id, "MLFH002", StringComparison.Ordinal))
             .ToList();
+
+        // Act: Count MLFH002 diagnostics
+
+        // Assert: Exactly one MLFH002 diagnostic for Symbol field
         await Assert.That(mfh002.Count).IsEqualTo(1);
 
         // Descriptor is suppressed — no generated file
@@ -113,8 +124,10 @@ public sealed class DiagnosticTests
 
     /// <summary>MLFH002: FixedLengthRecord with all fields annotated does NOT emit MLFH002 and generates descriptor.</summary>
     [Test]
+    [DisplayName("Generator produces descriptor with no MLFH002 when all FixedLengthRecord fields have FieldFixedLength")]
     public async Task MFH002_FixedLengthRecord_AllFieldsAnnotated_NoMFH002Diagnostic()
     {
+        // Arrange: Create compilation with properly annotated FixedLengthRecord
         var source = """
             using ModernLibs.FileHelpers;
             [FixedLengthRecord]
@@ -136,6 +149,10 @@ public sealed class DiagnosticTests
         var mfh002 = result.Diagnostics
             .Where(d => string.Equals(d.Id, "MLFH002", StringComparison.Ordinal))
             .ToList();
+
+        // Act: Count MLFH002 diagnostics
+
+        // Assert: No MLFH002 diagnostics and descriptor was generated
         await Assert.That(mfh002.Count).IsEqualTo(0);
 
         // Descriptor is generated
@@ -149,8 +166,10 @@ public sealed class DiagnosticTests
 
     /// <summary>SGEN-09: MLFH003 — duplicate [FieldOrder] values in the same record.</summary>
     [Test]
+    [DisplayName("Generator emits MLFH003 and suppresses descriptor for duplicate FieldOrder values")]
     public async Task MFH003_DuplicateFieldOrder_EmitsDiagnosticAndSuppressesDescriptor()
     {
+        // Arrange: Create compilation with duplicate [FieldOrder(1)] values
         var source = """
             using ModernLibs.FileHelpers;
             [DelimitedRecord(",")]
@@ -168,7 +187,10 @@ public sealed class DiagnosticTests
         driver = driver.RunGenerators(compilation);
         var result = driver.GetRunResult();
 
+        // Act: Find MLFH003 diagnostic
         var mfh003 = result.Diagnostics.FirstOrDefault(d => string.Equals(d.Id, "MLFH003", StringComparison.Ordinal));
+
+        // Assert: MLFH003 diagnostic emitted with Error severity, mentions both fields and order value
         await Assert.That(mfh003).IsNotNull();
         await Assert.That(mfh003!.Severity).IsEqualTo(DiagnosticSeverity.Error);
         // Message must name both fields and the shared order value

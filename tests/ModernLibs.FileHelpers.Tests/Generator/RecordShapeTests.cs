@@ -39,8 +39,10 @@ public sealed class RecordShapeTests
 
     /// <summary>SGEN-04: Sealed class with public fields generates correct descriptor.</summary>
     [Test]
+    [DisplayName("Generator produces descriptor for sealed class with public fields (SGEN-04)")]
     public async Task SGEN04_SealedClass_PublicFields_GeneratesDescriptor()
     {
+        // Arrange: Create compilation with sealed class having public fields
         var source = """
             using ModernLibs.FileHelpers;
             [DelimitedRecord(",")]
@@ -57,9 +59,12 @@ public sealed class RecordShapeTests
         GeneratorDriver driver = CSharpGeneratorDriver.Create(generator.AsSourceGenerator());
 
         driver = driver.RunGenerators(compilation);
+
+        // Act: Get generator results
         var result = driver.GetRunResult();
 
         // SGEN-04: pipeline produced exactly one descriptor for the sealed class
+        // Assert: One generated file with expected type and field names
         await Assert.That(result.GeneratedTrees.Length).IsEqualTo(1);
 
         string generated = result.GeneratedTrees[0].GetText().ToString();
@@ -72,8 +77,10 @@ public sealed class RecordShapeTests
 
     /// <summary>SGEN-05: Record class with init properties does NOT produce EqualityContract field.</summary>
     [Test]
+    [DisplayName("Generator excludes EqualityContract from record class descriptor (SGEN-05)")]
     public async Task SGEN05_RecordClass_InitProperties_ExcludesEqualityContract()
     {
+        // Arrange: Create compilation with positional record class
         var source = """
             using ModernLibs.FileHelpers;
             [DelimitedRecord(",")]
@@ -87,9 +94,12 @@ public sealed class RecordShapeTests
         GeneratorDriver driver = CSharpGeneratorDriver.Create(generator.AsSourceGenerator());
 
         driver = driver.RunGenerators(compilation);
+
+        // Act: Get generator results
         var result = driver.GetRunResult();
 
         // SGEN-05: pipeline ran
+        // Assert: One generated file without EqualityContract but with user fields
         await Assert.That(result.GeneratedTrees.Length).IsEqualTo(1);
 
         string generated = result.GeneratedTrees[0].GetText().ToString();
@@ -102,8 +112,10 @@ public sealed class RecordShapeTests
 
     /// <summary>SGEN-06: Readonly record struct with positional params generates descriptor.</summary>
     [Test]
+    [DisplayName("Generator produces descriptor for readonly record struct with positional params (SGEN-06)")]
     public async Task SGEN06_ReadonlyRecordStruct_PositionalParams_GeneratesDescriptor()
     {
+        // Arrange: Create compilation with readonly record struct
         var source = """
             using ModernLibs.FileHelpers;
             [DelimitedRecord(",")]
@@ -117,9 +129,12 @@ public sealed class RecordShapeTests
         GeneratorDriver driver = CSharpGeneratorDriver.Create(generator.AsSourceGenerator());
 
         driver = driver.RunGenerators(compilation);
+
+        // Act: Get generator results
         var result = driver.GetRunResult();
 
         // SGEN-06: pipeline produced one descriptor for the readonly record struct
+        // Assert: One generated file with expected type and fields, no EqualityContract
         await Assert.That(result.GeneratedTrees.Length).IsEqualTo(1);
 
         string generated = result.GeneratedTrees[0].GetText().ToString();

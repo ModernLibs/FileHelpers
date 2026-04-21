@@ -28,8 +28,10 @@ public sealed class GeneratorOutputTests
 
     /// <summary>SGEN-01: ForAttributeWithMetadataName discovers the annotated type and pipeline runs.</summary>
     [Test]
+    [DisplayName("Generator discovers DelimitedRecord type and pipeline produces one output file (SGEN-01)")]
     public async Task Generator_DiscoverDelimitedRecord_PipelineRuns()
     {
+        // Arrange: Create compilation with DelimitedRecord-annotated type
         var source = """
             using ModernLibs.FileHelpers;
             [DelimitedRecord(",")]
@@ -45,8 +47,11 @@ public sealed class GeneratorOutputTests
         GeneratorDriver driver = CSharpGeneratorDriver.Create(generator.AsSourceGenerator());
 
         driver = driver.RunGenerators(compilation);
+
+        // Act: Get generator results
         var result = driver.GetRunResult();
 
+        // Assert: No diagnostics and exactly one generated file for Trade type
         await Assert.That(result.Diagnostics.IsEmpty).IsTrue();
         // SGEN-01: pipeline ran and produced exactly one generated file for the Trade type
         await Assert.That(result.GeneratedTrees.Length).IsEqualTo(1);
@@ -54,8 +59,10 @@ public sealed class GeneratorOutputTests
 
     /// <summary>SGEN-02: Emitted descriptor compiles and contains Parse/Format stubs.</summary>
     [Test]
+    [DisplayName("Generator emits descriptor implementing IRecyclableDescriptor with Parse and Format stubs (SGEN-02)")]
     public async Task Generator_EmittedDescriptor_CompilesWithParseAndFormatStubs()
     {
+        // Arrange: Create compilation with DelimitedRecord-annotated type
         var source = """
             using ModernLibs.FileHelpers;
             [DelimitedRecord(",")]
@@ -71,8 +78,11 @@ public sealed class GeneratorOutputTests
         GeneratorDriver driver = CSharpGeneratorDriver.Create(generator.AsSourceGenerator());
 
         driver = driver.RunGenerators(compilation);
+
+        // Act: Get generator results
         var result = driver.GetRunResult();
 
+        // Assert: One generated file with expected content
         await Assert.That(result.GeneratedTrees.Length).IsEqualTo(1);
 
         string generatedSource = result.GeneratedTrees[0].GetText().ToString();

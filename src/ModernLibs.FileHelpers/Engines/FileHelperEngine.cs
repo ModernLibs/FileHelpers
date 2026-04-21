@@ -3,6 +3,10 @@
 #pragma warning disable MA0051
 // CA1000: Nested generics are intentional — FileHelperEngine<T> is the public entry type.
 #pragma warning disable CA1000
+// CA1710/MA0046: Delegate names and signatures intentionally match FileHelpers compatibility surface.
+#pragma warning disable CA1710, MA0046
+// CS0067: Event wiring is phased; declarations exist before full usage.
+#pragma warning disable CS0067
 
 using System.Buffers;
 using System.Text;
@@ -113,6 +117,22 @@ public sealed class FileHelperEngine<T>
     /// </summary>
     public Encoding Encoding { get; set; } = Encoding.UTF8;
 
+    /// <summary>ERRH-05: Shared error manager instance for this engine.</summary>
+    public ErrorManager ErrorManager { get; } = new ErrorManager();
+
+    /// <summary>ERRH-05: Shortcut to <see cref="ErrorManager.ErrorMode"/>.</summary>
+    public ErrorMode ErrorMode
+    {
+        get => ErrorManager.ErrorMode;
+        set => ErrorManager.ErrorMode = value;
+    }
+
+    public event BeforeReadHandler<T>? BeforeReadRecord;
+    public event AfterReadHandler<T>? AfterReadRecord;
+    public event BeforeWriteHandler<T>? BeforeWriteRecord;
+    public event AfterWriteHandler<T>? AfterWriteRecord;
+    public event ProgressChangeHandler? Progress;
+
     /// <summary>
     /// ENGI-03: Parses all records from <paramref name="content"/>.
     /// <para>WR-08 allocation note: the batch read path allocates one <see cref="string"/> per
@@ -220,8 +240,27 @@ public sealed class FileHelperEngine<T>
         using var sw = new StreamWriter(filePath, append: true, Encoding);
         int initialSize = Math.Max(4096, _descriptor.Fields.Length * 64);
         using var buf = new RentedBufferWriter(initialSize);
+
+        if (BeforeWriteRecord is not null)
+        {
+            var beforeArgs = new BeforeWriteEventArgs<T>(this, record, 1);
+            BeforeWriteRecord.Invoke(this, beforeArgs);
+            if (beforeArgs.SkipThisRecord)
+                return;
+        }
+
         _descriptor.Format(record, buf);
-        sw.Write(buf.WrittenSpan);
+        if (AfterWriteRecord is not null)
+        {
+            string formattedLine = buf.WrittenSpan.ToString();
+            var afterArgs = new AfterWriteEventArgs<T>(this, record, 1, formattedLine);
+            AfterWriteRecord.Invoke(this, afterArgs);
+            sw.Write(afterArgs.RecordLine);
+        }
+        else
+        {
+            sw.Write(buf.WrittenSpan);
+        }
         sw.Write(NewLineForWrite); // D-04: engine owns the record terminator.
         TotalRecords = 1;
     }
@@ -250,6 +289,7 @@ public sealed class FileHelperEngine<T>
         TotalRecords = 0;
         HeaderText = null;
         FooterText = null;
+        ErrorManager.ClearErrors();
 
         var opts = _descriptor.Options;
 
@@ -299,9 +339,52 @@ public sealed class FileHelperEngine<T>
             if (opts.CommentMarker != '\0' && line.Length > 0 && line[0] == opts.CommentMarker)
                 continue;
 
-            var record = _descriptor.Parse(line.AsSpan());
+            string activeLine = line;
+            if (BeforeReadRecord is not null)
+            {
+                var beforeArgs = new BeforeReadEventArgs<T>(this, activeLine, originalLineIndex);
+                BeforeReadRecord.Invoke(this, beforeArgs);
+                if (beforeArgs.StopReading)
+                    break;
+                if (beforeArgs.SkipThisRecord)
+                    continue;
+                if (beforeArgs.RecordLineChanged)
+                    activeLine = beforeArgs.RecordLine;
+            }
+
+            T record;
+            try
+            {
+                EnsureDelimitedFieldCount(activeLine, opts.Delimiter, _descriptor.Fields.Length);
+                record = _descriptor.Parse(activeLine.AsSpan());
+            }
+            catch (Exception ex)
+            {
+                switch (ErrorManager.ErrorMode)
+                {
+                    case ErrorMode.ThrowException:
+                        throw CreateParseContextException(originalLineIndex, activeLine, ex);
+                    case ErrorMode.IgnoreAndContinue:
+                        continue;
+                    case ErrorMode.SaveAndContinue:
+                        ErrorManager.AddError(new ErrorInfo(originalLineIndex, activeLine, ex));
+                        continue;
+                }
+                break;
+            }
+
+            if (AfterReadRecord is not null)
+            {
+                var afterArgs = new AfterReadEventArgs<T>(this, record, activeLine, originalLineIndex);
+                AfterReadRecord.Invoke(this, afterArgs);
+                if (afterArgs.SkipThisRecord)
+                    continue;
+            }
+
             result.Add(record);
             LineNumber = originalLineIndex;
+            if (Progress is not null)
+                Progress.Invoke(this, new ProgressEventArgs(result.Count, -1, 0L, 0L));
 
             // D-11: Early termination after N valid records.
             if (maxRecords > 0 && result.Count >= maxRecords)
@@ -336,9 +419,28 @@ public sealed class FileHelperEngine<T>
         int count = 0;
         foreach (var record in records)
         {
+            if (BeforeWriteRecord is not null)
+            {
+                var beforeArgs = new BeforeWriteEventArgs<T>(this, record, count + 1);
+                BeforeWriteRecord.Invoke(this, beforeArgs);
+                if (beforeArgs.SkipThisRecord)
+                    continue;
+            }
+
             buf.Reset();
             _descriptor.Format(record, buf);
-            writer.Write(buf.WrittenSpan);
+
+            if (AfterWriteRecord is not null)
+            {
+                string formattedLine = buf.WrittenSpan.ToString();
+                var afterArgs = new AfterWriteEventArgs<T>(this, record, count + 1, formattedLine);
+                AfterWriteRecord.Invoke(this, afterArgs);
+                writer.Write(afterArgs.RecordLine);
+            }
+            else
+            {
+                writer.Write(buf.WrittenSpan);
+            }
             writer.Write(NewLineForWrite); // D-04: engine owns the record terminator.
             count++;
         }
@@ -351,6 +453,50 @@ public sealed class FileHelperEngine<T>
         }
 
         TotalRecords = count;
+    }
+
+    private static void EnsureDelimitedFieldCount(string line, string delimiter, int expectedFieldCount)
+    {
+        if (string.IsNullOrEmpty(delimiter))
+            return;
+
+        int count = 1;
+        bool inQuotes = false;
+        for (int i = 0; i < line.Length; i++)
+        {
+            if (line[i] == '"')
+            {
+                if (inQuotes && i + 1 < line.Length && line[i + 1] == '"')
+                {
+                    i++;
+                    continue;
+                }
+                inQuotes = !inQuotes;
+                continue;
+            }
+
+            if (!inQuotes && IsDelimiterAt(line, delimiter, i))
+            {
+                count++;
+                i += delimiter.Length - 1;
+            }
+        }
+
+        if (count != expectedFieldCount)
+            throw new FormatException($"Expected {expectedFieldCount} fields but found {count}.");
+    }
+
+    private static bool IsDelimiterAt(string line, string delimiter, int index)
+    {
+        if (index + delimiter.Length > line.Length)
+            return false;
+
+        return line.AsSpan(index, delimiter.Length).SequenceEqual(delimiter.AsSpan());
+    }
+
+    private static FormatException CreateParseContextException(int lineNumber, string line, Exception inner)
+    {
+        return new FormatException($"Error parsing line {lineNumber}: '{line}'. {inner.Message}", inner);
     }
 
 }

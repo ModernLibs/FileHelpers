@@ -29,9 +29,13 @@ public sealed class DelimitedFieldEnumeratorTests
     }
 
     [Test]
+    [DisplayName("DelimitedFieldEnumerator iterates all unquoted comma-separated fields")]
     public async Task MoveNext_UnquotedFields_IteratesAll()
     {
+        // Arrange & Act: Parse simple CSV line "a,b,c"
         var fields = CollectFields("a,b,c".AsSpan(), ",");
+
+        // Assert: Three fields extracted with values "a", "b", "c"
         await Assert.That(fields.Length).IsEqualTo(3);
         await Assert.That(fields[0]).IsEqualTo("a");
         await Assert.That(fields[1]).IsEqualTo("b");
@@ -39,45 +43,65 @@ public sealed class DelimitedFieldEnumeratorTests
     }
 
     [Test]
+    [DisplayName("DelimitedFieldEnumerator treats comma inside quoted field as literal content")]
     public async Task MoveNext_QuotedFieldWithComma_TreatsAsOneField()
     {
+        // Arrange & Act: Parse CSV line with quoted field containing comma
         var fields = CollectFields("\"a,b\",c".AsSpan(), ",");
+
+        // Assert: Two fields where first contains the comma inside quotes
         await Assert.That(fields.Length).IsEqualTo(2);
         await Assert.That(fields[0]).IsEqualTo("a,b");
         await Assert.That(fields[1]).IsEqualTo("c");
     }
 
     [Test]
+    [DisplayName("DelimitedFieldEnumerator unescapes doubled quotes to single quote")]
     public async Task MoveNext_EscapedDoubleQuote_UnescapesCorrectly()
     {
+        // Arrange & Act: Parse CSV line with escaped quote ("") inside quoted field
         var fields = CollectFields("\"a\"\"b\",c".AsSpan(), ",");
+
+        // Assert: Two fields where first contains single quote after unescaping
         await Assert.That(fields.Length).IsEqualTo(2);
         await Assert.That(fields[0]).IsEqualTo("a\"b");
     }
 
     [Test]
+    [DisplayName("DelimitedFieldEnumerator handles unclosed quote leniently without throwing")]
     public async Task MoveNext_MalformedUnclosedQuote_LenientNothrow()
     {
         // Should not throw — lenient per D-03.
         // We verify by simply calling CollectFields without wrapping in try/catch;
         // the test framework will catch any unexpected exception as a failure.
+        // Arrange & Act: Parse malformed CSV with unclosed quote
         var fields = CollectFields("\"unclosed,c".AsSpan(), ",");
+
+        // Assert: At least one field returned despite malformed input
         await Assert.That(fields.Length).IsGreaterThanOrEqualTo(1);
     }
 
     [Test]
+    [DisplayName("DelimitedFieldEnumerator yields empty strings for empty fields between delimiters")]
     public async Task MoveNext_EmptyField_YieldsEmpty()
     {
+        // Arrange & Act: Parse CSV line with empty field between commas
         var fields = CollectFields(",".AsSpan(), ",");
+
+        // Assert: Two empty fields returned
         await Assert.That(fields.Length).IsEqualTo(2);
         await Assert.That(fields[0]).IsEqualTo("");
         await Assert.That(fields[1]).IsEqualTo("");
     }
 
     [Test]
+    [DisplayName("DelimitedFieldEnumerator yields trailing empty field after final delimiter")]
     public async Task MoveNext_TrailingDelimiter_YieldsTrailingEmpty()
     {
+        // Arrange & Act: Parse CSV line with trailing delimiter
         var fields = CollectFields("a,".AsSpan(), ",");
+
+        // Assert: Two fields where second is empty due to trailing delimiter
         await Assert.That(fields.Length).IsEqualTo(2);
         await Assert.That(fields[0]).IsEqualTo("a");
         await Assert.That(fields[1]).IsEqualTo("");

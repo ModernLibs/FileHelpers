@@ -40,28 +40,32 @@ public sealed class RecycleRecordsTests
 
     /// <summary>ENGI-15: RecycleRecords=true; parse 3 class records; all ReadNext calls return same object reference.</summary>
     [Test]
+    [DisplayName("RecycleRecords=true reuses same class instance across all three ReadNext calls")]
     public async Task RecycleRecords_ClassType_SameInstanceReused()
     {
         // CsvOrder has [IgnoreFirst(1)] — header line + 3 data rows
+        // Arrange: Create content with header + 3 data rows, open with RecycleRecords=true
         const string content = "header\r\n1,Alice,10.00\r\n2,Bob,20.00\r\n3,Charlie,30.00\r\n";
 
         using var engine = new FileHelperAsyncEngine<CsvOrder> { RecycleRecords = true };
         engine.BeginReadString(content);
 
+        // Act: Read three records with recycling enabled
         var r1 = engine.ReadNext();
         var r2 = engine.ReadNext();
         var r3 = engine.ReadNext();
 
+        // Assert: All three calls returned the same instance (reference equality)
         await Assert.That(r1).IsNotNull();
         await Assert.That(r2).IsNotNull();
         await Assert.That(r3).IsNotNull();
-        // All three calls must return the same instance
         await Assert.That(ReferenceEquals(r1, r2)).IsTrue();
         await Assert.That(ReferenceEquals(r2, r3)).IsTrue();
     }
 
     /// <summary>ENGI-15: RecycleRecords=true allocates significantly fewer bytes per ReadNext() call than RecycleRecords=false (no new record object per call).</summary>
     [Test]
+    [DisplayName("RecycleRecords=true allocates less per call than RecycleRecords=false after warmup")]
     public async Task RecycleRecords_AllocationDelta_NearZeroAfterWarmup()
     {
         // Use RecycleNumericRecord (int, int, decimal only — no string fields).
@@ -72,6 +76,7 @@ public sealed class RecycleRecordsTests
         // We verify that RecycleRecords=true allocates < 64 bytes MORE per call than
         // the irreducible minimum (the line string from ReadLine()). This means no new
         // record object is allocated per call.
+        // Arrange: Build N+2 lines for warmup + measured calls
         const int N = 10;
 
         // Build N+2 lines (warmup + N measured calls + 1 spare) using InvariantCulture
@@ -100,48 +105,58 @@ public sealed class RecycleRecordsTests
         for (int i = 0; i < N; i++)
             engineRecycled.ReadNext();
         long afterRecycled = GC.GetAllocatedBytesForCurrentThread();
+
+        // Act: Calculate per-call allocation for recycled path
         long recycledPerCall = (afterRecycled - beforeRecycled) / N;
 
         // Recycled path must allocate meaningfully less per call (at least 24 bytes less —
         // the record object header overhead that RecycleRecords eliminates).
+        // Assert: Recycled allocation per call is less than baseline
         await Assert.That(recycledPerCall).IsLessThan(baselinePerCall);
     }
 
     /// <summary>ENGI-15: RecycleRecords=true on a struct record type (PositionalOrder); ReadNext succeeds without exception.</summary>
     [Test]
+    [DisplayName("RecycleRecords=true with struct type succeeds without exception (no-op for value types)")]
     public async Task RecycleRecords_StructType_FallsThrough_NoException()
     {
         // PositionalOrder is a readonly record struct — RecycleRecords is meaningless but must not throw
+        // Arrange: Create content with 2 records, open with RecycleRecords=true
         const string content = "1,Alice,10.00\r\n2,Bob,20.00\r\n";
 
         using var engine = new FileHelperAsyncEngine<PositionalOrder> { RecycleRecords = true };
         engine.BeginReadString(content);
 
+        // Act: Read two struct records with recycling enabled
         var r1 = engine.ReadNext();
         var r2 = engine.ReadNext();
 
         // Struct: correct values returned, no exception
+        // Assert: Both records have correct OrderId values
         await Assert.That(r1.OrderId).IsEqualTo(1);
         await Assert.That(r2.OrderId).IsEqualTo(2);
     }
 
     /// <summary>ENGI-15: RecycleRecords=false (default); parse 3 class records; each is a distinct object reference.</summary>
     [Test]
+    [DisplayName("RecycleRecords=false (default) creates new instance for each ReadNext call")]
     public async Task RecycleRecords_False_AllocatesNewInstancePerRecord()
     {
+        // Arrange: Create content with header + 3 data rows, open with default RecycleRecords=false
         const string content = "header\r\n1,Alice,10.00\r\n2,Bob,20.00\r\n3,Charlie,30.00\r\n";
 
         using var engine = new FileHelperAsyncEngine<CsvOrder>(); // RecycleRecords defaults to false
         engine.BeginReadString(content);
 
+        // Act: Read three records without recycling
         var r1 = engine.ReadNext();
         var r2 = engine.ReadNext();
         var r3 = engine.ReadNext();
 
+        // Assert: All three records are distinct instances (no reference equality)
         await Assert.That(r1).IsNotNull();
         await Assert.That(r2).IsNotNull();
         await Assert.That(r3).IsNotNull();
-        // Without RecycleRecords each call allocates a fresh instance
         await Assert.That(ReferenceEquals(r1, r2)).IsFalse();
         await Assert.That(ReferenceEquals(r2, r3)).IsFalse();
     }

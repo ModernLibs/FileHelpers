@@ -1,0 +1,43 @@
+using System.Text;
+
+namespace ModernLibs.FileHelpers;
+
+/// <summary>Manages parse errors for engine read operations.</summary>
+public sealed class ErrorManager
+{
+    private readonly List<ErrorInfo> _errors = new();
+
+    /// <summary>Controls how parse failures are handled.</summary>
+    public ErrorMode ErrorMode { get; set; } = ErrorMode.ThrowException;
+
+    /// <summary>All errors captured during the most recent engine operation.</summary>
+    public IReadOnlyList<ErrorInfo> Errors => _errors;
+
+    /// <summary>Number of captured errors.</summary>
+    public int ErrorCount => _errors.Count;
+
+    /// <summary><see langword="true"/> when at least one error has been captured.</summary>
+    public bool HasErrors => _errors.Count > 0;
+
+    /// <summary>Removes all captured errors.</summary>
+    public void ClearErrors() => _errors.Clear();
+
+    /// <summary>Saves captured errors using UTF-8 encoding.</summary>
+    public void SaveErrors(string filePath) => SaveErrors(filePath, Encoding.UTF8);
+
+    /// <summary>Saves captured errors using the provided <paramref name="encoding"/>.</summary>
+    public void SaveErrors(string filePath, Encoding encoding)
+    {
+        ArgumentNullException.ThrowIfNull(filePath);
+        ArgumentNullException.ThrowIfNull(encoding);
+
+        using var writer = new StreamWriter(filePath, append: false, encoding);
+        writer.WriteLine("Line\t|\tRecord\t|\tException");
+        writer.WriteLine(new string('-', 80));
+        foreach (var err in _errors)
+            writer.WriteLine($"{err.LineNumber}\t|\t{err.RecordString}\t|\t{err.ExceptionInfo?.Message}");
+    }
+
+    /// <summary>Internal write path for engines running in SaveAndContinue mode.</summary>
+    internal void AddError(ErrorInfo error) => _errors.Add(error);
+}

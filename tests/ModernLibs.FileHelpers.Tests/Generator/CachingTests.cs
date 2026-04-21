@@ -26,8 +26,10 @@ public sealed class CachingTests
 
     /// <summary>SGEN-10: Second run on unchanged source reports Cached/Unchanged on all tracked steps.</summary>
     [Test]
+    [DisplayName("Generator second run reports all steps as Cached or Unchanged (SGEN-10)")]
     public async Task Generator_SecondRun_AllStepsCached()
     {
+        // Arrange: Create compilation with DelimitedRecord type
         var source = """
             using ModernLibs.FileHelpers;
             [DelimitedRecord(",")]
@@ -62,7 +64,10 @@ public sealed class CachingTests
             .SelectMany(static step => step.Outputs)
             .ToList();
 
+        // Act: Check outputs exist
+
         // Pipeline must have executed at least one tracked step
+        // Assert: All outputs were either Cached or Unchanged
         await Assert.That(allOutputs).IsNotEmpty();
 
         foreach (var output in allOutputs)

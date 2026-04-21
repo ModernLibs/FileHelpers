@@ -29,8 +29,10 @@ public sealed class DeterminismTests
 
     /// <summary>SGEN-11: Two generator runs on identical input produce byte-identical output.</summary>
     [Test]
+    [DisplayName("Generator produces byte-identical output for identical input across two runs (SGEN-11)")]
     public async Task Generator_SameInput_ProducesByteIdenticalOutput()
     {
+        // Arrange: Create compilation with DelimitedRecord type
         var source = """
             using ModernLibs.FileHelpers;
             [DelimitedRecord(",")]
@@ -61,6 +63,9 @@ public sealed class DeterminismTests
             .OrderBy(static x => x, System.StringComparer.Ordinal)
             .ToArray();
 
+        // Act: Compare file counts
+
+        // Assert: Same number of files and byte-identical content
         await Assert.That(files1.Length).IsEqualTo(files2.Length);
 
         for (int i = 0; i < files1.Length; i++)

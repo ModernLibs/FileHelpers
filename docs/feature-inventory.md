@@ -5,7 +5,7 @@
 
 ## How to use
 
-This document enumerates every user-reachable surface in ModernLibs.FileHelpers — 66 features in total — grouped first by module (cohesive area of the public API) and then by feature group. IDs are stable across regenerations: the machine-readable index lives at `docs/feature-inventory.index.toon` and can be queried with `og`, `awk -F'|'`, or `grep`. Module names mirror the legacy FileHelpers 3.x taxonomy where features survived the AOT rewrite; a `Migration parity` section below tracks the legacy modules that are not present in this codebase.
+This document enumerates every user-reachable surface in ModernLibs.FileHelpers — 74 features in total — grouped first by module (cohesive area of the public API) and then by feature group. IDs are stable across regenerations: the machine-readable index lives at `docs/feature-inventory.index.toon` and can be queried with `og`, `awk -F'|'`, or `grep`. Module names mirror the legacy FileHelpers 3.x taxonomy where features survived the AOT rewrite; a `Migration parity` section below tracks the legacy modules that are not present in this codebase.
 
 The `Status` column is `active` for everything currently in `src/`. The `Type` column applies the skill's enum (`crud`, `list`, `validation`, `report`, `integration`, `lookup`, `navigation`) to a library API surface — the closest semantic match was chosen per feature. The `UI placement` column is `—` because this is a class library with no UI.
 
@@ -22,7 +22,9 @@ The `Status` column is `active` for everything currently in `src/`. The `Type` c
 | EVENTS | 2 | 7 | 0 | 0 | 0 | 7 |
 | FIELDS | 3 | 14 | 0 | 0 | 0 | 14 |
 | GENERATOR | 1 | 4 | 0 | 0 | 0 | 4 |
-| **Total** | **14** | **66** | **0** | **0** | **0** | **66** |
+| MASTER-DETAIL | 2 | 4 | 0 | 0 | 0 | 4 |
+| MULTI-RECORD | 2 | 4 | 0 | 0 | 0 | 4 |
+| **Total** | **18** | **74** | **0** | **0** | **0** | **74** |
 
 ## Migration parity
 
@@ -30,8 +32,7 @@ These legacy FileHelpers 3.x modules are not present in v1.1. See `docs/MIGRATIO
 
 | Legacy module | Status | Reason |
 |---|---|---|
-| MULTI-RECORD | not in v1.1 | engines for files mixing multiple record types |
-| MASTER-DETAIL | deferred (P2) | parent/child grouped records |
+| CSV-specific expansion | deferred | strong .NET CSV ecosystem; ModernLibs focuses on fixed-width and structured record engines |
 | TRANSFORM | not in v1.1 | file-to-file type-to-type transformation engine |
 | COMMON | not in v1.1 | static one-call helpers (`CommonEngine`); users wrap `FileHelperEngine<T>` directly |
 | DYNAMIC | removed | `ClassBuilder` / `CsvEngine` rely on runtime reflection — incompatible with AOT. Replaced by GENERATOR. |
@@ -40,6 +41,36 @@ These legacy FileHelpers 3.x modules are not present in v1.1. See `docs/MIGRATIO
 | DIFF | not in v1.1 | `FileDiff` engine |
 | DATALINK | not in v1.1 | legacy storage round-trip |
 | EXCEL-NPOI | separate package | NPOI-backed Excel storage |
+
+---
+
+## MULTI-RECORD
+
+AOT-safe synchronous mixed-record processing. `MultiRecordEngine` composes an explicit closed set of generated record descriptors through `MultiRecordType.For<T>(selector)`, avoiding legacy runtime type discovery while supporting common files where each line may have a different layout.
+
+### Synchronous mixed-record IO
+
+| ID | Feature | Description | UI placement | Status | Type | Source |
+|---|---|---|---|---|---|---|
+| MULTI-RECORD-01 | Closed record set setup | `MultiRecordEngine(params IMultiRecordType[])` configures the allowed record types with explicit selectors. | — | active | navigation | src/ModernLibs.FileHelpers/MultiRecord/MultiRecordEngine.cs, src/ModernLibs.FileHelpers/MultiRecord/MultiRecordType.cs |
+| MULTI-RECORD-02 | Read mixed records | `ReadString`, `ReadStream`, and `ReadFile` return heterogeneous `object[]` records. | — | active | list | src/ModernLibs.FileHelpers/MultiRecord/MultiRecordEngine.cs |
+| MULTI-RECORD-03 | Write mixed records | `WriteString`, `WriteStream`, and `WriteFile` format heterogeneous record sequences. | — | active | report | src/ModernLibs.FileHelpers/MultiRecord/MultiRecordEngine.cs |
+| MULTI-RECORD-04 | Selector failure reporting | Lines that match no configured selector fail with a line-numbered `FormatException`. | — | active | validation | src/ModernLibs.FileHelpers/MultiRecord/MultiRecordEngine.cs |
+
+---
+
+## MASTER-DETAIL
+
+Synchronous parent/child grouped-record processing. `MasterDetailEngine<TMaster,TDetail>` uses a selector to classify each physical line as `Master`, `Detail`, or `Skip`, then reuses generated descriptors to parse and format grouped records.
+
+### Grouped master-detail IO
+
+| ID | Feature | Description | UI placement | Status | Type | Source |
+|---|---|---|---|---|---|---|
+| MASTER-DETAIL-01 | MasterDetails result type | `MasterDetails<TMaster,TDetail>` stores one master record and its detail records. | — | active | navigation | src/ModernLibs.FileHelpers/MasterDetail/MasterDetails.cs |
+| MASTER-DETAIL-02 | Selector action enum | `RecordAction` classifies input lines as master, detail, or skip. | — | active | navigation | src/ModernLibs.FileHelpers/MasterDetail/RecordAction.cs |
+| MASTER-DETAIL-03 | Read grouped records | `ReadString`, `ReadStream`, and `ReadFile` parse grouped master/detail files. | — | active | list | src/ModernLibs.FileHelpers/MasterDetail/MasterDetailEngine.cs |
+| MASTER-DETAIL-04 | Write grouped records | `WriteString`, `WriteStream`, and `WriteFile` emit master rows followed by their details. | — | active | report | src/ModernLibs.FileHelpers/MasterDetail/MasterDetailEngine.cs |
 
 ---
 

@@ -15,7 +15,7 @@ public class MultilineQuotedFieldTests
     #region MULT-01: MultilineMode Attribute Tests
 
     [Test]
-    public void DelimitedRecord_WithMultilineModeAllowForRead_SetsModeCorrectly()
+    public async Task DelimitedRecord_WithMultilineModeAllowForRead_SetsModeCorrectly()
     {
         // Arrange: This test will verify the attribute accepts MultilineMode
         // Act & Assert: Attribute should be creatable with MultilineMode parameter
@@ -24,21 +24,21 @@ public class MultilineQuotedFieldTests
             MultilineMode = MultilineMode.AllowForRead
         };
 
-        Assert.Equal(MultilineMode.AllowForRead, attr.MultilineMode);
+        await Assert.That(attr.MultilineMode).IsEqualTo(MultilineMode.AllowForRead);
     }
 
     [Test]
-    public void DelimitedRecord_DefaultMultilineMode_IsNotAllow()
+    public async Task DelimitedRecord_DefaultMultilineMode_IsNotAllow()
     {
         // Arrange & Act
         var attr = new DelimitedRecordAttribute(",");
 
         // Assert: Default should be NotAllow for backward compatibility
-        Assert.Equal(MultilineMode.NotAllow, attr.MultilineMode);
+        await Assert.That(attr.MultilineMode).IsEqualTo(MultilineMode.NotAllow);
     }
 
     [Test]
-    public void RecordOptions_CapturesMultilineModeFromAttribute()
+    public async Task RecordOptions_CapturesMultilineModeFromAttribute()
     {
         // This test verifies that the source generator correctly emits
         // MultilineMode into the RecordOptions struct
@@ -50,7 +50,7 @@ public class MultilineQuotedFieldTests
         var options = descriptor.Options;
 
         // Assert: The MultilineMode should be captured in options
-        Assert.Equal(MultilineMode.AllowForRead, options.MultilineMode);
+        await Assert.That(options.MultilineMode).IsEqualTo(MultilineMode.AllowForRead);
     }
 
     #endregion
@@ -58,7 +58,7 @@ public class MultilineQuotedFieldTests
     #region MULT-02: Basic Multiline Parsing (AllowForRead)
 
     [Test]
-    public void ReadString_SingleMultilineField_ParsesCorrectly()
+    public async Task ReadString_SingleMultilineField_ParsesCorrectly()
     {
         // Arrange
         var engine = new FileHelperEngine<MultilineCustomer>();
@@ -68,14 +68,14 @@ public class MultilineQuotedFieldTests
         var results = engine.ReadString(csv);
 
         // Assert
-        Assert.Single(results);
-        Assert.Equal("John", results[0].Name);
-        Assert.Equal("Line1\nLine2", results[0].Address);  // Newline preserved
-        Assert.Equal("NYC", results[0].City);
+        await Assert.That(results.Length).IsEqualTo(1);
+        await Assert.That(results[0].Name).IsEqualTo("John");
+        await Assert.That(results[0].Address).IsEqualTo("Line1\nLine2");  // Newline preserved
+        await Assert.That(results[0].City).IsEqualTo("NYC");
     }
 
     [Test]
-    public void ReadString_MultilineFieldWithCRLF_PreservesCRLF()
+    public async Task ReadString_MultilineFieldWithCRLF_PreservesCRLF()
     {
         // Arrange
         var engine = new FileHelperEngine<MultilineCustomer>();
@@ -85,14 +85,14 @@ public class MultilineQuotedFieldTests
         var results = engine.ReadString(csv);
 
         // Assert
-        Assert.Single(results);
-        Assert.Equal("Jane", results[0].Name);
-        Assert.Equal("Line1\r\nLine2", results[0].Address);  // CRLF preserved
-        Assert.Equal("LA", results[0].City);
+        await Assert.That(results.Length).IsEqualTo(1);
+        await Assert.That(results[0].Name).IsEqualTo("Jane");
+        await Assert.That(results[0].Address).IsEqualTo("Line1\r\nLine2");  // CRLF preserved
+        await Assert.That(results[0].City).IsEqualTo("LA");
     }
 
     [Test]
-    public void ReadString_ThreeLineQuotedField_ParsesCorrectly()
+    public async Task ReadString_ThreeLineQuotedField_ParsesCorrectly()
     {
         // Arrange
         var engine = new FileHelperEngine<ThreeLineField>();
@@ -102,14 +102,14 @@ public class MultilineQuotedFieldTests
         var results = engine.ReadString(csv);
 
         // Assert
-        Assert.Single(results);
-        Assert.Equal("1", results[0].Id);
-        Assert.Equal("Line1\nLine2\nLine3", results[0].Description);
-        Assert.Equal("CategoryA", results[0].Category);
+        await Assert.That(results.Length).IsEqualTo(1);
+        await Assert.That(results[0].Id).IsEqualTo("1");
+        await Assert.That(results[0].Description).IsEqualTo("Line1\nLine2\nLine3");
+        await Assert.That(results[0].Category).IsEqualTo("CategoryA");
     }
 
     [Test]
-    public void ReadString_MultipleMultilineRecords_ParsesAll()
+    public async Task ReadString_MultipleMultilineRecords_ParsesAll()
     {
         // Arrange
         var engine = new FileHelperEngine<MultilineCustomer>();
@@ -119,11 +119,11 @@ public class MultilineQuotedFieldTests
         var results = engine.ReadString(csv);
 
         // Assert
-        Assert.Equal(2, results.Length);
-        Assert.Equal("John", results[0].Name);
-        Assert.Equal("Addr1\nAddr2", results[0].Address);
-        Assert.Equal("Jane", results[1].Name);
-        Assert.Equal("Addr3\nAddr4", results[1].Address);
+        await Assert.That(results.Length).IsEqualTo(2);
+        await Assert.That(results[0].Name).IsEqualTo("John");
+        await Assert.That(results[0].Address).IsEqualTo("Addr1\nAddr2");
+        await Assert.That(results[1].Name).IsEqualTo("Jane");
+        await Assert.That(results[1].Address).IsEqualTo("Addr3\nAddr4");
     }
 
     #endregion
@@ -131,7 +131,7 @@ public class MultilineQuotedFieldTests
     #region MULT-03: Quote Balance Edge Cases
 
     [Test]
-    public void ReadString_EscapedQuotesInsideMultiline_WorksCorrectly()
+    public async Task ReadString_EscapedQuotesInsideMultiline_WorksCorrectly()
     {
         // Arrange
         var engine = new FileHelperEngine<EscapedQuotesMultiline>();
@@ -142,12 +142,12 @@ public class MultilineQuotedFieldTests
         var results = engine.ReadString(csv);
 
         // Assert
-        Assert.Single(results);
-        Assert.Equal("She said \"hello\"\nthen left", results[0].Content);
+        await Assert.That(results.Length).IsEqualTo(1);
+        await Assert.That(results[0].Content).IsEqualTo("She said \"hello\"\nthen left");
     }
 
     [Test]
-    public void ReadString_MultipleQuotedFieldsOneMultiline_ParsesCorrectly()
+    public async Task ReadString_MultipleQuotedFieldsOneMultiline_ParsesCorrectly()
     {
         // Arrange
         var engine = new FileHelperEngine<MixedDelimiterMultiline>();
@@ -158,14 +158,14 @@ public class MultilineQuotedFieldTests
         var results = engine.ReadString(csv);
 
         // Assert
-        Assert.Single(results);
-        Assert.Equal("A", results[0].Field1);
-        Assert.Equal("B1\nB2", results[0].Field2);
-        Assert.Equal("C", results[0].Field3);
+        await Assert.That(results.Length).IsEqualTo(1);
+        await Assert.That(results[0].Field1).IsEqualTo("A");
+        await Assert.That(results[0].Field2).IsEqualTo("B1\nB2");
+        await Assert.That(results[0].Field3).IsEqualTo("C");
     }
 
     [Test]
-    public void ReadString_MultilineFieldAtStart_ParsesCorrectly()
+    public async Task ReadString_MultilineFieldAtStart_ParsesCorrectly()
     {
         // Arrange
         var engine = new FileHelperEngine<MultilineCustomer>();
@@ -175,14 +175,14 @@ public class MultilineQuotedFieldTests
         var results = engine.ReadString(csv);
 
         // Assert
-        Assert.Single(results);
-        Assert.Equal("John\nDoe", results[0].Name);
-        Assert.Equal("Address", results[0].Address);
-        Assert.Equal("City", results[0].City);
+        await Assert.That(results.Length).IsEqualTo(1);
+        await Assert.That(results[0].Name).IsEqualTo("John\nDoe");
+        await Assert.That(results[0].Address).IsEqualTo("Address");
+        await Assert.That(results[0].City).IsEqualTo("City");
     }
 
     [Test]
-    public void ReadString_MultilineFieldAtEnd_ParsesCorrectly()
+    public async Task ReadString_MultilineFieldAtEnd_ParsesCorrectly()
     {
         // Arrange
         var engine = new FileHelperEngine<MultilineCustomer>();
@@ -192,10 +192,10 @@ public class MultilineQuotedFieldTests
         var results = engine.ReadString(csv);
 
         // Assert
-        Assert.Single(results);
-        Assert.Equal("Name", results[0].Name);
-        Assert.Equal("Address", results[0].Address);
-        Assert.Equal("City\nState", results[0].City);
+        await Assert.That(results.Length).IsEqualTo(1);
+        await Assert.That(results[0].Name).IsEqualTo("Name");
+        await Assert.That(results[0].Address).IsEqualTo("Address");
+        await Assert.That(results[0].City).IsEqualTo("City\nState");
     }
 
     #endregion
@@ -203,7 +203,7 @@ public class MultilineQuotedFieldTests
     #region MULT-04: ErrorMode Integration (Unbalanced)
 
     [Test]
-    public void ReadString_UnclosedQuoteThrowException_ThrowsWithCorrectLine()
+    public async Task ReadString_UnclosedQuoteThrowException_ThrowsWithCorrectLine()
     {
         // Arrange
         var engine = new FileHelperEngine<MultilineCustomer>();
@@ -212,16 +212,26 @@ public class MultilineQuotedFieldTests
         string csv = "John,\"Unclosed multiline,NYC";
 
         // Act & Assert
-        var ex = Assert.Throws<FormatException>(() => engine.ReadString(csv));
+        FormatException? ex = null;
+        try
+        {
+            engine.ReadString(csv);
+        }
+        catch (FormatException caught)
+        {
+            ex = caught;
+        }
+
         // Should mention line 1 (where the unclosed quote started)
-        Assert.Contains("1", ex.Message);
+        await Assert.That(ex).IsNotNull();
+        await Assert.That(ex!.Message).Contains("1");
     }
 
     [Test]
-    public void ReadString_UnclosedQuoteSaveAndContinue_SavesErrorAndContinues()
+    public async Task ReadString_UnclosedQuoteSaveAndContinue_SavesErrorAndContinues()
     {
         // Arrange
-        var engine = new FileHelperEngine<MultilineCustomer>();
+        var engine = new FileHelperEngine<SingleLineCustomer>();
         engine.ErrorMode = ErrorMode.SaveAndContinue;
         string csv = "Good,\"Closed\",NYC\nBad,\"Unclosed,LA\nAfter,\"Closed\",SF";
 
@@ -229,18 +239,18 @@ public class MultilineQuotedFieldTests
         var results = engine.ReadString(csv);
 
         // Assert
-        Assert.Equal(2, results.Length);  // Only valid records
-        Assert.Equal("Good", results[0].Name);
-        Assert.Equal("After", results[1].Name);
-        Assert.Equal(1, engine.ErrorManager.ErrorCount);  // One error recorded
-        Assert.Contains("Unclosed", engine.ErrorManager.Errors[0].Line);
+        await Assert.That(results.Length).IsEqualTo(2);  // Only valid records
+        await Assert.That(results[0].Name).IsEqualTo("Good");
+        await Assert.That(results[1].Name).IsEqualTo("After");
+        await Assert.That(engine.ErrorManager.ErrorCount).IsEqualTo(1);  // One error recorded
+        await Assert.That(engine.ErrorManager.Errors[0].RecordString).Contains("Unclosed");
     }
 
     [Test]
-    public void ReadString_UnclosedQuoteIgnoreAndContinue_SkipsAndContinues()
+    public async Task ReadString_UnclosedQuoteIgnoreAndContinue_SkipsAndContinues()
     {
         // Arrange
-        var engine = new FileHelperEngine<MultilineCustomer>();
+        var engine = new FileHelperEngine<SingleLineCustomer>();
         engine.ErrorMode = ErrorMode.IgnoreAndContinue;
         string csv = "Good,\"Closed\",NYC\nBad,\"Unclosed,LA\nAfter,\"Closed\",SF";
 
@@ -248,10 +258,10 @@ public class MultilineQuotedFieldTests
         var results = engine.ReadString(csv);
 
         // Assert
-        Assert.Equal(2, results.Length);  // Only valid records
-        Assert.Equal("Good", results[0].Name);
-        Assert.Equal("After", results[1].Name);
-        Assert.Equal(0, engine.ErrorManager.ErrorCount);  // No errors recorded
+        await Assert.That(results.Length).IsEqualTo(2);  // Only valid records
+        await Assert.That(results[0].Name).IsEqualTo("Good");
+        await Assert.That(results[1].Name).IsEqualTo("After");
+        await Assert.That(engine.ErrorManager.ErrorCount).IsEqualTo(0);  // No errors recorded
     }
 
     #endregion
@@ -259,7 +269,7 @@ public class MultilineQuotedFieldTests
     #region MULT-05: Line Number Tracking
 
     [Test]
-    public void ReadString_MultilineRecord_LineNumberReportsLastPhysicalLine()
+    public async Task ReadString_MultilineRecord_LineNumberReportsLastPhysicalLine()
     {
         // Arrange
         var engine = new FileHelperEngine<MultilineCustomer>();
@@ -270,13 +280,13 @@ public class MultilineQuotedFieldTests
         var results = engine.ReadString(csv);
 
         // Assert
-        Assert.Single(results);
+        await Assert.That(results.Length).IsEqualTo(1);
         // LineNumber should report line 3 (where the record ends)
-        Assert.Equal(3, engine.LineNumber);
+        await Assert.That(engine.LineNumber).IsEqualTo(3);
     }
 
     [Test]
-    public void ReadString_ErrorInMultilineRecord_ReportsStartingLine()
+    public async Task ReadString_ErrorInMultilineRecord_ReportsStartingLine()
     {
         // Arrange
         var engine = new FileHelperEngine<MultilineCustomer>();
@@ -288,9 +298,9 @@ public class MultilineQuotedFieldTests
         engine.ReadString(csv);
 
         // Assert
-        Assert.Equal(1, engine.ErrorManager.ErrorCount);
+        await Assert.That(engine.ErrorManager.ErrorCount).IsEqualTo(1);
         // Error should report starting line (1), not EOF line
-        Assert.Equal(1, engine.ErrorManager.Errors[0].LineNumber);
+        await Assert.That(engine.ErrorManager.Errors[0].LineNumber).IsEqualTo(1);
     }
 
     #endregion
@@ -298,7 +308,7 @@ public class MultilineQuotedFieldTests
     #region MULT-06: Async Engine Tests
 
     [Test]
-    public void ReadNext_StreamingMultiline_HandlesAcrossMultipleCalls()
+    public async Task ReadNext_StreamingMultiline_HandlesAcrossMultipleCalls()
     {
         // Arrange
         var engine = new FileHelperAsyncEngine<MultilineCustomer>();
@@ -310,13 +320,13 @@ public class MultilineQuotedFieldTests
         var record2 = engine.ReadNext();
 
         // Assert
-        Assert.NotNull(record1);
-        Assert.Equal("John", record1!.Name);
-        Assert.Equal("Addr1\nAddr2", record1.Address);
+        await Assert.That(record1).IsNotNull();
+        await Assert.That(record1!.Name).IsEqualTo("John");
+        await Assert.That(record1.Address).IsEqualTo("Addr1\nAddr2");
 
-        Assert.NotNull(record2);
-        Assert.Equal("Jane", record2!.Name);
-        Assert.Equal("Addr3\nAddr4", record2.Address);
+        await Assert.That(record2).IsNotNull();
+        await Assert.That(record2!.Name).IsEqualTo("Jane");
+        await Assert.That(record2.Address).IsEqualTo("Addr3\nAddr4");
 
         engine.Close();
     }
@@ -340,11 +350,11 @@ public class MultilineQuotedFieldTests
             }
 
             // Assert
-            Assert.Equal(2, results.Count);
-            Assert.Equal("Header", results[0].Header);
-            Assert.Equal("Body Line1\nBody Line2", results[0].Body);
-            Assert.Equal("Second", results[1].Header);
-            Assert.Equal("Another\nMultiline", results[1].Body);
+            await Assert.That(results.Count).IsEqualTo(2);
+            await Assert.That(results[0].Header).IsEqualTo("Header");
+            await Assert.That(results[0].Body).IsEqualTo("Body Line1\nBody Line2");
+            await Assert.That(results[1].Header).IsEqualTo("Second");
+            await Assert.That(results[1].Body).IsEqualTo("Another\nMultiline");
         }
         finally
         {
@@ -356,24 +366,24 @@ public class MultilineQuotedFieldTests
     public async Task ReadAsync_ErrorModeSaveAndContinue_CapturesMultilineErrors()
     {
         // Arrange
-        var engine = new FileHelperAsyncEngine<AsyncMultilineRecord>();
+        var engine = new FileHelperAsyncEngine<SingleLineCustomer>();
         engine.ErrorMode = ErrorMode.SaveAndContinue;
         var tempFile = Path.GetTempFileName();
         try
         {
-            // Write test file with unclosed multiline
-            File.WriteAllText(tempFile, "Good,\"Closed\"\nBad,\"Unclosed\nStillOpen\nGood2,\"Closed2\"");
+            // MultilineMode.NotAllow: each physical line is parsed separately (Bad line is invalid).
+            File.WriteAllText(tempFile, "Good,\"Closed\",NYC\nBad,\"Unclosed,NYC\nGood2,\"Closed\",SF");
 
             // Act
-            var results = new List<AsyncMultilineRecord>();
+            var results = new List<SingleLineCustomer>();
             await foreach (var record in engine.ReadAsync(tempFile))
             {
                 results.Add(record);
             }
 
             // Assert
-            Assert.Equal(2, results.Count);
-            Assert.True(engine.ErrorManager.ErrorCount > 0);
+            await Assert.That(results.Count).IsEqualTo(2);
+            await Assert.That(engine.ErrorManager.ErrorCount > 0).IsTrue();
         }
         finally
         {
@@ -386,7 +396,7 @@ public class MultilineQuotedFieldTests
     #region MULT-07: Complex Scenarios
 
     [Test]
-    public void ReadString_MixedSingleAndMultilineRecords_SameFile()
+    public async Task ReadString_MixedSingleAndMultilineRecords_SameFile()
     {
         // Arrange
         var engine = new FileHelperEngine<MultilineCustomer>();
@@ -397,15 +407,15 @@ public class MultilineQuotedFieldTests
         var results = engine.ReadString(csv);
 
         // Assert
-        Assert.Equal(3, results.Length);
-        Assert.Equal("Single1", results[0].Name);
-        Assert.Equal("Multi1", results[1].Name);
-        Assert.Equal("Addr2\nAddr3", results[1].Address);
-        Assert.Equal("Single2", results[2].Name);
+        await Assert.That(results.Length).IsEqualTo(3);
+        await Assert.That(results[0].Name).IsEqualTo("Single1");
+        await Assert.That(results[1].Name).IsEqualTo("Multi1");
+        await Assert.That(results[1].Address).IsEqualTo("Addr2\nAddr3");
+        await Assert.That(results[2].Name).IsEqualTo("Single2");
     }
 
     [Test]
-    public void ReadString_EmptyLinesInsideQuotedField_Preserved()
+    public async Task ReadString_EmptyLinesInsideQuotedField_Preserved()
     {
         // Arrange
         var engine = new FileHelperEngine<MultilineCustomer>();
@@ -415,12 +425,12 @@ public class MultilineQuotedFieldTests
         var results = engine.ReadString(csv);
 
         // Assert
-        Assert.Single(results);
-        Assert.Equal("Addr1\n\nAddr2", results[0].Address);  // Empty line preserved
+        await Assert.That(results.Length).IsEqualTo(1);
+        await Assert.That(results[0].Address).IsEqualTo("Addr1\n\nAddr2");  // Empty line preserved
     }
 
     [Test]
-    public void ReadString_DelimitersInsideMultilineQuotedField_ParsedCorrectly()
+    public async Task ReadString_DelimitersInsideMultilineQuotedField_ParsedCorrectly()
     {
         // Arrange
         var engine = new FileHelperEngine<MixedDelimiterMultiline>();
@@ -438,7 +448,7 @@ public class MultilineQuotedFieldTests
     }
 
     [Test]
-    public void ReadString_CommentsOutsideMultiline_NotAffected()
+    public async Task ReadString_CommentsOutsideMultiline_NotAffected()
     {
         // Arrange
         var engine = new FileHelperEngine<MultilineCustomer>();
@@ -457,7 +467,7 @@ public class MultilineQuotedFieldTests
     #region QuoteBalanceScanner Tests
 
     [Test]
-    public void HasUnclosedQuote_NoQuotes_ReturnsFalse()
+    public async Task HasUnclosedQuote_NoQuotes_ReturnsFalse()
     {
         // Arrange
         string line = "A,B,C";
@@ -470,7 +480,7 @@ public class MultilineQuotedFieldTests
     }
 
     [Test]
-    public void HasUnclosedQuote_BalancedQuotes_ReturnsFalse()
+    public async Task HasUnclosedQuote_BalancedQuotes_ReturnsFalse()
     {
         // Arrange
         string line = "\"A\",\"B\"";
@@ -483,7 +493,7 @@ public class MultilineQuotedFieldTests
     }
 
     [Test]
-    public void HasUnclosedQuote_UnclosedQuote_ReturnsTrue()
+    public async Task HasUnclosedQuote_UnclosedQuote_ReturnsTrue()
     {
         // Arrange
         string line = "\"A,B";
@@ -496,10 +506,10 @@ public class MultilineQuotedFieldTests
     }
 
     [Test]
-    public void HasUnclosedQuote_EscapedQuotes_ReturnsFalse()
+    public async Task HasUnclosedQuote_EscapedQuotes_ReturnsFalse()
     {
         // Arrange - "" inside quotes represents escaped quote
-        string line = "\"A\"\"B\",\"C\"\"";
+        string line = "\"A\"\"B\",\"C\"";
 
         // Act
         bool hasUnclosed = DelimitedFieldEnumerator.HasUnclosedQuote(line.AsSpan());

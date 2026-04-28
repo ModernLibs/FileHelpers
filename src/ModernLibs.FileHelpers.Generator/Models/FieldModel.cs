@@ -29,6 +29,7 @@ internal sealed record FieldModel(
     bool IsInitOnly = false,                                          // true for init-only properties (record class / record struct)
     GeneratorConverterKind ConverterKind = GeneratorConverterKind.None, // NEW: explicit [FieldConverter(ConverterKind.X)] annotation
     string? ConverterTypeName = null,                                  // NEW: explicit [FieldConverter(typeof(MyConverter))] annotation
+    bool DirectSpanConverter = false,                                  // true when ConverterTypeName is ISpanConverter<TField> (public ctor)
     EquatableArray<string> ConverterArgs = default,                    // NEW: format strings or other converter constructor args
     bool IsQuoted = false,                                             // Phase 7 D-06: from [FieldQuoted]
     char QuoteChar = '"',                                              // Phase 7 D-06: quote character from [FieldQuoted(char)]
@@ -36,6 +37,7 @@ internal sealed record FieldModel(
     string? UnrecognisedConverterType = null,                          // IN-02: [FieldConverter(typeof(X))] type that isn't a ConverterBase subclass — raises MLFH004
     int? AlignMode = null,                                             // Phase 12: 0=Left, 1=Center, 2=Right; null = no alignment
     char? AlignChar = null,                                             // Phase 12: custom pad char; null = default space
+    int OverflowMode = 0,                                                // Phase 20: 0=DiscardEnd, 1=Error from [FieldFixedLength]
     bool IsNotEmpty = false,                                            // Phase 13 FAVL-06: from [FieldNotEmpty]
     bool IsInNewLine = false)                                           // Phase 14 MLIN-01: from [FieldInNewLine]
     : IEquatable<FieldModel>;

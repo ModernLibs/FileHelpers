@@ -108,6 +108,7 @@ internal static class RecordModelExtractor
             char quoteChar = '"';
             string? fieldDelimiter = null;  // FDEL-01: per-field delimiter override from [FieldDelimiter]
             string? unrecognisedConverterType = null;
+            bool directSpanConverter = false;
             int? alignMode = null;  // Phase 12: 0=Left, 1=Center, 2=Right
             char? alignChar = null; // Phase 12: custom pad char, null = space
             int fixedLength = -1;   // Phase 12: FieldFixedLength for alignment width in delimited records
@@ -204,12 +205,18 @@ internal static class RecordModelExtractor
                         if (firstArg.Kind == Microsoft.CodeAnalysis.TypedConstantKind.Type
                             && firstArg.Value is INamedTypeSymbol typeSym)
                         {
-                            // Only emit ConverterBaseAdapter when the custom type actually
-                            // inherits from ConverterBase. Phase 7 will add ISpanConverter<T> detection.
                             if (IsConverterBaseSubtype(typeSym))
                             {
                                 converterTypeName = typeSym.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                                 converterKind = GeneratorConverterKind.None;
+                            }
+                            else if (memberType is not null
+                                     && ImplementsSpanConverterForField(typeSym, memberType, ctx.SemanticModel.Compilation)
+                                     && HasPublicParameterlessConstructor(typeSym))
+                            {
+                                converterTypeName = typeSym.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                                converterKind = GeneratorConverterKind.None;
+                                directSpanConverter = true;
                             }
                             else
                             {
@@ -243,6 +250,7 @@ internal static class RecordModelExtractor
                 declarationIndex, order, trimMode, isOptional, isHidden, isValueDiscarded,
                 FixedLength: fixedLength, IsInitOnly: isInitOnly,
                 ConverterKind: converterKind, ConverterTypeName: converterTypeName,
+                DirectSpanConverter: directSpanConverter,
                 ConverterArgs: converterArgs,
                 IsQuoted: isQuoted, QuoteChar: quoteChar,
                 Delimiter: fieldDelimiter,
@@ -356,8 +364,10 @@ internal static class RecordModelExtractor
             char quoteChar = '"';
             string? fieldDelimiter = null;  // FDEL-01: per-field delimiter override from [FieldDelimiter]
             string? unrecognisedConverterType = null;
+            bool directSpanConverter = false;
             int? alignMode = null;  // Phase 12: 0=Left, 1=Center, 2=Right
             char? alignChar = null; // Phase 12: custom pad char, null = space
+            int overflowMode = 0;   // Phase 20: OverflowMode.DiscardEnd by default
 
             foreach (var mAttr in member.GetAttributes())
             {
@@ -375,6 +385,14 @@ internal static class RecordModelExtractor
                         when mAttr.ConstructorArguments.Length > 0
                              && mAttr.ConstructorArguments[0].Value is int fl:
                         fixedLength = fl;
+                        foreach (var namedArg in mAttr.NamedArguments)
+                        {
+                            if (string.Equals(namedArg.Key, "OverflowMode", StringComparison.Ordinal) && namedArg.Value.Value is int om)
+                            {
+                                overflowMode = om;
+                                break;
+                            }
+                        }
                         break;
                     case "ModernLibs.FileHelpers.FieldTrimAttribute"
                         when mAttr.ConstructorArguments.Length > 0
@@ -439,12 +457,18 @@ internal static class RecordModelExtractor
                         if (firstArg.Kind == Microsoft.CodeAnalysis.TypedConstantKind.Type
                             && firstArg.Value is INamedTypeSymbol typeSym)
                         {
-                            // Only emit ConverterBaseAdapter when the custom type actually
-                            // inherits from ConverterBase. Phase 7 will add ISpanConverter<T> detection.
                             if (IsConverterBaseSubtype(typeSym))
                             {
                                 converterTypeName = typeSym.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                                 converterKind = GeneratorConverterKind.None;
+                            }
+                            else if (memberType is not null
+                                     && ImplementsSpanConverterForField(typeSym, memberType, ctx.SemanticModel.Compilation)
+                                     && HasPublicParameterlessConstructor(typeSym))
+                            {
+                                converterTypeName = typeSym.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                                converterKind = GeneratorConverterKind.None;
+                                directSpanConverter = true;
                             }
                             else
                             {
@@ -476,12 +500,14 @@ internal static class RecordModelExtractor
                 declarationIndex, order, trimMode, isOptional, isHidden, isValueDiscarded,
                 FixedLength: fixedLength, IsInitOnly: isInitOnly,
                 ConverterKind: converterKind, ConverterTypeName: converterTypeName,
+                DirectSpanConverter: directSpanConverter,
                 ConverterArgs: converterArgs,
                 IsQuoted: isQuoted, QuoteChar: quoteChar,
                 Delimiter: fieldDelimiter,
                 UnrecognisedConverterType: unrecognisedConverterType,
                 AlignMode: alignMode,
                 AlignChar: alignChar,
+                OverflowMode: overflowMode,
                 IsNotEmpty: isNotEmpty,  // Phase 13 FAVL-06
                 IsInNewLine: isInNewLine));  // Phase 14 MLIN-01
         }
@@ -588,6 +614,61 @@ internal static class RecordModelExtractor
                 return true;
             current = current.BaseType;
         }
+        return false;
+    }
+
+    private static ITypeSymbol UnwrapNullableFieldType(ITypeSymbol fieldType)
+    {
+        if (fieldType is INamedTypeSymbol named
+            && named.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T
+            && named.TypeArguments.Length > 0)
+        {
+            return named.TypeArguments[0];
+        }
+
+        return fieldType;
+    }
+
+    /// <summary>
+    /// True when <paramref name="converterType"/> implements
+    /// <c>ISpanConverter&lt;T&gt;</c> for <paramref name="fieldType"/> (nullable fields use the underlying type).
+    /// </summary>
+    private static bool ImplementsSpanConverterForField(
+        INamedTypeSymbol converterType,
+        ITypeSymbol fieldType,
+        Compilation compilation)
+    {
+        INamedTypeSymbol? ifaceTemplate = compilation.GetTypeByMetadataName("ModernLibs.FileHelpers.Converters.ISpanConverter`1");
+        if (ifaceTemplate is null)
+            return false;
+
+        ITypeSymbol expected = UnwrapNullableFieldType(fieldType);
+        foreach (INamedTypeSymbol iface in converterType.AllInterfaces)
+        {
+            if (!SymbolEqualityComparer.Default.Equals(iface.OriginalDefinition, ifaceTemplate))
+                continue;
+            if (iface.TypeArguments.Length != 1)
+                continue;
+            ITypeSymbol typeArg = iface.TypeArguments[0];
+            if (SymbolEqualityComparer.Default.Equals(typeArg, expected))
+                return true;
+            if (SymbolEqualityComparer.Default.Equals(UnwrapNullableFieldType(typeArg), expected))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool HasPublicParameterlessConstructor(INamedTypeSymbol type)
+    {
+        foreach (IMethodSymbol ctor in type.InstanceConstructors)
+        {
+            if (ctor.Parameters.Length != 0)
+                continue;
+
+            return ctor.DeclaredAccessibility == Accessibility.Public;
+        }
+
         return false;
     }
 }

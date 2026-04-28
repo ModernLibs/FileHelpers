@@ -60,6 +60,9 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
     private readonly StringBuilder _multilineBuffer = new();
     private int _multilineStartLineNumber;
 
+    /// <summary>Line terminator used when joining physical lines for multiline quoted fields (MULT-02).</summary>
+    private string _readMultilineJoin = "\r\n";
+
     // ---- Writer state -------------------------------------------------------
     private TextWriter? _writer;
     private bool _ownsWriter;
@@ -182,6 +185,7 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
     {
         ArgumentNullException.ThrowIfNull(filePath);
         ThrowIfReaderOpen();
+        _readMultilineJoin = Parsing.MultilineLineJoin.DetectFromFileHead(filePath, Encoding);
         _reader = new StreamReader(filePath, Encoding);
         _ownsReader = true;
         OpenReaderCore();
@@ -197,6 +201,7 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
     {
         ArgumentNullException.ThrowIfNull(reader);
         ThrowIfReaderOpen();
+        _readMultilineJoin = NewLineForWrite;
         _reader = reader;
         _ownsReader = false;
         OpenReaderCore();
@@ -212,6 +217,7 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
     {
         ArgumentNullException.ThrowIfNull(content);
         ThrowIfReaderOpen();
+        _readMultilineJoin = Parsing.MultilineLineJoin.Detect(content.AsSpan());
         _reader = new StringReader(content);
         _ownsReader = true;
         OpenReaderCore();
@@ -306,7 +312,7 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
             T record;
             try
             {
-                EnsureDelimitedFieldCount(activeLine, opts.Delimiter, _descriptor.Fields.Length);
+                EnsureDelimitedFieldCount(activeLine, opts.Delimiter, _descriptor.Fields.Length, _descriptor.Fields);
                 // Phase 14 MLIN-02: Pass lineCount=1 for now (single-line records in streaming mode)
                 if (RecycleRecords && _recyclable is not null && _recycled is not null)
                 {
@@ -423,6 +429,8 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
     {
         ArgumentNullException.ThrowIfNull(filePath);
 
+        var multilineJoin = Parsing.MultilineLineJoin.DetectFromFileHead(filePath, Encoding);
+
         var opts = _descriptor.Options;
         int ignoredFirst = 0;
         int lineNumber = 0;
@@ -464,7 +472,7 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
                 else
                 {
                     // Currently assembling multiline
-                    lineBuffer.Append(Environment.NewLine);
+                    lineBuffer.Append(multilineJoin);
                     lineBuffer.Append(line.Span);
 
                     var assembled = lineBuffer.ToString();
@@ -571,7 +579,7 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
 
         try
         {
-            EnsureDelimitedFieldCount(line, delimiter, fieldCount);
+            EnsureDelimitedFieldCount(line, delimiter, fieldCount, _descriptor.Fields);
             record = _descriptor.Parse(line.AsSpan(), lineCount: 1);
             return (true, true);
         }
@@ -875,10 +883,20 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
             throw new InvalidOperationException("No write session is open. Call BeginWriteFile, BeginWriteStream, or BeginWriteString first.");
     }
 
-    private static void EnsureDelimitedFieldCount(string line, string delimiter, int expectedFieldCount)
+    private static void EnsureDelimitedFieldCount(
+        string line,
+        string delimiter,
+        int expectedFieldCount,
+        ReadOnlySpan<FieldDescriptor> fields)
     {
-        if (string.IsNullOrEmpty(delimiter))
+        if (string.IsNullOrEmpty(delimiter) || expectedFieldCount <= 0)
             return;
+
+        for (int i = 0; i < fields.Length; i++)
+        {
+            if (fields[i].Delimiter is not null)
+                return;
+        }
 
         int count = 1;
         bool inQuotes = false;
@@ -957,8 +975,8 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
         else
         {
             // Already buffering - append this line
-            _multilineBuffer.Append(NewLineForWrite);
-            _multilineBuffer.Append(line);
+                _multilineBuffer.Append(_readMultilineJoin);
+                _multilineBuffer.Append(line);
 
             // Check if quote is now closed
             var assembled = _multilineBuffer.ToString();

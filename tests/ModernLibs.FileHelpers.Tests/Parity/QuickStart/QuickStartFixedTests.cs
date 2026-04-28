@@ -31,7 +31,7 @@ public sealed class QuickStartFixedTests
     public async Task ReadFixed_MatchesOriginalBehavior()
     {
         // Arrange: Fixed-width data (Name=20, Age=3, Country=10 = 33 chars per line)
-        var input = "John Doe            30USA       \r\nJane Smith          25Canada    \r\nBob Wilson          35UK        ";
+        var input = "John Doe            30 USA       \r\nJane Smith          25 Canada    \r\nBob Wilson          35 UK        ";
         var engine = new FileHelperEngine<FixedCustomer>();
 
         // Act: Parse fixed-length records
@@ -62,7 +62,7 @@ public sealed class QuickStartFixedTests
     {
         // Arrange: Write test file with fixed-width data
         var tempFile = Path.Combine(Path.GetTempPath(), $"test_fixed_read_{Guid.NewGuid()}.txt");
-        var content = "John Doe            30USA       \r\nJane Smith          25Canada    ";
+        var content = "John Doe            30 USA       \r\nJane Smith          25 Canada    ";
         await File.WriteAllTextAsync(tempFile, content);
 
         try
@@ -91,7 +91,7 @@ public sealed class QuickStartFixedTests
     public async Task ReadFixed_FromStream_MatchesOriginalBehavior()
     {
         // Arrange
-        var input = "John Doe            30USA       \r\nJane Smith          25Canada    ";
+        var input = "John Doe            30 USA       \r\nJane Smith          25 Canada    ";
         var engine = new FileHelperEngine<FixedCustomer>();
 
         // Act: Read from stream
@@ -137,7 +137,7 @@ public sealed class QuickStartFixedTests
 
         // Verify field positioning by extracting fixed positions
         await Assert.That(lines[0].Substring(0, 20).Trim()).IsEqualTo("John Doe");
-        await Assert.That(lines[0].Substring(20, 3)).IsEqualTo("30");
+        await Assert.That(lines[0].Substring(20, 3)).IsEqualTo("30 ");
         await Assert.That(lines[0].Substring(23, 10).Trim()).IsEqualTo("USA");
     }
 
@@ -232,7 +232,7 @@ public sealed class QuickStartFixedTests
     public async Task FixedRoundTrip_ProducesEquivalentRecords()
     {
         // Arrange: Original fixed-width input
-        var originalInput = "John Doe            30USA       \r\nJane Smith          25Canada    ";
+        var originalInput = "John Doe            30 USA       \r\nJane Smith          25 Canada    ";
         var readEngine = new FileHelperEngine<FixedCustomer>();
         var originalRecords = readEngine.ReadString(originalInput);
 

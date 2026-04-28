@@ -26,4 +26,5 @@ internal enum GeneratorConverterKind
     Boolean = 15,
     Char = 16,
     Guid = 17,
+    Enum = 18,
 }

@@ -134,24 +134,78 @@ public class Customer
 }
 ```
 
-#### 2. Multi-Record Processing
+#### 2. CSV-Specific Helpers
 
-Multi-record processing (one file with multiple layouts) is deferred:
+CSV-specific expansion is postponed. Existing delimited records remain supported, but ModernLibs.FileHelpers is intentionally focusing on fixed-width, multi-record, and master/detail processing instead of competing with mature CSV-first libraries.
+
+**Specialist scope at a glance (v1.2 — Fixed Width Specialist):**
+
+| Surface | Parity with FileHelpers 3.x | Notes |
+|---|---|---|
+| Fixed-width parsing/writing | Behavior parity for the documented attribute set; `FixedMode` and `OverflowMode` are first-class contract knobs (see *Fixed-width: attributes, modes, and converters*). | Intentional non-parity items listed inline in that section. |
+| Multi-record (`MultiRecordEngine`) | API parity through the AOT-safe **closed-set** form `MultiRecordType.For<T>(selector)`. | Runtime type discovery is intentionally not revived (see *Multi-Record selector failures*). |
+| Master/detail (`MasterDetailEngine<TMaster,TDetail>`) | API parity for read/write, including multi-line logical records. | See *Master-Detail Processing*. |
+| CSV-first features (advanced dialects, dynamic `ClassBuilder`, etc.) | **Postponed / intentional non-parity** for v1.2. | Use a CSV-focused library where this is the primary need. |
+
+The non-parity statements below are normative. Everything not flagged as non-parity should behave identically to FileHelpers 3.x for the supported surface.
+
+#### 3. Multi-Record Processing
+
+Multi-record processing is supported through an AOT-safe closed-set API:
 
 ```csharp
-// NOT YET SUPPORTED: MultiRecordEngine
-var engine = new MultiRecordEngine(typeof(Order), typeof(Customer));
+var engine = new MultiRecordEngine(
+    MultiRecordType.For<Order>(line => line.StartsWith("ORD", StringComparison.Ordinal)),
+    MultiRecordType.For<Customer>(line => line.StartsWith("CUST", StringComparison.Ordinal)));
+
+object[] records = engine.ReadFile("mixed.txt");
 ```
 
-**Migration**: Process files in separate passes or use conditional skipping:
+Legacy `MultiRecordEngine(typeof(Order), typeof(Customer))` runtime type discovery is intentionally not revived because it conflicts with the source-generated, AOT-safe design. Use explicit selectors instead.
+
+#### Multi-Record selector failures and ErrorMode migration behavior
+
+Selector miss behavior now follows the same `ErrorMode` contract used by `FileHelperEngine<T>`, with strict behavior by default.
+
+- `ErrorMode.ThrowException` (default): selector misses throw immediately with line number and line text context.
+- `ErrorMode.IgnoreAndContinue`: unmatched lines are skipped and processing continues.
+- `ErrorMode.SaveAndContinue`: unmatched lines are captured into `ErrorManager.Errors` and processing continues.
 
 ```csharp
-// Alternative: Use ConditionalRecord or BeforeRead to filter
-[ConditionalRecord(RecordCondition.BeginWith, "ORD")]
-public class Order { }
+var engine = new MultiRecordEngine(
+    MultiRecordType.For<Order>(line => line.StartsWith("ORD", StringComparison.Ordinal)),
+    MultiRecordType.For<Customer>(line => line.StartsWith("CST", StringComparison.Ordinal)));
 
-[ConditionalRecord(RecordCondition.BeginWith, "CUST")]
-public class Customer { }
+// Default is strict throw semantics.
+engine.ErrorMode = ErrorMode.ThrowException;
+
+// Optional migration-friendly non-throw pathways:
+engine.ErrorMode = ErrorMode.SaveAndContinue;
+object[] records = engine.ReadFile("mixed.txt");
+
+foreach (var error in engine.ErrorManager.Errors)
+{
+    Console.WriteLine($"Selector miss at line {error.LineNumber}: {error.RecordString}");
+}
+```
+
+**Intentional differences / non-parity**
+
+- **Closed-set configuration required:** ModernLibs requires explicit `MultiRecordType.For<T>(selector)` entries instead of legacy runtime type discovery.  
+  **Rationale:** preserves AOT safety and deterministic source-generated behavior.  
+  **Migration action:** register each record type and selector explicitly during engine construction.
+
+#### 4. Master-Detail Processing
+
+Parent/child files are supported with `MasterDetailEngine<TMaster,TDetail>`:
+
+```csharp
+var engine = new MasterDetailEngine<Order, OrderLine>(line =>
+    line.StartsWith("ORD", StringComparison.Ordinal) ? RecordAction.Master :
+    line.StartsWith("LIN", StringComparison.Ordinal) ? RecordAction.Detail :
+    RecordAction.Skip);
+
+MasterDetails<Order, OrderLine>[] orders = engine.ReadFile("orders.txt");
 ```
 
 ## Before/After Code Examples
@@ -229,6 +283,50 @@ public class Employee
     [FieldFixedLength(12)] public decimal Salary;
 }
 ```
+
+### Fixed-width: attributes, modes, and converters
+
+When you migrate fixed-length layouts, treat **`FixedMode`** on `[FixedLengthRecord]` and per-field **`OverflowMode`** on `[FieldFixedLength]` as part of the contract, not just decoration.
+
+**Supported field / record attributes (fixed-width)** — the source generator wires these for `[FixedLengthRecord]` types:
+
+| Attribute | Fixed-width |
+|-----------|-------------|
+| `[FieldOrder]` | Yes |
+| `[FieldFixedLength]` (with optional `OverflowMode`) | Yes |
+| `[FieldTrim]` | Yes |
+| `[FieldOptional]` | Yes |
+| `[FieldNullValue]` | Yes |
+| `[FieldNotEmpty]` | Yes |
+| `[FieldValueDiscarded]` | Yes |
+| `[FieldInNewLine]` | Yes (sync `FileHelperEngine` joins physical lines per logical record) |
+| `[FieldAlign]` | Yes |
+| `[FieldConverter]` (`ConverterKind` or `typeof(...)`) | Yes — `typeof` may target `ConverterBase` or `ISpanConverter<T>` with a public parameterless constructor |
+| `[FieldQuoted]` / `[FieldDelimiter]` | Extracted where applicable; prefer delimited records for heavy quoting / per-field delimiter scenarios |
+| `[FieldHidden]` / `[FieldNotInFile]` | Yes |
+| Record filters: `[IgnoreFirst]`, `[IgnoreLast]`, `[IgnoreEmptyLines]`, `[IgnoreCommentedLines]`, `[ConditionalRecord]` | Yes |
+
+**`FixedMode`** (constructor argument on `[FixedLengthRecord]`; default is **`ExactLength`**):
+
+- **`ExactLength`**: Each logical line must be exactly the sum of all field widths. Shorter or longer lines are rejected (see tests in `FixedWidthContractTests`).
+- **`AllowLessChars`**: Lines shorter than the declared total are accepted; trailing fields may be empty or partial. Lines longer than the declared total are still rejected.
+- **`AllowMoreChars`**: Lines must be at least as long as the declared total; extra characters after the last field are ignored.
+- **`AllowVariableLength`**: Similar to allowing variable total length without strict equality; use when trailing content is intentionally ignored (see `FixedWidthContractTests` for precise behavior).
+
+**`OverflowMode`** on `[FieldFixedLength]`:
+
+- **`DiscardEnd`** (default): When formatting a value that does not fit the fixed width, excess characters are dropped from the end so the written field never exceeds its width.
+- **`Error`**: Overflow on format is treated as an error instead of silent truncation — use when silent data loss is unacceptable.
+
+**Converters**
+
+New code should implement **`ISpanConverter<T>`** for zero-allocation span-based conversion. Legacy **`ConverterBase`** types remain supported for migration; the generator bridges them with `ConverterBaseAdapter<T>` (string-based internally). Examples and edge cases live under `tests/ModernLibs.FileHelpers.Tests/Phase25/` (e.g. `FixedWidthBuiltinConverterTests`, `FixedWidthCustomConverterTests`).
+
+**Intentional non-parity and limitations**
+
+- **CSV-first features** (advanced CSV dialects, dynamic `ClassBuilder`, etc.) are intentionally out of scope; use a CSV-focused library where that is the primary need.
+- **`FileHelperAsyncEngine`** streaming may not yet mirror every multi-line / `FieldInNewLine` behavior of the synchronous engine — validate async paths for your layout.
+- **Runtime `MultiRecordEngine` type discovery** is not revived; use the closed-set `MultiRecordEngine` API with explicit selectors (see above).
 
 ### Example 3: Streaming Large Files
 

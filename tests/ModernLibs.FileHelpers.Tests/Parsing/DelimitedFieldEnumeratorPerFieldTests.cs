@@ -88,7 +88,7 @@ public sealed class DelimitedFieldEnumeratorPerFieldTests
         // Arrange: Line "a;b|c" with delimiters [";", null, "|"]
         // null means use default (",")
         // Act: Parse with mixed delimiters including null
-        var fields = CollectFieldsWithPerFieldDelimiters("a,b|c".AsSpan(), ",", s_semicolonNullPipe.AsSpan());
+        var fields = CollectFieldsWithPerFieldDelimiters("a;b,c".AsSpan(), ",", s_semicolonNullPipe.AsSpan());
 
         // Assert: Three fields where second uses default "," and third uses "|"
         await Assert.That(fields.Length).IsEqualTo(3);

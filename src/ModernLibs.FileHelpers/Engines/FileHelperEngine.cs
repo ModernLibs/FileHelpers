@@ -363,37 +363,101 @@ public sealed class FileHelperEngine<T>
         }
 
         // Phase 18 MULT-02: Multiline assembly for quoted fields spanning multiple lines
+        List<int> logicalStartPhysicalIndices0;
+        List<int> logicalEndPhysicalIndices0;
         if (opts.MultilineMode == MultilineMode.AllowForRead)
         {
-            lines = AssembleMultilineRecords(lines, NewLineForWrite);
+            var multilineJoin = Parsing.MultilineLineJoin.Detect(content.AsSpan());
+            (lines, logicalStartPhysicalIndices0, logicalEndPhysicalIndices0) = AssembleMultilineRecords(lines, multilineJoin);
+        }
+        else
+        {
+            logicalStartPhysicalIndices0 = new List<int>(lines.Count);
+            logicalEndPhysicalIndices0 = new List<int>(lines.Count);
+            for (int i = 0; i < lines.Count; i++)
+            {
+                logicalStartPhysicalIndices0.Add(i);
+                logicalEndPhysicalIndices0.Add(i);
+            }
         }
 
         // Step 5: Parse loop. Track the original line position so LineNumber reflects the file's
         // 1-based index of the last parsed line (D-12) — header lines already consumed from the list
         // still count toward that position.
         var result = new List<T>(lines.Count);
-        int originalLineIndex = opts.IgnoreFirst; // 0-based; bumped to 1-based on entry
-
-        foreach (var line in lines)
+        int linesPerRecord = Math.Max(1, opts.LineCountPerLogicalRecord);
+        for (int li = 0; li < lines.Count;)
         {
-            originalLineIndex++;
+            int available = lines.Count - li;
+            bool incomplete = available < linesPerRecord;
+            // Physical lines consumed this iteration: full logical record, or the remainder on a truncated tail.
+            int physicalLinesInGroup = incomplete ? available : linesPerRecord;
 
-            // D-08: IgnoreEmptyLines — a line is empty iff it has no characters.
-            if (opts.IgnoreEmptyLines && line.Length == 0)
-                continue;
+            try
+            {
+            string firstLine = lines[li];
+            string joinedLogicalLine;
+            if (physicalLinesInGroup == 1)
+            {
+                joinedLogicalLine = firstLine;
+            }
+            else
+            {
+                // Join with '\n' so generated Parse multi-line splitting (IndexOfAny CR/LF) matches.
+                if (physicalLinesInGroup == 2)
+                {
+                    joinedLogicalLine = string.Concat(lines[li], "\n", lines[li + 1]);
+                }
+                else
+                {
+                    var sb = new StringBuilder();
+                    for (int j = 0; j < physicalLinesInGroup; j++)
+                    {
+                        if (j > 0)
+                            sb.Append('\n');
+                        sb.Append(lines[li + j]);
+                    }
+
+                    joinedLogicalLine = sb.ToString();
+                }
+            }
+
+            int startLineOneBased = opts.IgnoreFirst + 1 + logicalStartPhysicalIndices0[li];
+            int endLineOneBased = opts.IgnoreFirst + 1 + logicalEndPhysicalIndices0[li + physicalLinesInGroup - 1];
+
+            // D-08: IgnoreEmptyLines — skip when every physical line in this logical record is empty.
+            // When fewer physical lines remain than required (truncated file), do not skip here — the
+            // structural FormatException path must run so ErrorMode can apply.
+            if (opts.IgnoreEmptyLines && !incomplete)
+            {
+                bool allEmpty = true;
+                for (int j = 0; j < linesPerRecord; j++)
+                {
+                    if (lines[li + j].Length != 0)
+                    {
+                        allEmpty = false;
+                        break;
+                    }
+                }
+
+                if (allEmpty)
+                    continue;
+            }
 
             // D-08: CommentMarker — '\0' signals "no marker"; otherwise skip lines beginning with it.
-            if (opts.CommentMarker != '\0' && line.Length > 0 && line[0] == opts.CommentMarker)
+            if (!incomplete && opts.CommentMarker != '\0' && firstLine.Length > 0 && firstLine[0] == opts.CommentMarker)
                 continue;
 
             // CREC-10: ConditionalRecord filtering runs before parse attempt
-            if (_conditionMatcher is not null && !_conditionMatcher.ShouldInclude(line.AsSpan()))
+            if (!incomplete && _conditionMatcher is not null && !_conditionMatcher.ShouldInclude(firstLine.AsSpan()))
                 continue;
 
-            string activeLine = line;
-            if (BeforeReadRecord is not null)
+            string activeLine = joinedLogicalLine;
+            // Truncated tail (fewer physical lines than LineCountPerLogicalRecord): same as the old
+            // pre-parse throw — do not fire BeforeRead until the structural check in try succeeds.
+            if (!incomplete && BeforeReadRecord is not null)
             {
-                var beforeArgs = new BeforeReadEventArgs<T>(this, activeLine, originalLineIndex);
+                var beforeArgs = new BeforeReadEventArgs<T>(this, activeLine, startLineOneBased);
                 BeforeReadRecord.Invoke(this, beforeArgs);
                 if (beforeArgs.StopReading)
                     break;
@@ -406,20 +470,26 @@ public sealed class FileHelperEngine<T>
             T record;
             try
             {
-                EnsureDelimitedFieldCount(activeLine, opts.Delimiter, _descriptor.Fields.Length);
-                // Phase 14 MLIN-02: Pass lineCount=1 for now (single-line records in batch mode)
-                record = _descriptor.Parse(activeLine.AsSpan(), lineCount: 1);
+                if (incomplete)
+                {
+                    throw new FormatException(
+                        $"Expected {linesPerRecord} physical line(s) per logical record; only {available} line(s) remain after line {opts.IgnoreFirst + li + 1}.");
+                }
+
+                EnsureDelimitedFieldCount(activeLine, opts.Delimiter, _descriptor.Fields.Length, _descriptor.Fields);
+                // Phase 14 MLIN-02: lineCount matches FieldInNewLine logical records (RecordOptions.LineCountPerLogicalRecord).
+                record = _descriptor.Parse(activeLine.AsSpan(), lineCount: linesPerRecord);
             }
             catch (Exception ex)
             {
                 switch (ErrorManager.ErrorMode)
                 {
                     case ErrorMode.ThrowException:
-                        throw CreateParseContextException(originalLineIndex, activeLine, ex);
+                        throw CreateParseContextException(startLineOneBased, activeLine, ex);
                     case ErrorMode.IgnoreAndContinue:
                         continue;
                     case ErrorMode.SaveAndContinue:
-                        ErrorManager.AddError(new ErrorInfo(originalLineIndex, activeLine, ex));
+                        ErrorManager.AddError(new ErrorInfo(startLineOneBased, activeLine, ex));
                         continue;
                 }
                 break;
@@ -429,7 +499,7 @@ public sealed class FileHelperEngine<T>
             // Both event handler and interface method receive same args instance
             if (AfterReadRecord is not null || _implementsNotifyRead)
             {
-                var afterArgs = new AfterReadEventArgs<T>(this, record, activeLine, originalLineIndex);
+                var afterArgs = new AfterReadEventArgs<T>(this, record, activeLine, endLineOneBased);
 
                 if (AfterReadRecord is not null)
                 {
@@ -448,13 +518,18 @@ public sealed class FileHelperEngine<T>
             }
 
             result.Add(record);
-            LineNumber = originalLineIndex;
+            LineNumber = endLineOneBased;
             if (Progress is not null)
                 Progress.Invoke(this, new ProgressEventArgs(result.Count, -1, 0L, 0L));
 
             // D-11: Early termination after N valid records.
             if (maxRecords > 0 && result.Count >= maxRecords)
                 break;
+            }
+            finally
+            {
+                li += physicalLinesInGroup;
+            }
         }
 
         TotalRecords = result.Count;
@@ -544,10 +619,20 @@ public sealed class FileHelperEngine<T>
         TotalRecords = count;
     }
 
-    private static void EnsureDelimitedFieldCount(string line, string delimiter, int expectedFieldCount)
+    private static void EnsureDelimitedFieldCount(
+        string line,
+        string delimiter,
+        int expectedFieldCount,
+        ReadOnlySpan<FieldDescriptor> fields)
     {
-        if (string.IsNullOrEmpty(delimiter))
+        if (string.IsNullOrEmpty(delimiter) || expectedFieldCount <= 0)
             return;
+
+        for (int i = 0; i < fields.Length; i++)
+        {
+            if (fields[i].Delimiter is not null)
+                return;
+        }
 
         int count = 1;
         bool inQuotes = false;
@@ -587,11 +672,20 @@ public sealed class FileHelperEngine<T>
     /// Phase 18 MULT-02: Assembles multiline quoted records from individual lines.
     /// Lines with unclosed quotes are buffered until the quote closes.
     /// </summary>
-    private static List<string> AssembleMultilineRecords(List<string> lines, string newLine)
+    /// <returns>
+    /// Assembled logical lines and, for each, the 0-based indices of the first and last physical
+    /// source lines that contributed to that logical line (for error start line vs. success end line).
+    /// </returns>
+    private static (List<string> Lines, List<int> StartPhysicalIndices0, List<int> EndPhysicalIndices0)
+        AssembleMultilineRecords(
+        List<string> lines,
+        string newLine)
     {
         var result = new List<string>(lines.Count);
+        var startPhysical = new List<int>(lines.Count);
+        var endPhysical = new List<int>(lines.Count);
         var buffer = new StringBuilder();
-        int bufferStartLineIndex = -1;
+        int bufferStartPhysical0 = -1;
 
         for (int i = 0; i < lines.Count; i++)
         {
@@ -603,13 +697,15 @@ public sealed class FileHelperEngine<T>
                 if (DelimitedFieldEnumerator.HasUnclosedQuote(line.AsSpan()))
                 {
                     buffer.Append(line);
-                    bufferStartLineIndex = i;
+                    bufferStartPhysical0 = i;
                     // Continue to next line without adding to result
                 }
                 else
                 {
                     // Single line record - add directly
                     result.Add(line);
+                    startPhysical.Add(i);
+                    endPhysical.Add(i);
                 }
             }
             else
@@ -624,8 +720,10 @@ public sealed class FileHelperEngine<T>
                 {
                     // Quote closed - add assembled line to result
                     result.Add(assembled);
+                    startPhysical.Add(bufferStartPhysical0);
+                    endPhysical.Add(i);
                     buffer.Clear();
-                    bufferStartLineIndex = -1;
+                    bufferStartPhysical0 = -1;
                 }
                 // Else: continue buffering
             }
@@ -635,9 +733,11 @@ public sealed class FileHelperEngine<T>
         if (buffer.Length > 0)
         {
             result.Add(buffer.ToString());
+            startPhysical.Add(bufferStartPhysical0 >= 0 ? bufferStartPhysical0 : lines.Count - 1);
+            endPhysical.Add(lines.Count - 1);
         }
 
-        return result;
+        return (result, startPhysical, endPhysical);
     }
 
     private static FormatException CreateParseContextException(int lineNumber, string line, Exception inner)

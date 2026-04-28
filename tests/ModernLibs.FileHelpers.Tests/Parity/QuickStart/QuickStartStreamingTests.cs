@@ -206,7 +206,7 @@ public sealed class QuickStartStreamingTests
     {
         // Arrange: Write test file
         var tempFile = Path.Combine(Path.GetTempPath(), $"test_fixed_stream_{Guid.NewGuid()}.txt");
-        var content = "John Doe            30USA       \r\nJane Smith          25Canada    ";
+        var content = "John Doe            30 USA       \r\nJane Smith          25 Canada    ";
         await File.WriteAllTextAsync(tempFile, content);
 
         try

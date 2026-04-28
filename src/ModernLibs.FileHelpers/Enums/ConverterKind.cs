@@ -63,4 +63,7 @@ public enum ConverterKind
 
     /// <summary>Converts <see cref="System.Guid"/> fields using standard Guid format strings.</summary>
     Guid,
+
+    /// <summary>Converts enum fields using their named values.</summary>
+    Enum,
 }

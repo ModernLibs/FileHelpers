@@ -134,7 +134,7 @@ public sealed class PerFieldDelimiterTests
         // Assert: Generated code contains IndexOf logic
         await Assert.That(generatedSource).Contains("IndexOf");
         // The parse body should exist
-        await Assert.That(generatedSource).Contains("public global::MixedDelimiterRecord Parse(global::System.ReadOnlySpan<char> line)");
+        await Assert.That(generatedSource).Contains("public global::MixedDelimiterRecord Parse(global::System.ReadOnlySpan<char> lines, int lineCount)");
     }
 
     /// <summary>

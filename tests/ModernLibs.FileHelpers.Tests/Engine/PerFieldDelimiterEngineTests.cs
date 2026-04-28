@@ -40,14 +40,14 @@ internal sealed class SingleFieldDelimiterOverride
 }
 
 /// <summary>
-/// Record with all fields having unique delimiters.
+/// Record with all fields having unique delimiters (boundary after field i uses field i+1's override).
 /// </summary>
 [DelimitedRecord(",")]
 internal sealed class AllUniqueDelimitersRecord
 {
-    [FieldOrder(1)] [FieldDelimiter(";")] public string Field1 = "";
-    [FieldOrder(2)] [FieldDelimiter("|")] public string Field2 = "";
-    [FieldOrder(3)] [FieldDelimiter("\t")] public string Field3 = "";
+    [FieldOrder(1)] public string Field1 = "";
+    [FieldOrder(2)] [FieldDelimiter(";")] public string Field2 = "";
+    [FieldOrder(3)] [FieldDelimiter("|")] public string Field3 = "";
 }
 
 /// <summary>
@@ -124,7 +124,7 @@ public sealed class PerFieldDelimiterEngineTests
         string output = engine.WriteString(records);
 
         // Assert: Output uses correct delimiters (semicolon before Field2, comma before Field3)
-        await Assert.That(output).IsEqualTo("x;y,z");
+        await Assert.That(output).IsEqualTo("x;y,z\r\n");
     }
 
     /// <summary>
@@ -150,7 +150,7 @@ public sealed class PerFieldDelimiterEngineTests
         string output = engine.WriteString(records);
 
         // Assert: Output preserves semicolon delimiter
-        await Assert.That(output).IsEqualTo("first;second");
+        await Assert.That(output).IsEqualTo("first;second\r\n");
     }
 
     /// <summary>
@@ -169,7 +169,7 @@ public sealed class PerFieldDelimiterEngineTests
         string output = engine.WriteString(records);
 
         // Assert: Output matches original format
-        await Assert.That(output).IsEqualTo(originalInput);
+        await Assert.That(output).IsEqualTo($"{originalInput}\r\n");
 
         // Act: Read the output again to verify data integrity
         var roundTripped = engine.ReadString(output);
@@ -220,7 +220,7 @@ public sealed class PerFieldDelimiterEngineTests
     {
         // Arrange: Create engine with all unique delimiters
         var engine = new FileHelperEngine<AllUniqueDelimitersRecord>();
-        var input = "a;b|c\td"; // semicolon, pipe, tab
+        var input = "a;b|c"; // semicolon then pipe (tab delimiter covered in DelimitedFieldEnumerator tests)
 
         // Act: Parse the input
         var records = engine.ReadString(input);

@@ -19,6 +19,11 @@ public interface IRecordDescriptor<T>
     T Parse(ReadOnlySpan<char> lines, int lineCount);
 
     /// <summary>
+    /// Parses a single-line logical record.
+    /// </summary>
+    T Parse(ReadOnlySpan<char> line) => Parse(line, lineCount: 1);
+
+    /// <summary>
     /// Formats a record instance into <paramref name="writer"/>.
     /// <para>IN-03 remark: the source-generated implementation assumes each
     /// <see cref="IBufferWriter{T}.GetSpan(int)"/> call returns a contiguous span of at

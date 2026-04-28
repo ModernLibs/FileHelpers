@@ -4,11 +4,14 @@
     <OutputType>Exe</OutputType>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
     <!--
-      Exit code 8 = "zero tests ran" in Microsoft.Testing.Platform.
-      Phase 1 has no tests yet — ignore this exit code so CI/local builds
-      pass until Phase 10 adds mutation tests.
+      Phase 28 closure (SPEC-02 scoped exception): the xUnit.v3 in-process
+      runner returns exit code 0 for an empty discovery, so the previous
+      ignore-exit-code 8 workaround is no longer required. When
+      dotnet test is used (Microsoft.Testing.Platform path), exit 8
+      surfaces "zero tests ran"; reintroduce the argument here only if a
+      future runner change starts treating empty discovery as failure.
+      See tests/ModernLibs.FileHelpers.Mutation.Tests/README.md.
     -->
-    <TestingPlatformCommandLineArguments>--ignore-exit-code 8</TestingPlatformCommandLineArguments>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="xunit.v3" />

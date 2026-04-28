@@ -130,4 +130,41 @@ public sealed class ErrorModeTests
         // Assert: ErrorManager reflects the same ErrorMode value
         await Assert.That(engine.ErrorManager.ErrorMode).IsEqualTo(ErrorMode.SaveAndContinue);
     }
+
+    [Test]
+    [DisplayName("IgnoreAndContinue: truncated tail when LineCountPerLogicalRecord > 1 does not throw")]
+    public async Task IgnoreAndContinue_IncompleteMultilineLogicalRecord_ReturnsNoRows()
+    {
+        var engine = new FileHelperEngine<DelimitedTwoPhysicalLinesPerLogicalFixture>();
+        engine.ErrorMode = ErrorMode.IgnoreAndContinue;
+
+        var records = engine.ReadString("only-first-field");
+
+        await Assert.That(records.Length).IsEqualTo(0);
+    }
+
+    [Test]
+    [DisplayName("SaveAndContinue: truncated tail when LineCountPerLogicalRecord > 1 records error")]
+    public async Task SaveAndContinue_IncompleteMultilineLogicalRecord_CapturesFormatError()
+    {
+        var engine = new FileHelperEngine<DelimitedTwoPhysicalLinesPerLogicalFixture>();
+        engine.ErrorMode = ErrorMode.SaveAndContinue;
+
+        var records = engine.ReadString("only-first");
+
+        await Assert.That(records.Length).IsEqualTo(0);
+        await Assert.That(engine.ErrorManager.HasErrors).IsTrue();
+        await Assert.That(engine.ErrorManager.ErrorCount).IsEqualTo(1);
+        await Assert.That(engine.ErrorManager.Errors[0].LineNumber).IsEqualTo(1);
+    }
+
+    [Test]
+    [DisplayName("ThrowException: truncated tail when LineCountPerLogicalRecord > 1 throws FormatException")]
+    public async Task ThrowException_IncompleteMultilineLogicalRecord_Throws()
+    {
+        var engine = new FileHelperEngine<DelimitedTwoPhysicalLinesPerLogicalFixture>();
+        engine.ErrorMode = ErrorMode.ThrowException;
+
+        await Assert.That(() => engine.ReadString("only-first")).ThrowsException();
+    }
 }

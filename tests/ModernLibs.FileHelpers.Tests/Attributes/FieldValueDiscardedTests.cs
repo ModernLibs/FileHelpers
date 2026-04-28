@@ -206,10 +206,9 @@ public sealed class FieldValueDiscardedTests
         desc.Format(record, writer);
         var output = new string(writer.WrittenSpan);
 
-        // Assert: output should be "0000100200" (5 chars for Id + 0 for Skip + 5 chars for Value = 10)
-        // For fixed-length discarded fields, they should still occupy space (maintaining alignment)
-        // So output should be "00001     00200" (5 + 3 + 5 = 13)
-        await Assert.That(output.Length).IsEqualTo(13);
+        // Assert: discarded fields still occupy their declared width (spaces only).
+        // Layout: Id 5 + Skip 4 + Value 5 = 14 characters total.
+        await Assert.That(output.Length).IsEqualTo(14);
     }
 
     #endregion
@@ -290,7 +289,7 @@ internal sealed class FixedDiscardedRecord
     public int Id;
 
     [FieldOrder(2)]
-    [FieldFixedLength(3)]
+    [FieldFixedLength(4)]
     [FieldValueDiscarded]
     public string? Skip;
 

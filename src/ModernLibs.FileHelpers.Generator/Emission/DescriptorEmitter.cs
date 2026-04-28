@@ -169,17 +169,6 @@ internal static class DescriptorEmitter
 
         // Phase 14 MLIN-02: Calculate expected line count based on IsInNewLine fields
         sb.AppendLine("        // Phase 14 MLIN-02: Multi-line record support");
-        sb.AppendLine("        int __expectedLineCount = 1;");
-        int newLineFieldCount = 0;
-        for (int i = 0; i < fieldCount; i++)
-        {
-            if (fields[i].IsInNewLine)
-            {
-                newLineFieldCount++;
-                sb.AppendLine($"        if ({i} < fields.Length && fields[{i}].IsInNewLine) __expectedLineCount++;");
-            }
-        }
-        // Actually, we know at generation time, so use constant
         int expectedLineCount = 1;
         for (int i = 0; i < fieldCount; i++)
         {
@@ -188,6 +177,7 @@ internal static class DescriptorEmitter
         sb.AppendLine($"        const int __expectedLines = {expectedLineCount}; // 1 + {expectedLineCount - 1} FieldInNewLine fields");
         sb.AppendLine("        if (lineCount != __expectedLines)");
         sb.AppendLine("            throw new global::System.FormatException($\"Expected {__expectedLines} lines but received {lineCount}.\");");
+        sb.AppendLine("        var line = lines;");
         sb.AppendLine();
 
         bool isDelimited = string.Equals(model.RecordKind, "Delimited", System.StringComparison.Ordinal);
@@ -198,6 +188,11 @@ internal static class DescriptorEmitter
         if (hasMultiLine)
         {
             EmitMultiLineSplitting(sb, expectedLineCount);
+        }
+
+        if (!isDelimited)
+        {
+            EmitFixedLengthModeValidation(sb, fields, fieldCount, model.FixedMode, hasMultiLine);
         }
 
         // WR-03: when any field is [FieldQuoted], the escape path may rent a char[] from
@@ -339,6 +334,7 @@ internal static class DescriptorEmitter
         sb.AppendLine($"        const int __expectedLines = {expectedLineCount}; // 1 + {expectedLineCount - 1} FieldInNewLine fields");
         sb.AppendLine("        if (lineCount != __expectedLines)");
         sb.AppendLine("            throw new global::System.FormatException($\"Expected {__expectedLines} lines but received {lineCount}.\");");
+        sb.AppendLine("        var line = lines;");
         sb.AppendLine();
 
         bool isDelimited = string.Equals(model.RecordKind, "Delimited", System.StringComparison.Ordinal);
@@ -349,6 +345,11 @@ internal static class DescriptorEmitter
         if (hasMultiLine)
         {
             EmitMultiLineSplitting(sb, expectedLineCount);
+        }
+
+        if (!isDelimited)
+        {
+            EmitFixedLengthModeValidation(sb, fields, fieldCount, model.FixedMode, hasMultiLine);
         }
 
         // Same quoted-field rental guards as Parse — rental is returned in finally after assignments.
@@ -487,8 +488,9 @@ internal static class DescriptorEmitter
                 sb.AppendLine($"        // Phase 14 MLIN-02: Field '{field.Name}' is on new line {currentLine}");
             }
 
-            // Per-field delimiter: field-specific override or record-level default
-            string delim = field.Delimiter ?? recordDelim;
+            // Per-field delimiter belongs to the following field, so the boundary after
+            // field i uses field i+1's override or the record-level default.
+            string delim = i < fieldCount - 1 ? fields[i + 1].Delimiter ?? recordDelim : recordDelim;
             bool isSingleChar = delim.Length == 1;
             string delimLiteral = isSingleChar
                 ? $"'{EscapeChar(delim[0])}'"
@@ -572,9 +574,12 @@ internal static class DescriptorEmitter
             }
 
             string currentLineVar = hasMultiLine ? $"__line{currentLine}" : "line";
+            string srcSpan = i == 0 || (hasMultiLine && field.IsInNewLine)
+                ? currentLineVar
+                : $"__qrem{i}";
 
-            // FDEL-02: Get per-field delimiter (field override or record default)
-            string delim = field.Delimiter ?? recordDelim;
+            // FDEL-02: delimiter before the next field uses that next field's override.
+            string delim = i < fieldCount - 1 ? fields[i + 1].Delimiter ?? recordDelim : recordDelim;
             bool isSingleChar = delim.Length == 1;
             string delimFirst = $"'{EscapeChar(delim[0])}'";
 
@@ -582,27 +587,27 @@ internal static class DescriptorEmitter
             bool isLastOnThisLine = isLast || (hasMultiLine && i < fieldCount - 1 && fields[i + 1].IsInNewLine);
 
             sb.AppendLine($"        int __qsStart{i} = 0;");
-            sb.AppendLine($"        int __qsPos{i} = 0;");
-            sb.AppendLine($"        int __qsLen{i} = {currentLineVar}.Length;");
 
             if (isLastOnThisLine)
             {
                 // Consume remainder of this line. Quote state is still correct up to EOL.
-                sb.AppendLine($"        var __f{i} = {currentLineVar}.Slice(__qsStart{i});");
+                sb.AppendLine($"        var __f{i} = {srcSpan}.Slice(__qsStart{i});");
             }
             else
             {
+                sb.AppendLine($"        int __qsPos{i} = 0;");
+                sb.AppendLine($"        int __qsLen{i} = {srcSpan}.Length;");
                 // Inline the scanner with a state local scoped to THIS field's loop.
                 // Use a distinct local name per field (e.g. __qsIn0, __qsIn1) to avoid
                 // cross-field shadowing at the method scope.
                 sb.AppendLine($"        bool __qsIn{i} = false;");
                 sb.AppendLine($"        while (__qsPos{i} < __qsLen{i})");
                 sb.AppendLine("        {");
-                sb.AppendLine($"            char __qsCh = {currentLineVar}[__qsPos{i}];");
+                sb.AppendLine($"            char __qsCh = {srcSpan}[__qsPos{i}];");
                 sb.AppendLine($"            if (__qsCh == {qLit})");
                 sb.AppendLine("            {");
                 sb.AppendLine("                // Doubled quote inside a quoted span: skip pair and stay inside.");
-                sb.AppendLine($"                if (__qsIn{i} && __qsPos{i} + 1 < __qsLen{i} && {currentLineVar}[__qsPos{i} + 1] == {qLit})");
+                sb.AppendLine($"                if (__qsIn{i} && __qsPos{i} + 1 < __qsLen{i} && {srcSpan}[__qsPos{i} + 1] == {qLit})");
                 sb.AppendLine("                {");
                 sb.AppendLine($"                    __qsPos{i} += 2;");
                 sb.AppendLine("                    continue;");
@@ -622,16 +627,65 @@ internal static class DescriptorEmitter
                     for (int di = 1; di < delim.Length; di++)
                     {
                         string delimChLit = $"'{EscapeChar(delim[di])}'";
-                        sb.AppendLine($"                && {currentLineVar}[__qsPos{i} + {di}] == {delimChLit}");
+                        sb.AppendLine($"                && {srcSpan}[__qsPos{i} + {di}] == {delimChLit}");
                     }
                     sb.AppendLine("            ) break;");
                 }
                 sb.AppendLine($"            __qsPos{i}++;");
                 sb.AppendLine("        }");
-                sb.AppendLine($"        var __f{i} = {currentLineVar}.Slice(__qsStart{i}, __qsPos{i} - __qsStart{i});");
+                sb.AppendLine($"        var __f{i} = {srcSpan}.Slice(__qsStart{i}, __qsPos{i} - __qsStart{i});");
+                sb.AppendLine($"        var __qrem{i + 1} = __qsPos{i} < __qsLen{i} ? {srcSpan}.Slice(__qsPos{i} + {delim.Length}) : global::System.ReadOnlySpan<char>.Empty;");
             }
         }
     }
+
+    private static void EmitFixedLengthModeValidation(
+        StringBuilder sb,
+        EquatableArray<FieldModel> fields,
+        int fieldCount,
+        string? fixedMode,
+        bool hasMultiLine)
+    {
+        string mode = fixedMode ?? "ExactLength";
+        if (string.Equals(mode, "AllowVariableLength", System.StringComparison.Ordinal))
+            return;
+
+        int currentLine = 0;
+        int[] widthsByLine = new int[fieldCount == 0 ? 1 : fieldCount];
+        for (int i = 0; i < fieldCount; i++)
+        {
+            if (hasMultiLine && i > 0 && fields[i].IsInNewLine)
+                currentLine++;
+
+            if (fields[i].FixedLength > 0)
+                widthsByLine[currentLine] += fields[i].FixedLength;
+        }
+
+        for (int lineIndex = 0; lineIndex <= currentLine; lineIndex++)
+        {
+            string lineVar = hasMultiLine ? $"__line{lineIndex}" : "line";
+            int expectedWidth = widthsByLine[lineIndex];
+            string condition = mode switch
+            {
+                "AllowMoreChars" => $"{lineVar}.Length < {expectedWidth}",
+                "AllowLessChars" => $"{lineVar}.Length > {expectedWidth}",
+                _ => $"{lineVar}.Length != {expectedWidth}",
+            };
+
+            sb.AppendLine($"        if ({condition})");
+            sb.AppendLine($"            throw new global::System.FormatException($\"Fixed-length record line {lineIndex + 1} has length {{{lineVar}.Length}} but expected {DescribeFixedModeExpectation(mode, expectedWidth)}.\");");
+        }
+
+        sb.AppendLine();
+    }
+
+    private static string DescribeFixedModeExpectation(string fixedMode, int expectedWidth) =>
+        fixedMode switch
+        {
+            "AllowMoreChars" => $"at least {expectedWidth} characters",
+            "AllowLessChars" => $"at most {expectedWidth} characters",
+            _ => $"{expectedWidth} characters",
+        };
 
     /// <summary>
     /// Emits raw <c>line.Slice(offset, width)</c> arithmetic for fixed-length records (D-04: fully inlined).
@@ -823,26 +877,7 @@ internal static class DescriptorEmitter
         if (field.ConverterKind == GeneratorConverterKind.DateMultiFormat)
             return EmitDateMultiFormatTryParse(fieldVar, field, fieldIdx);
 
-        string converterClass = field.ConverterKind switch
-        {
-            GeneratorConverterKind.Date => "global::ModernLibs.FileHelpers.Converters.DateTimeConverter",
-            GeneratorConverterKind.Byte => "global::ModernLibs.FileHelpers.Converters.ByteConverter",
-            GeneratorConverterKind.SByte => "global::ModernLibs.FileHelpers.Converters.SByteConverter",
-            GeneratorConverterKind.Int16 => "global::ModernLibs.FileHelpers.Converters.Int16Converter",
-            GeneratorConverterKind.Int32 => "global::ModernLibs.FileHelpers.Converters.Int32Converter",
-            GeneratorConverterKind.Int64 => "global::ModernLibs.FileHelpers.Converters.Int64Converter",
-            GeneratorConverterKind.UInt16 => "global::ModernLibs.FileHelpers.Converters.UInt16Converter",
-            GeneratorConverterKind.UInt32 => "global::ModernLibs.FileHelpers.Converters.UInt32Converter",
-            GeneratorConverterKind.UInt64 => "global::ModernLibs.FileHelpers.Converters.UInt64Converter",
-            GeneratorConverterKind.Decimal => "global::ModernLibs.FileHelpers.Converters.DecimalConverter",
-            GeneratorConverterKind.Double => "global::ModernLibs.FileHelpers.Converters.DoubleConverter",
-            GeneratorConverterKind.Single => "global::ModernLibs.FileHelpers.Converters.SingleConverter",
-            GeneratorConverterKind.PercentDouble => "global::ModernLibs.FileHelpers.Converters.PercentDoubleConverter",
-            GeneratorConverterKind.Boolean => "global::ModernLibs.FileHelpers.Converters.BoolConverter",
-            GeneratorConverterKind.Char => "global::ModernLibs.FileHelpers.Converters.CharConverter",
-            GeneratorConverterKind.Guid => "global::ModernLibs.FileHelpers.Converters.GuidConverter",
-            _ => throw new System.InvalidOperationException($"Unhandled GeneratorConverterKind {field.ConverterKind}")
-        };
+        string converterClass = GetBuiltInConverterClass(field.ConverterKind, field.FullTypeName);
 
         return $"if (!{converterClass}.Instance.TryParse({fieldVar}, out var __v{fieldIdx})) __v{fieldIdx} = default;";
     }
@@ -867,6 +902,11 @@ internal static class DescriptorEmitter
     /// </summary>
     private static string EmitCustomConverterTryParse(string fieldVar, FieldModel field, int fieldIdx)
     {
+        if (field.DirectSpanConverter)
+        {
+            return $"if (!__conv_field{fieldIdx}.TryParse({fieldVar}, out var __v{fieldIdx})) __v{fieldIdx} = default;";
+        }
+
         // __conv_field{fieldIdx} is a static cached ConverterBaseAdapter<T> instance
         // declared by EmitConverterFields in the generated descriptor class body.
         return $"if (!__conv_field{fieldIdx}.TryParse({fieldVar}, out var __v{fieldIdx})) __v{fieldIdx} = default; // Legacy ConverterBase adapter — allocates strings per field. Implement ISpanConverter<T> for zero-alloc.";
@@ -905,11 +945,18 @@ internal static class DescriptorEmitter
             }
             else if (field.ConverterTypeName is not null)
             {
-                // ConverterBase subclass wrapped with ConverterBaseAdapter<T>
-                // Phase 6: assumes all custom types are ConverterBase subclasses (Phase 7 detects ISpanConverter<T>)
-                sb.AppendLine($"    // Legacy ConverterBase adapter — allocates strings per field. Implement ISpanConverter<T> for zero-alloc.");
-                sb.AppendLine($"    private static readonly global::ModernLibs.FileHelpers.Converters.ConverterBaseAdapter<{field.FullTypeName}> __conv_field{i}");
-                sb.AppendLine($"        = new(new {field.ConverterTypeName}());");
+                if (field.DirectSpanConverter)
+                {
+                    sb.AppendLine($"    private static readonly {field.ConverterTypeName} __conv_field{i} = new();");
+                }
+                else
+                {
+                    // ConverterBase subclass wrapped with ConverterBaseAdapter<T>
+                    sb.AppendLine($"    // Legacy ConverterBase adapter — allocates strings per field. Implement ISpanConverter<T> for zero-alloc.");
+                    sb.AppendLine($"    private static readonly global::ModernLibs.FileHelpers.Converters.ConverterBaseAdapter<{field.FullTypeName}> __conv_field{i}");
+                    sb.AppendLine($"        = new(new {field.ConverterTypeName}());");
+                }
+
                 anyEmitted = true;
             }
         }
@@ -1137,7 +1184,7 @@ internal static class DescriptorEmitter
         if (field.ConverterKind != GeneratorConverterKind.None &&
             field.ConverterKind != GeneratorConverterKind.DateMultiFormat)
         {
-            string converterClass = GetBuiltInConverterClass(field.ConverterKind);
+            string converterClass = GetBuiltInConverterClass(field.ConverterKind, field.FullTypeName);
             int bufSize = GetConverterBufferSize(field.ConverterKind);
             return $"{{ global::System.Span<char> __buf{n} = stackalloc char[{bufSize}]; {converterClass}.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
         }
@@ -1225,6 +1272,7 @@ internal static class DescriptorEmitter
         string fieldRef = $"record.{field.Name}";
         string typeName = NormalizeTypeName(field.TypeName);
         string fullTypeName = NormalizeTypeName(field.FullTypeName);
+        int formatBufferWidth = field.OverflowMode == 1 ? GetFixedOverflowBufferSize(field, w, typeName, fullTypeName) : w;
 
         // Determine pad character: use AlignChar if specified, otherwise space
         string padChar = field.AlignChar.HasValue ? $"'{EscapeChar(field.AlignChar.Value)}'" : "' '";
@@ -1237,7 +1285,7 @@ internal static class DescriptorEmitter
 
         // String fields: direct copy up to W chars (no alignment)
         if (IsStringType(typeName, fullTypeName))
-            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); var __s{n} = {fieldRef} ?? \"\"; int __cp{n} = global::System.Math.Min(__s{n}.Length, {w}); __s{n}.AsSpan(0, __cp{n}).CopyTo(__d{n}); writer.Advance({w}); }}";
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); var __s{n} = {fieldRef} ?? \"\";{GetStringOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__s{n}.Length, {w}); __s{n}.AsSpan(0, __cp{n}).CopyTo(__d{n}); writer.Advance({w}); }}";
 
         // Char field
         if (IsCharType(typeName, fullTypeName))
@@ -1247,41 +1295,41 @@ internal static class DescriptorEmitter
         if (field.ConverterKind != GeneratorConverterKind.None &&
             field.ConverterKind != GeneratorConverterKind.DateMultiFormat)
         {
-            string converterClass = GetBuiltInConverterClass(field.ConverterKind);
-            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; {converterClass}.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+            string converterClass = GetBuiltInConverterClass(field.ConverterKind, field.FullTypeName);
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = {converterClass}.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});{GetFormattedOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
         }
 
         if (field.ConverterKind == GeneratorConverterKind.DateMultiFormat || field.ConverterTypeName is not null)
         {
             // Custom: TryFormat via cached adapter field (declared with raw index by EmitConverterFields).
-            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; __conv_field{rawFieldIndex}.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = __conv_field{rawFieldIndex}.TryFormat({fieldRef}, __buf{n}, out int __cw{n});{GetFormattedOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
         }
 
         // Pattern E for all other value types: stackalloc W, TryFormat, truncate
         // Floating-point: use built-in converters for InvariantCulture
         if (IsDecimalType(typeName, fullTypeName))
-            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.DecimalConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = global::ModernLibs.FileHelpers.Converters.DecimalConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});{GetFormattedOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
 
         if (IsDoubleType(typeName, fullTypeName))
-            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.DoubleConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = global::ModernLibs.FileHelpers.Converters.DoubleConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});{GetFormattedOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
 
         if (IsSingleType(typeName, fullTypeName))
-            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.SingleConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = global::ModernLibs.FileHelpers.Converters.SingleConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});{GetFormattedOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
 
         if (IsBoolType(typeName, fullTypeName))
-            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.BoolConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = global::ModernLibs.FileHelpers.Converters.BoolConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});{GetFormattedOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
 
         if (IsGuidType(typeName, fullTypeName))
-            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.GuidConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = global::ModernLibs.FileHelpers.Converters.GuidConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});{GetFormattedOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
 
         if (IsDateTimeType(typeName, fullTypeName))
-            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.DateTimeConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = global::ModernLibs.FileHelpers.Converters.DateTimeConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});{GetFormattedOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
 
         if (IsDateOnlyType(typeName, fullTypeName))
-            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.DateOnlyConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = global::ModernLibs.FileHelpers.Converters.DateOnlyConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});{GetFormattedOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
 
         if (IsTimeOnlyType(typeName, fullTypeName))
-            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.TimeOnlyConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = global::ModernLibs.FileHelpers.Converters.TimeOnlyConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});{GetFormattedOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
 
         // Generic TryFormat for integers and other ISpanFormattable value types.
         // For unrecognised reference types (object, etc.): ToString() fallback.
@@ -1289,10 +1337,45 @@ internal static class DescriptorEmitter
                            !field.FullTypeName.TrimEnd('?').Equals("System.Object", System.StringComparison.Ordinal) &&
                            !field.FullTypeName.TrimEnd('?').StartsWith("global::System.Object", System.StringComparison.Ordinal);
         if (isValueType)
-            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{w}]; {fieldRef}.TryFormat(__buf{n}, out int __cw{n}); int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = {fieldRef}.TryFormat(__buf{n}, out int __cw{n});{GetFormattedOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
         // object/unknown reference type: ToString() with fixed-length truncation
-        return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); var __s{n} = {fieldRef}?.ToString() ?? \"\"; int __cp{n} = global::System.Math.Min(__s{n}.Length, {w}); __s{n}.AsSpan(0, __cp{n}).CopyTo(__d{n}); writer.Advance({w}); }}";
+        return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); var __s{n} = {fieldRef}?.ToString() ?? \"\";{GetStringOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__s{n}.Length, {w}); __s{n}.AsSpan(0, __cp{n}).CopyTo(__d{n}); writer.Advance({w}); }}";
     }
+
+    private static int GetFixedOverflowBufferSize(FieldModel field, int w, string typeName, string fullTypeName)
+    {
+        if (field.ConverterKind != GeneratorConverterKind.None)
+            return global::System.Math.Max(w, GetConverterBufferSize(field.ConverterKind));
+        if (field.ConverterTypeName is not null)
+            return global::System.Math.Max(w, 256);
+        if (IsGuidType(typeName, fullTypeName))
+            return global::System.Math.Max(w, 36);
+        if (IsDateTimeType(typeName, fullTypeName))
+            return global::System.Math.Max(w, 20);
+        if (IsDateOnlyType(typeName, fullTypeName))
+            return global::System.Math.Max(w, 12);
+        if (IsTimeOnlyType(typeName, fullTypeName))
+            return global::System.Math.Max(w, 10);
+        if (IsDecimalType(typeName, fullTypeName))
+            return global::System.Math.Max(w, 32);
+        if (IsDoubleType(typeName, fullTypeName))
+            return global::System.Math.Max(w, 24);
+        if (IsSingleType(typeName, fullTypeName))
+            return global::System.Math.Max(w, 16);
+        if (IsBoolType(typeName, fullTypeName))
+            return global::System.Math.Max(w, 6);
+        return global::System.Math.Max(w, 256);
+    }
+
+    private static string GetStringOverflowGuard(FieldModel field, int n, int w) =>
+        field.OverflowMode == 1
+            ? $" if (__s{n}.Length > {w}) throw new global::System.InvalidOperationException(\"Field '{EscapeString(field.Name)}' exceeds fixed length {w}.\");"
+            : string.Empty;
+
+    private static string GetFormattedOverflowGuard(FieldModel field, int n, int w) =>
+        field.OverflowMode == 1
+            ? $" if (!__ok{n} || __cw{n} > {w}) throw new global::System.InvalidOperationException(\"Field '{EscapeString(field.Name)}' exceeds fixed length {w}.\");"
+            : string.Empty;
 
     /// <summary>
     /// Phase 12: Emits alignment-aware field formatting code for fixed-length records.
@@ -1303,36 +1386,36 @@ internal static class DescriptorEmitter
         // For string fields: apply alignment directly to the string value
         if (IsStringType(typeName, fullTypeName))
         {
-            return EmitAlignedStringFieldCode(n, w, fieldRef, padChar, field.AlignMode!.Value);
+            return EmitAlignedStringFieldCode(field, n, w, fieldRef, padChar, field.AlignMode!.Value);
         }
 
         // For value types: format to buffer first, then apply alignment
         string formatToBufferCode = GetValueFormatToBufferCode(field, n, w, rawFieldIndex, typeName, fullTypeName, fieldRef);
 
         // Generate alignment code that works with the formatted buffer
-        return EmitAlignedValueFieldCode(n, w, padChar, field.AlignMode!.Value, formatToBufferCode);
+        return EmitAlignedValueFieldCode(field, n, w, padChar, field.AlignMode!.Value, formatToBufferCode);
     }
 
     /// <summary>
     /// Emits alignment code for string fields.
     /// </summary>
-    private static string EmitAlignedStringFieldCode(int n, int w, string fieldRef, string padChar, int alignMode)
+    private static string EmitAlignedStringFieldCode(FieldModel field, int n, int w, string fieldRef, string padChar, int alignMode)
     {
         // Left alignment (0): value first, then padding
         if (alignMode == 0)
         {
-            return $"{{ var __d{n} = writer.GetSpan({w}); var __s{n} = {fieldRef} ?? \"\"; int __cp{n} = global::System.Math.Min(__s{n}.Length, {w}); __s{n}.AsSpan(0, __cp{n}).CopyTo(__d{n}); if (__cp{n} < {w}) __d{n}.Slice(__cp{n}).Fill({padChar}); writer.Advance({w}); }}";
+            return $"{{ var __d{n} = writer.GetSpan({w}); var __s{n} = {fieldRef} ?? \"\";{GetStringOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__s{n}.Length, {w}); __s{n}.AsSpan(0, __cp{n}).CopyTo(__d{n}); if (__cp{n} < {w}) __d{n}.Slice(__cp{n}).Fill({padChar}); writer.Advance({w}); }}";
         }
 
         // Right alignment (2): padding first, then value
         if (alignMode == 2)
         {
-            return $"{{ var __d{n} = writer.GetSpan({w}); var __s{n} = {fieldRef} ?? \"\"; int __cp{n} = global::System.Math.Min(__s{n}.Length, {w}); int __pad{n} = {w} - __cp{n}; if (__pad{n} > 0) __d{n}.Slice(0, __pad{n}).Fill({padChar}); __s{n}.AsSpan(0, __cp{n}).CopyTo(__d{n}.Slice(__pad{n})); writer.Advance({w}); }}";
+            return $"{{ var __d{n} = writer.GetSpan({w}); var __s{n} = {fieldRef} ?? \"\";{GetStringOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__s{n}.Length, {w}); int __pad{n} = {w} - __cp{n}; if (__pad{n} > 0) __d{n}.Slice(0, __pad{n}).Fill({padChar}); __s{n}.AsSpan(0, __cp{n}).CopyTo(__d{n}.Slice(__pad{n})); writer.Advance({w}); }}";
         }
 
         // Center alignment (1): left pad, value, right pad (extra on left if odd)
         // alignMode == 1 (Center)
-        return $"{{ var __d{n} = writer.GetSpan({w}); var __s{n} = {fieldRef} ?? \"\"; int __cp{n} = global::System.Math.Min(__s{n}.Length, {w}); int __totalPad{n} = {w} - __cp{n}; int __leftPad{n} = __totalPad{n} / 2; int __rightPad{n} = __totalPad{n} - __leftPad{n}; if (__leftPad{n} > 0) __d{n}.Slice(0, __leftPad{n}).Fill({padChar}); __s{n}.AsSpan(0, __cp{n}).CopyTo(__d{n}.Slice(__leftPad{n})); if (__rightPad{n} > 0) __d{n}.Slice(__leftPad{n} + __cp{n}).Fill({padChar}); writer.Advance({w}); }}";
+        return $"{{ var __d{n} = writer.GetSpan({w}); var __s{n} = {fieldRef} ?? \"\";{GetStringOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__s{n}.Length, {w}); int __totalPad{n} = {w} - __cp{n}; int __leftPad{n} = __totalPad{n} / 2; int __rightPad{n} = __totalPad{n} - __leftPad{n}; if (__leftPad{n} > 0) __d{n}.Slice(0, __leftPad{n}).Fill({padChar}); __s{n}.AsSpan(0, __cp{n}).CopyTo(__d{n}.Slice(__leftPad{n})); if (__rightPad{n} > 0) __d{n}.Slice(__leftPad{n} + __cp{n}).Fill({padChar}); writer.Advance({w}); }}";
     }
 
     /// <summary>
@@ -1344,78 +1427,80 @@ internal static class DescriptorEmitter
         // Char field - special case
         if (IsCharType(typeName, fullTypeName))
         {
-            return $"global::System.Span<char> __buf{n} = stackalloc char[1]; __buf{n}[0] = {fieldRef}; int __cw{n} = 1;";
+            return $"global::System.Span<char> __buf{n} = stackalloc char[1]; __buf{n}[0] = {fieldRef}; int __cw{n} = 1; bool __ok{n} = true;";
         }
+
+        int formatBufferWidth = field.OverflowMode == 1 ? GetFixedOverflowBufferSize(field, w, typeName, fullTypeName) : w;
 
         // Explicit converter annotation
         if (field.ConverterKind != GeneratorConverterKind.None &&
             field.ConverterKind != GeneratorConverterKind.DateMultiFormat)
         {
-            string converterClass = GetBuiltInConverterClass(field.ConverterKind);
-            return $"global::System.Span<char> __buf{n} = stackalloc char[{w}]; {converterClass}.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+            string converterClass = GetBuiltInConverterClass(field.ConverterKind, field.FullTypeName);
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = {converterClass}.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
         }
 
         if (field.ConverterKind == GeneratorConverterKind.DateMultiFormat || field.ConverterTypeName is not null)
         {
-            return $"global::System.Span<char> __buf{n} = stackalloc char[{w}]; __conv_field{rawFieldIndex}.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = __conv_field{rawFieldIndex}.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
         }
 
         // Built-in type converters
         if (IsDecimalType(typeName, fullTypeName))
-            return $"global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.DecimalConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = global::ModernLibs.FileHelpers.Converters.DecimalConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
 
         if (IsDoubleType(typeName, fullTypeName))
-            return $"global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.DoubleConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = global::ModernLibs.FileHelpers.Converters.DoubleConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
 
         if (IsSingleType(typeName, fullTypeName))
-            return $"global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.SingleConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = global::ModernLibs.FileHelpers.Converters.SingleConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
 
         if (IsBoolType(typeName, fullTypeName))
-            return $"global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.BoolConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = global::ModernLibs.FileHelpers.Converters.BoolConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
 
         if (IsGuidType(typeName, fullTypeName))
-            return $"global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.GuidConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = global::ModernLibs.FileHelpers.Converters.GuidConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
 
         if (IsDateTimeType(typeName, fullTypeName))
-            return $"global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.DateTimeConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = global::ModernLibs.FileHelpers.Converters.DateTimeConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
 
         if (IsDateOnlyType(typeName, fullTypeName))
-            return $"global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.DateOnlyConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = global::ModernLibs.FileHelpers.Converters.DateOnlyConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
 
         if (IsTimeOnlyType(typeName, fullTypeName))
-            return $"global::System.Span<char> __buf{n} = stackalloc char[{w}]; global::ModernLibs.FileHelpers.Converters.TimeOnlyConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = global::ModernLibs.FileHelpers.Converters.TimeOnlyConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
 
         // Generic ISpanFormattable fallback
         bool isValueType = !field.FullTypeName.TrimEnd('?').Equals("object", System.StringComparison.Ordinal) &&
                            !field.FullTypeName.TrimEnd('?').Equals("System.Object", System.StringComparison.Ordinal) &&
                            !field.FullTypeName.TrimEnd('?').StartsWith("global::System.Object", System.StringComparison.Ordinal);
         if (isValueType)
-            return $"global::System.Span<char> __buf{n} = stackalloc char[{w}]; {fieldRef}.TryFormat(__buf{n}, out int __cw{n});";
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = {fieldRef}.TryFormat(__buf{n}, out int __cw{n});";
 
         // object/unknown reference type: ToString() then treat as string
-        return $"var __str{n} = {fieldRef}?.ToString() ?? \"\"; global::System.Span<char> __buf{n} = __str{n}.Length <= {w} ? stackalloc char[__str{n}.Length] : new char[__str{n}.Length]; __str{n}.AsSpan().CopyTo(__buf{n}); int __cw{n} = __str{n}.Length;";
+        return $"var __str{n} = {fieldRef}?.ToString() ?? \"\"; global::System.Span<char> __buf{n} = __str{n}.Length <= {formatBufferWidth} ? stackalloc char[__str{n}.Length] : new char[__str{n}.Length]; __str{n}.AsSpan().CopyTo(__buf{n}); int __cw{n} = __str{n}.Length; bool __ok{n} = true;";
     }
 
     /// <summary>
     /// Emits alignment code for value fields that have been formatted to a buffer.
     /// The formatToBufferCode must define __buf{n} (Span<char>) and __cw{n} (int chars written).
     /// </summary>
-    private static string EmitAlignedValueFieldCode(int n, int w, string padChar, int alignMode, string formatToBufferCode)
+    private static string EmitAlignedValueFieldCode(FieldModel field, int n, int w, string padChar, int alignMode, string formatToBufferCode)
     {
         // Left alignment (0): value first, then padding
         if (alignMode == 0)
         {
-            return $"{{ {formatToBufferCode} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); var __d{n} = writer.GetSpan({w}); __buf{n}.Slice(0, __cp{n}).CopyTo(__d{n}); if (__cp{n} < {w}) __d{n}.Slice(__cp{n}).Fill({padChar}); writer.Advance({w}); }}";
+            return $"{{ {formatToBufferCode}{GetFormattedOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); var __d{n} = writer.GetSpan({w}); __buf{n}.Slice(0, __cp{n}).CopyTo(__d{n}); if (__cp{n} < {w}) __d{n}.Slice(__cp{n}).Fill({padChar}); writer.Advance({w}); }}";
         }
 
         // Right alignment (2): padding first, then value
         if (alignMode == 2)
         {
-            return $"{{ {formatToBufferCode} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); int __pad{n} = {w} - __cp{n}; var __d{n} = writer.GetSpan({w}); if (__pad{n} > 0) __d{n}.Slice(0, __pad{n}).Fill({padChar}); __buf{n}.Slice(0, __cp{n}).CopyTo(__d{n}.Slice(__pad{n})); writer.Advance({w}); }}";
+            return $"{{ {formatToBufferCode}{GetFormattedOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); int __pad{n} = {w} - __cp{n}; var __d{n} = writer.GetSpan({w}); if (__pad{n} > 0) __d{n}.Slice(0, __pad{n}).Fill({padChar}); __buf{n}.Slice(0, __cp{n}).CopyTo(__d{n}.Slice(__pad{n})); writer.Advance({w}); }}";
         }
 
         // Center alignment (1): left pad, value, right pad
-        return $"{{ {formatToBufferCode} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); int __totalPad{n} = {w} - __cp{n}; int __leftPad{n} = __totalPad{n} / 2; int __rightPad{n} = __totalPad{n} - __leftPad{n}; var __d{n} = writer.GetSpan({w}); if (__leftPad{n} > 0) __d{n}.Slice(0, __leftPad{n}).Fill({padChar}); __buf{n}.Slice(0, __cp{n}).CopyTo(__d{n}.Slice(__leftPad{n})); if (__rightPad{n} > 0) __d{n}.Slice(__leftPad{n} + __cp{n}).Fill({padChar}); writer.Advance({w}); }}";
+        return $"{{ {formatToBufferCode}{GetFormattedOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); int __totalPad{n} = {w} - __cp{n}; int __leftPad{n} = __totalPad{n} / 2; int __rightPad{n} = __totalPad{n} - __leftPad{n}; var __d{n} = writer.GetSpan({w}); if (__leftPad{n} > 0) __d{n}.Slice(0, __leftPad{n}).Fill({padChar}); __buf{n}.Slice(0, __cp{n}).CopyTo(__d{n}.Slice(__leftPad{n})); if (__rightPad{n} > 0) __d{n}.Slice(__leftPad{n} + __cp{n}).Fill({padChar}); writer.Advance({w}); }}";
     }
 
     /// <summary>
@@ -1525,7 +1610,7 @@ internal static class DescriptorEmitter
     /// Maps a GeneratorConverterKind to its fully-qualified converter class name.
     /// Symmetric to EmitBuiltInConverterTryParse mapping.
     /// </summary>
-    private static string GetBuiltInConverterClass(GeneratorConverterKind kind) => kind switch
+    private static string GetBuiltInConverterClass(GeneratorConverterKind kind, string? fieldFullTypeName = null) => kind switch
     {
         GeneratorConverterKind.Date => "global::ModernLibs.FileHelpers.Converters.DateTimeConverter",
         GeneratorConverterKind.Byte => "global::ModernLibs.FileHelpers.Converters.ByteConverter",
@@ -1543,6 +1628,9 @@ internal static class DescriptorEmitter
         GeneratorConverterKind.Boolean => "global::ModernLibs.FileHelpers.Converters.BoolConverter",
         GeneratorConverterKind.Char => "global::ModernLibs.FileHelpers.Converters.CharConverter",
         GeneratorConverterKind.Guid => "global::ModernLibs.FileHelpers.Converters.GuidConverter",
+        GeneratorConverterKind.Enum when fieldFullTypeName is not null =>
+            $"global::ModernLibs.FileHelpers.Converters.EnumConverter<{fieldFullTypeName}>",
+        GeneratorConverterKind.Enum => throw new System.InvalidOperationException("Enum converter requires a field type."),
         _ => throw new System.InvalidOperationException($"Unhandled GeneratorConverterKind {kind}")
     };
 
@@ -1568,6 +1656,7 @@ internal static class DescriptorEmitter
         GeneratorConverterKind.Guid => 36,
         GeneratorConverterKind.Date => 20,
         GeneratorConverterKind.PercentDouble => 25,
+        GeneratorConverterKind.Enum => 64,
         _ => 32,
     };
 

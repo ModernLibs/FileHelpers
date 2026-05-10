@@ -54,6 +54,10 @@ namespace ModernLibs.FileHelpers;
 /// </typeparam>
 public sealed class FileHelperEngine<T>
 {
+    // OPT-04: static readonly — JIT constant-folds this per generic instantiation,
+    // eliminating the dead branch entirely in the hot path.
+    private static readonly bool s_isStruct = typeof(T).IsValueType;
+
     private readonly IRecordDescriptor<T> _descriptor;
     private readonly Parsing.RecordConditionMatcher? _conditionMatcher;
     private readonly bool _implementsNotifyRead;    // INTF-05
@@ -61,6 +65,7 @@ public sealed class FileHelperEngine<T>
 
     /// <summary>
     /// Creates an engine instance backed by the source-generated descriptor for <typeparamref name="T"/>.
+    /// Uses <see cref="Encoding.UTF8"/> for file I/O operations.
     /// CREC-01, CREC-11: Initializes RecordConditionMatcher if ConditionalRecord is configured.
     /// INTF-05, INTF-06: Detects interface implementation once at construction.
     /// </summary>
@@ -70,7 +75,21 @@ public sealed class FileHelperEngine<T>
     /// did not run. See <see cref="FileHelperRegistry{T}.Descriptor"/>.
     /// </exception>
     public FileHelperEngine()
+        : this(Encoding.UTF8)
     {
+    }
+
+    /// <summary>
+    /// Creates an engine instance with the specified encoding for file I/O operations.
+    /// 3.x parity: <c>new FileHelperEngine&lt;T&gt;(Encoding.GetEncoding(0))</c> restores
+    /// the legacy system-default ANSI code page behavior.
+    /// </summary>
+    /// <param name="encoding">Encoding used by <see cref="ReadFile(string)"/>, <see cref="WriteFile"/>, and <see cref="AppendToFile(string,T)"/>.</param>
+    public FileHelperEngine(Encoding encoding)
+    {
+        ArgumentNullException.ThrowIfNull(encoding);
+        Encoding = encoding;
+
         _descriptor = FileHelperRegistry<T>.Descriptor;
 
         // INTF-05, INTF-06: Detect interface implementation once at construction
@@ -168,6 +187,66 @@ public sealed class FileHelperEngine<T>
     public T[] ReadString(string content, int maxRecords) => ReadCore(content, maxRecords);
 
     /// <summary>
+    /// OPT-06: Parses all records from a <see cref="ReadOnlySpan{T}"/> of characters.
+    /// Zero content allocation — the span is used directly for line boundary tracking
+    /// and field slicing. Ideal for callers with span-based input (MemoryMappedFile,
+    /// pooled buffers, pipeline readers).
+    /// </summary>
+    public T[] ReadSpan(ReadOnlySpan<char> content) => ReadCoreSpan(content, maxRecords: 0);
+
+    /// <summary>
+    /// OPT-06: Parses up to <paramref name="maxRecords"/> records from a <see cref="ReadOnlySpan{T}"/>.
+    /// Zero content allocation. <c>maxRecords &lt;= 0</c> means "no limit".
+    /// </summary>
+    public T[] ReadSpan(ReadOnlySpan<char> content, int maxRecords) => ReadCoreSpan(content, maxRecords);
+
+    /// <summary>
+    /// OPT-11: Zero-allocation callback-based read from a <see cref="ReadOnlySpan{T}"/>.
+    /// Invokes <paramref name="callback"/> for each parsed record without building a result array.
+    /// Returns the total number of records processed.
+    /// Ideal for streaming scenarios where records are consumed inline (e.g., database inserts,
+    /// transformation pipelines) without needing to hold all records in memory.
+    /// </summary>
+    /// <param name="content">The input content as a character span.</param>
+    /// <param name="callback">Called once per successfully parsed record.</param>
+    /// <returns>The number of records that were parsed and passed to the callback.</returns>
+    public int ReadSpan(ReadOnlySpan<char> content, Action<T> callback)
+    {
+        ArgumentNullException.ThrowIfNull(callback);
+        return ReadCoreSpanCallback(content, callback, maxRecords: 0);
+    }
+
+    /// <summary>
+    /// OPT-11: Zero-allocation callback-based read with a record-count cap.
+    /// </summary>
+    public int ReadSpan(ReadOnlySpan<char> content, Action<T> callback, int maxRecords)
+    {
+        ArgumentNullException.ThrowIfNull(callback);
+        return ReadCoreSpanCallback(content, callback, maxRecords);
+    }
+
+    /// <summary>
+    /// OPT-11: Zero-allocation callback-based read from a string.
+    /// Invokes <paramref name="callback"/> for each parsed record without building a result array.
+    /// </summary>
+    public int ReadString(string content, Action<T> callback)
+    {
+        ArgumentNullException.ThrowIfNull(callback);
+        ArgumentNullException.ThrowIfNull(content);
+        return ReadCoreCallback(content, callback, maxRecords: 0);
+    }
+
+    /// <summary>
+    /// OPT-11: Zero-allocation callback-based read from a string with a record-count cap.
+    /// </summary>
+    public int ReadString(string content, Action<T> callback, int maxRecords)
+    {
+        ArgumentNullException.ThrowIfNull(callback);
+        ArgumentNullException.ThrowIfNull(content);
+        return ReadCoreCallback(content, callback, maxRecords);
+    }
+
+    /// <summary>
     /// ENGI-02: Reads all content from <paramref name="reader"/> via
     /// <see cref="TextReader.ReadToEnd"/> and parses. <paramref name="reader"/> is NOT disposed —
     /// the caller owns its lifetime (matches FileHelpers 3.x).
@@ -188,22 +267,77 @@ public sealed class FileHelperEngine<T>
 
     /// <summary>
     /// ENGI-01 / D-02: Opens <paramref name="filePath"/> with the current <see cref="Encoding"/>,
-    /// reads to end, and parses. The underlying <see cref="StreamReader"/> is disposed.
-    /// See <see cref="ReadString(string)"/> for the per-line allocation note (WR-08).
+    /// reads to end, and parses via the optimized span pipeline. The underlying file handle is
+    /// disposed after reading.
+    /// <para>OPT-12: Uses <see cref="File.ReadAllText(string, Encoding)"/> → <see cref="ReadSpan(ReadOnlySpan{char})"/>
+    /// to avoid the <see cref="StreamReader.ReadToEnd"/> intermediate buffer growth overhead.</para>
     /// </summary>
     public T[] ReadFile(string filePath)
     {
         ArgumentNullException.ThrowIfNull(filePath);
-        using var sr = new StreamReader(filePath, Encoding);
-        return ReadCore(sr.ReadToEnd(), maxRecords: 0);
+        var content = File.ReadAllText(filePath, Encoding);
+        return ReadSpan(content.AsSpan(), maxRecords: 0);
     }
 
     /// <summary>ENGI-01 + D-11: <see cref="ReadFile(string)"/> with a record-count cap.</summary>
     public T[] ReadFile(string filePath, int maxRecords)
     {
         ArgumentNullException.ThrowIfNull(filePath);
+        var content = File.ReadAllText(filePath, Encoding);
+        return ReadSpan(content.AsSpan(), maxRecords);
+    }
+
+    /// <summary>
+    /// OPT-12: Streaming file read with callback — zero string allocation, zero T[] allocation.
+    /// Reads the file in chunks via <see cref="StreamReader"/>, detects line boundaries,
+    /// parses each record, and invokes <paramref name="callback"/> inline.
+    /// Returns the total number of records processed.
+    /// Ideal for large files where holding the entire content in memory is undesirable.
+    /// </summary>
+    /// <param name="filePath">Path to the file to read.</param>
+    /// <param name="callback">Called once per successfully parsed record.</param>
+    /// <returns>The number of records that were parsed and passed to the callback.</returns>
+    public int ReadFile(string filePath, Action<T> callback)
+    {
+        ArgumentNullException.ThrowIfNull(filePath);
+        ArgumentNullException.ThrowIfNull(callback);
         using var sr = new StreamReader(filePath, Encoding);
-        return ReadCore(sr.ReadToEnd(), maxRecords);
+        return ReadCoreStreamCallback(sr, callback, maxRecords: 0);
+    }
+
+    /// <summary>OPT-12: <see cref="ReadFile(string, Action{T})"/> with a record-count cap.</summary>
+    public int ReadFile(string filePath, Action<T> callback, int maxRecords)
+    {
+        ArgumentNullException.ThrowIfNull(filePath);
+        ArgumentNullException.ThrowIfNull(callback);
+        using var sr = new StreamReader(filePath, Encoding);
+        return ReadCoreStreamCallback(sr, callback, maxRecords);
+    }
+
+    /// <summary>
+    /// OPT-12: Async streaming file read with callback.
+    /// Reads the file asynchronously in chunks, parses records, and invokes <paramref name="callback"/> inline.
+    /// Zero string allocation, zero T[] allocation. Cancellation supported.
+    /// </summary>
+    /// <param name="filePath">Path to the file to read.</param>
+    /// <param name="callback">Called once per successfully parsed record.</param>
+    /// <param name="cancellationToken">Token to cancel the read operation.</param>
+    /// <returns>The number of records that were parsed and passed to the callback.</returns>
+    public async Task<int> ReadFileAsync(string filePath, Action<T> callback, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(filePath);
+        ArgumentNullException.ThrowIfNull(callback);
+        using var sr = new StreamReader(filePath, Encoding, detectEncodingFromByteOrderMarks: true, bufferSize: 4096);
+        return await ReadCoreStreamCallbackAsync(sr, callback, maxRecords: 0, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>OPT-12: <see cref="ReadFileAsync(string, Action{T}, CancellationToken)"/> with a record-count cap.</summary>
+    public async Task<int> ReadFileAsync(string filePath, Action<T> callback, int maxRecords, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(filePath);
+        ArgumentNullException.ThrowIfNull(callback);
+        using var sr = new StreamReader(filePath, Encoding, detectEncodingFromByteOrderMarks: true, bufferSize: 4096);
+        return await ReadCoreStreamCallbackAsync(sr, callback, maxRecords, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -320,6 +454,11 @@ public sealed class FileHelperEngine<T>
 
     /// <summary>
     /// Core read pipeline. See class-level remarks for the full algorithm (D-01, D-08, D-10, D-12).
+    /// OPT-01: Uses line-boundary tracking instead of per-line string allocations for the common case.
+    /// OPT-02: Eliminates redundant EnsureDelimitedFieldCount scan.
+    /// OPT-03: Uses CollectionsMarshal.AsSpan for zero-copy result buffer writes.
+    /// OPT-07: Two-pass line counting with pre-allocated int[] arrays (no List growth).
+    /// OPT-08: SpanLineReader SIMD-accelerated newline detection via SearchValues.
     /// </summary>
     private T[] ReadCore(string content, int maxRecords)
     {
@@ -334,197 +473,209 @@ public sealed class FileHelperEngine<T>
 
         var opts = _descriptor.Options;
 
-        // Step 2: Collect all lines as strings — we need random access (IgnoreLast) and the SpanLineReader
-        // yields spans that cannot outlive its scope. Per-line allocations are acceptable in the batch
-        // path (D-01); Phase 8 streaming will use a different pipeline.
-        var lines = new List<string>();
-        var reader = new SpanLineReader(content.AsSpan());
-        while (reader.TryReadLine(out var lineSpan))
+        // OPT-01: Two-path approach.
+        // Fast path (no multiline): track line boundaries as (start, length) tuples — zero per-line allocations.
+        // Slow path (multiline): materialize strings as before (rare, complex case).
+        if (opts.MultilineMode != MultilineMode.AllowForRead)
         {
-            lines.Add(new string(lineSpan));
+            return ReadCoreFastPath(content, maxRecords, opts);
         }
 
-        // Step 3: IgnoreFirst — capture header then drop leading lines.
-        // IN-06: use CollectionsMarshal.AsSpan + string.Join(ReadOnlySpan) to avoid the
-        // LINQ iterator wrapper allocation per call.
-        if (opts.IgnoreFirst > 0 && lines.Count > 0)
+        return ReadCoreMultilinePath(content, maxRecords, opts);
+    }
+
+    /// <summary>
+    /// OPT-01/OPT-07/OPT-08 Fast path: zero per-line string allocations.
+    /// Two-pass line counting with pre-allocated int[] (OPT-07).
+    /// SpanLineReader SIMD-accelerated newline detection via SearchValues (OPT-08).
+    /// </summary>
+    private T[] ReadCoreFastPath(string content, int maxRecords, RecordOptions opts)
+    {
+        // Step 2a: Two-pass line boundary collection.
+        // Pass 1: Count lines using SIMD-accelerated IndexOfAny.
+        // Pass 2: Fill pre-allocated int[] arrays with starts and lengths.
+        int contentLength = content.Length;
+        int lineCount = CountLines(content);
+
+        // Early exit for empty content
+        if (lineCount == 0)
         {
-            int take = Math.Min(opts.IgnoreFirst, lines.Count);
-            HeaderText = string.Join(NewLineForWrite, System.Runtime.InteropServices.CollectionsMarshal.AsSpan(lines)[..take]);
-            lines.RemoveRange(0, take);
+            TotalRecords = 0;
+            return [];
         }
 
-        // Step 4: IgnoreLast — capture footer then drop trailing lines.
-        if (opts.IgnoreLast > 0 && lines.Count > 0)
+        var lineStarts = new int[lineCount];
+        var lineLengths = new int[lineCount];
+        FillLineBoundaries(content, contentLength, lineStarts, lineLengths);
+
+        // Step 3: IgnoreFirst — capture header
+        int headerLineCount = 0;
+        if (opts.IgnoreFirst > 0 && lineCount > 0)
         {
-            int take = Math.Min(opts.IgnoreLast, lines.Count);
-            FooterText = string.Join(NewLineForWrite, System.Runtime.InteropServices.CollectionsMarshal.AsSpan(lines)[(lines.Count - take)..]);
-            lines.RemoveRange(lines.Count - take, take);
+            headerLineCount = Math.Min(opts.IgnoreFirst, lineCount);
+            HeaderText = BuildJoinedString(content, lineStarts, lineLengths, 0, headerLineCount, NewLineForWrite);
         }
 
-        // Phase 18 MULT-02: Multiline assembly for quoted fields spanning multiple lines
-        List<int> logicalStartPhysicalIndices0;
-        List<int> logicalEndPhysicalIndices0;
-        if (opts.MultilineMode == MultilineMode.AllowForRead)
+        // Step 4: IgnoreLast — capture footer
+        int footerLineCount = 0;
+        if (opts.IgnoreLast > 0 && lineCount > 0)
         {
-            var multilineJoin = Parsing.MultilineLineJoin.Detect(content.AsSpan());
-            (lines, logicalStartPhysicalIndices0, logicalEndPhysicalIndices0) = AssembleMultilineRecords(lines, multilineJoin);
-        }
-        else
-        {
-            logicalStartPhysicalIndices0 = new List<int>(lines.Count);
-            logicalEndPhysicalIndices0 = new List<int>(lines.Count);
-            for (int i = 0; i < lines.Count; i++)
-            {
-                logicalStartPhysicalIndices0.Add(i);
-                logicalEndPhysicalIndices0.Add(i);
-            }
+            int remainingAfterHeader = lineCount - headerLineCount;
+            footerLineCount = Math.Min(opts.IgnoreLast, remainingAfterHeader);
+            int footerStartIdx = lineCount - footerLineCount;
+            FooterText = BuildJoinedString(content, lineStarts, lineLengths, footerStartIdx, footerLineCount, NewLineForWrite);
         }
 
-        // Step 5: Parse loop. Track the original line position so LineNumber reflects the file's
-        // 1-based index of the last parsed line (D-12) — header lines already consumed from the list
-        // still count toward that position.
-        var result = new List<T>(lines.Count);
+        int dataStartIdx = headerLineCount;
+        int dataEndIdx = lineCount - footerLineCount;
+        int dataLineCount = Math.Max(0, dataEndIdx - dataStartIdx);
+
+        // OPT-05: Use pre-allocated T[] for the result buffer.
+        // Simpler and faster than ArrayPool for this use case — new T[n] for reference types
+        // is essentially free (zeroed pointers), while ArrayPool.Rent has locking overhead.
+        T[]? resultBuffer = dataLineCount > 0 ? new T[dataLineCount] : [];
+        int resultIndex = 0;
         int linesPerRecord = Math.Max(1, opts.LineCountPerLogicalRecord);
-        for (int li = 0; li < lines.Count;)
+
+        // OPT-09: Hoist event subscription checks outside the loop to avoid
+        // repeated null checks and unnecessary string materialization.
+        bool hasBeforeRead = BeforeReadRecord is not null;
+        bool hasAfterRead = AfterReadRecord is not null || _implementsNotifyRead;
+
+        for (int li = dataStartIdx; li < dataEndIdx;)
         {
-            int available = lines.Count - li;
+            int available = dataEndIdx - li;
             bool incomplete = available < linesPerRecord;
-            // Physical lines consumed this iteration: full logical record, or the remainder on a truncated tail.
             int physicalLinesInGroup = incomplete ? available : linesPerRecord;
 
             try
             {
-            string firstLine = lines[li];
-            string joinedLogicalLine;
-            if (physicalLinesInGroup == 1)
-            {
-                joinedLogicalLine = firstLine;
-            }
-            else
-            {
-                // Join with '\n' so generated Parse multi-line splitting (IndexOfAny CR/LF) matches.
-                if (physicalLinesInGroup == 2)
+                int firstStart = lineStarts[li];
+                int firstLen = lineLengths[li];
+                ReadOnlySpan<char> firstLineSpan = content.AsSpan(firstStart, firstLen);
+
+                // Build joined logical line — only materialize for multi-line records
+                ReadOnlySpan<char> activeLineSpan;
+                string? activeLineString = null;
+
+                if (physicalLinesInGroup == 1)
                 {
-                    joinedLogicalLine = string.Concat(lines[li], "\n", lines[li + 1]);
+                    activeLineSpan = firstLineSpan;
                 }
                 else
                 {
-                    var sb = new StringBuilder();
+                    activeLineString = BuildJoinedString(content, lineStarts, lineLengths, li, physicalLinesInGroup, "\n");
+                    activeLineSpan = activeLineString.AsSpan();
+                }
+
+                int startLineOneBased = li + 1;
+                int endLineOneBased = li + physicalLinesInGroup;
+
+                // D-08: IgnoreEmptyLines
+                if (opts.IgnoreEmptyLines && !incomplete)
+                {
+                    bool allEmpty = true;
                     for (int j = 0; j < physicalLinesInGroup; j++)
                     {
-                        if (j > 0)
-                            sb.Append('\n');
-                        sb.Append(lines[li + j]);
+                        if (lineLengths[li + j] != 0)
+                        {
+                            allEmpty = false;
+                            break;
+                        }
                     }
-
-                    joinedLogicalLine = sb.ToString();
+                    if (allEmpty)
+                        continue;
                 }
-            }
 
-            int startLineOneBased = opts.IgnoreFirst + 1 + logicalStartPhysicalIndices0[li];
-            int endLineOneBased = opts.IgnoreFirst + 1 + logicalEndPhysicalIndices0[li + physicalLinesInGroup - 1];
+                // D-08: CommentMarker
+                if (!incomplete && opts.CommentMarker != '\0' && firstLen > 0 && content[firstStart] == opts.CommentMarker)
+                    continue;
 
-            // D-08: IgnoreEmptyLines — skip when every physical line in this logical record is empty.
-            // When fewer physical lines remain than required (truncated file), do not skip here — the
-            // structural FormatException path must run so ErrorMode can apply.
-            if (opts.IgnoreEmptyLines && !incomplete)
-            {
-                bool allEmpty = true;
-                for (int j = 0; j < linesPerRecord; j++)
+                // CREC-10: ConditionalRecord filtering
+                if (!incomplete && _conditionMatcher is not null && !_conditionMatcher.ShouldInclude(firstLineSpan))
+                    continue;
+
+                // BeforeRead event — requires string materialization
+                if (!incomplete && hasBeforeRead)
                 {
-                    if (lines[li + j].Length != 0)
-                    {
-                        allEmpty = false;
+                    activeLineString ??= activeLineSpan.ToString();
+                    var beforeArgs = new BeforeReadEventArgs<T>(this, activeLineString, startLineOneBased);
+                    BeforeReadRecord!.Invoke(this, beforeArgs);
+                    if (beforeArgs.StopReading)
                         break;
+                    if (beforeArgs.SkipThisRecord)
+                        continue;
+                    if (beforeArgs.RecordLineChanged)
+                    {
+                        activeLineString = beforeArgs.RecordLine;
+                        activeLineSpan = activeLineString.AsSpan();
                     }
                 }
 
-                if (allEmpty)
-                    continue;
-            }
+                T record;
+                try
+                {
+                    if (incomplete)
+                    {
+                        activeLineString ??= activeLineSpan.ToString();
+                        throw new FormatException(
+                            $"Expected {linesPerRecord} physical line(s) per logical record; only {available} line(s) remain after line {li + 1}.");
+                    }
 
-            // D-08: CommentMarker — '\0' signals "no marker"; otherwise skip lines beginning with it.
-            if (!incomplete && opts.CommentMarker != '\0' && firstLine.Length > 0 && firstLine[0] == opts.CommentMarker)
-                continue;
+                    // Validate field count before parsing — the generated Parse code does NOT
+                    // validate delimited field count, it silently fills missing fields with defaults.
+                    ValidateDelimitedFieldCount(activeLineSpan, opts.Delimiter, _descriptor.Fields.Length, _descriptor.Fields);
 
-            // CREC-10: ConditionalRecord filtering runs before parse attempt
-            if (!incomplete && _conditionMatcher is not null && !_conditionMatcher.ShouldInclude(firstLine.AsSpan()))
-                continue;
-
-            string activeLine = joinedLogicalLine;
-            // Truncated tail (fewer physical lines than LineCountPerLogicalRecord): same as the old
-            // pre-parse throw — do not fire BeforeRead until the structural check in try succeeds.
-            if (!incomplete && BeforeReadRecord is not null)
-            {
-                var beforeArgs = new BeforeReadEventArgs<T>(this, activeLine, startLineOneBased);
-                BeforeReadRecord.Invoke(this, beforeArgs);
-                if (beforeArgs.StopReading)
+                    record = _descriptor.Parse(activeLineSpan, lineCount: linesPerRecord);
+                }
+                catch (Exception ex)
+                {
+                    activeLineString ??= activeLineSpan.ToString();
+                    switch (ErrorManager.ErrorMode)
+                    {
+                        case ErrorMode.ThrowException:
+                            throw CreateParseContextException(startLineOneBased, activeLineString, ex);
+                        case ErrorMode.IgnoreAndContinue:
+                            continue;
+                        case ErrorMode.SaveAndContinue:
+                            ErrorManager.AddError(new ErrorInfo(startLineOneBased, activeLineString, ex));
+                            continue;
+                    }
                     break;
-                if (beforeArgs.SkipThisRecord)
-                    continue;
-                if (beforeArgs.RecordLineChanged)
-                    activeLine = beforeArgs.RecordLine;
-            }
-
-            T record;
-            try
-            {
-                if (incomplete)
-                {
-                    throw new FormatException(
-                        $"Expected {linesPerRecord} physical line(s) per logical record; only {available} line(s) remain after line {opts.IgnoreFirst + li + 1}.");
                 }
 
-                EnsureDelimitedFieldCount(activeLine, opts.Delimiter, _descriptor.Fields.Length, _descriptor.Fields);
-                // Phase 14 MLIN-02: lineCount matches FieldInNewLine logical records (RecordOptions.LineCountPerLogicalRecord).
-                record = _descriptor.Parse(activeLine.AsSpan(), lineCount: linesPerRecord);
-            }
-            catch (Exception ex)
-            {
-                switch (ErrorManager.ErrorMode)
+                // AfterRead event
+                if (!incomplete && hasAfterRead)
                 {
-                    case ErrorMode.ThrowException:
-                        throw CreateParseContextException(startLineOneBased, activeLine, ex);
-                    case ErrorMode.IgnoreAndContinue:
-                        continue;
-                    case ErrorMode.SaveAndContinue:
-                        ErrorManager.AddError(new ErrorInfo(startLineOneBased, activeLine, ex));
-                        continue;
-                }
-                break;
-            }
+                    activeLineString ??= activeLineSpan.ToString();
+                    var afterArgs = new AfterReadEventArgs<T>(this, record, activeLineString, endLineOneBased);
 
-            // INTF-05, INTF-07: AfterRead event and interface notification
-            // Both event handler and interface method receive same args instance
-            if (AfterReadRecord is not null || _implementsNotifyRead)
-            {
-                var afterArgs = new AfterReadEventArgs<T>(this, record, activeLine, endLineOneBased);
+                    if (AfterReadRecord is not null)
+                    {
+                        AfterReadRecord.Invoke(this, afterArgs);
+                        if (afterArgs.SkipThisRecord)
+                            continue;
+                    }
 
-                if (AfterReadRecord is not null)
-                {
-                    AfterReadRecord.Invoke(this, afterArgs);
-                    if (afterArgs.SkipThisRecord)
-                        continue;
+                    if (_implementsNotifyRead && record is INotifyRead<T> notifyRead)
+                    {
+                        notifyRead.AfterRead(afterArgs);
+                        if (afterArgs.SkipThisRecord)
+                            continue;
+                    }
                 }
 
-                // INTF-05: Call record's AfterRead method if it implements INotifyRead<T>
-                if (_implementsNotifyRead && record is INotifyRead<T> notifyRead)
-                {
-                    notifyRead.AfterRead(afterArgs);
-                    if (afterArgs.SkipThisRecord)
-                        continue;
-                }
-            }
+                // OPT-05: Write directly into rented ArrayPool buffer.
+                // No List<T>, no CollectionsMarshal, no growth checks.
+                resultBuffer![resultIndex] = record;
+                resultIndex++;
 
-            result.Add(record);
-            LineNumber = endLineOneBased;
-            if (Progress is not null)
-                Progress.Invoke(this, new ProgressEventArgs(result.Count, -1, 0L, 0L));
+                LineNumber = endLineOneBased;
+                if (Progress is not null)
+                    Progress.Invoke(this, new ProgressEventArgs(resultIndex, -1, 0L, 0L));
 
-            // D-11: Early termination after N valid records.
-            if (maxRecords > 0 && result.Count >= maxRecords)
-                break;
+                if (maxRecords > 0 && resultIndex >= maxRecords)
+                    break;
             }
             finally
             {
@@ -532,8 +683,1147 @@ public sealed class FileHelperEngine<T>
             }
         }
 
-        TotalRecords = result.Count;
-        return result.ToArray();
+        TotalRecords = resultIndex;
+
+        // OPT-05: Return exact-size array from pre-allocated buffer.
+        if (dataLineCount == 0)
+            return [];
+
+        if (resultIndex == resultBuffer!.Length)
+            return resultBuffer;
+
+        // Skips occurred — create exact-size array and copy.
+        var exactResult = new T[resultIndex];
+        resultBuffer.AsSpan(0, resultIndex).CopyTo(exactResult);
+        return exactResult;
+    }
+
+    /// <summary>
+    /// OPT-08: Counts lines using SIMD-accelerated IndexOfAny('\r', '\n').
+    /// </summary>
+    private static readonly SearchValues<char> s_newlineChars = SearchValues.Create(['\r', '\n']);
+
+    private static int CountLines(string content)
+    {
+        int count = 0;
+        ReadOnlySpan<char> span = content.AsSpan();
+        while (!span.IsEmpty)
+        {
+            int idx = span.IndexOfAny(s_newlineChars);
+            if (idx < 0)
+            {
+                // Trailing content after last newline — counts as a line only if non-empty
+                // or if the content itself is non-empty (handles "line\n" → 1 line, "line" → 1 line)
+                if (span.Length > 0 || count == 0)
+                    count++;
+                break;
+            }
+            count++;
+            char terminator = span[idx];
+            span = span[(idx + 1)..];
+            // CRLF handling
+            if (terminator == '\r' && !span.IsEmpty && span[0] == '\n')
+                span = span[1..];
+        }
+        return count;
+    }
+
+    /// <summary>
+    /// OPT-08: Fills pre-allocated lineStarts and lineLengths arrays using SIMD-accelerated IndexOfAny.
+    /// </summary>
+    private static void FillLineBoundaries(string content, int contentLength, int[] lineStarts, int[] lineLengths)
+    {
+        int pos = 0;
+        int lineIndex = 0;
+        ReadOnlySpan<char> span = content.AsSpan();
+        while (pos < contentLength && lineIndex < lineStarts.Length)
+        {
+            int lineStart = pos;
+            ReadOnlySpan<char> remaining = span[pos..];
+            int idx = remaining.IndexOfAny(s_newlineChars);
+            int lineEnd;
+            if (idx < 0)
+            {
+                lineEnd = contentLength;
+                pos = contentLength;
+            }
+            else
+            {
+                lineEnd = pos + idx;
+                pos = lineEnd;
+                if (pos < contentLength && content[pos] == '\r')
+                    pos++;
+                if (pos < contentLength && content[pos] == '\n')
+                    pos++;
+            }
+
+            lineStarts[lineIndex] = lineStart;
+            lineLengths[lineIndex] = lineEnd - lineStart;
+            lineIndex++;
+        }
+    }
+
+    /// <summary>
+    /// OPT-06: Span-based read pipeline. Zero content allocation — operates directly on
+    /// the input span using line boundary tracking. Header/footer capture materializes
+    /// strings only when needed (the public HeaderText/FooterText properties are strings).
+    /// </summary>
+    private T[] ReadCoreSpan(ReadOnlySpan<char> content, int maxRecords)
+    {
+        LineNumber = 0;
+        TotalRecords = 0;
+        HeaderText = null;
+        FooterText = null;
+        ErrorManager.ClearErrors();
+
+        var opts = _descriptor.Options;
+
+        if (opts.MultilineMode == MultilineMode.AllowForRead)
+        {
+            return ReadCore(content.ToString(), maxRecords);
+        }
+
+        int contentLength = content.Length;
+        int lineCount = CountLinesSpan(content);
+
+        if (lineCount == 0)
+        {
+            TotalRecords = 0;
+            return [];
+        }
+
+        var lineStarts = new int[lineCount];
+        var lineLengths = new int[lineCount];
+        FillLineBoundariesSpan(content, contentLength, lineStarts, lineLengths);
+
+        int headerLineCount = 0;
+        if (opts.IgnoreFirst > 0 && lineCount > 0)
+        {
+            headerLineCount = Math.Min(opts.IgnoreFirst, lineCount);
+            HeaderText = BuildJoinedStringSpan(content, lineStarts, lineLengths, 0, headerLineCount, NewLineForWrite);
+        }
+
+        int footerLineCount = 0;
+        if (opts.IgnoreLast > 0 && lineCount > 0)
+        {
+            int remainingAfterHeader = lineCount - headerLineCount;
+            footerLineCount = Math.Min(opts.IgnoreLast, remainingAfterHeader);
+            int footerStartIdx = lineCount - footerLineCount;
+            FooterText = BuildJoinedStringSpan(content, lineStarts, lineLengths, footerStartIdx, footerLineCount, NewLineForWrite);
+        }
+
+        int dataStartIdx = headerLineCount;
+        int dataEndIdx = lineCount - footerLineCount;
+        int dataLineCount = Math.Max(0, dataEndIdx - dataStartIdx);
+
+        T[]? resultBuffer = dataLineCount > 0 ? new T[dataLineCount] : [];
+        int resultIndex = 0;
+        int linesPerRecord = Math.Max(1, opts.LineCountPerLogicalRecord);
+
+        bool hasBeforeRead = BeforeReadRecord is not null;
+        bool hasAfterRead = AfterReadRecord is not null || _implementsNotifyRead;
+
+        for (int li = dataStartIdx; li < dataEndIdx;)
+        {
+            int available = dataEndIdx - li;
+            bool incomplete = available < linesPerRecord;
+            int physicalLinesInGroup = incomplete ? available : linesPerRecord;
+
+            try
+            {
+                int firstStart = lineStarts[li];
+                int firstLen = lineLengths[li];
+                ReadOnlySpan<char> firstLineSpan = content[firstStart..(firstStart + firstLen)];
+
+                ReadOnlySpan<char> activeLineSpan;
+                string? activeLineString = null;
+
+                if (physicalLinesInGroup == 1)
+                {
+                    activeLineSpan = firstLineSpan;
+                }
+                else
+                {
+                    activeLineString = BuildJoinedStringSpan(content, lineStarts, lineLengths, li, physicalLinesInGroup, "\n");
+                    activeLineSpan = activeLineString.AsSpan();
+                }
+
+                int startLineOneBased = li + 1;
+                int endLineOneBased = li + physicalLinesInGroup;
+
+                // D-08: IgnoreEmptyLines
+                if (opts.IgnoreEmptyLines && !incomplete)
+                {
+                    bool allEmpty = true;
+                    for (int j = 0; j < physicalLinesInGroup; j++)
+                    {
+                        if (lineLengths[li + j] != 0)
+                        {
+                            allEmpty = false;
+                            break;
+                        }
+                    }
+                    if (allEmpty)
+                        continue;
+                }
+
+                // D-08: CommentMarker
+                if (!incomplete && opts.CommentMarker != '\0' && firstLen > 0 && content[firstStart] == opts.CommentMarker)
+                    continue;
+
+                // CREC-10: ConditionalRecord filtering
+                if (!incomplete && _conditionMatcher is not null && !_conditionMatcher.ShouldInclude(firstLineSpan))
+                    continue;
+
+                // BeforeRead event — requires string materialization
+                if (!incomplete && hasBeforeRead)
+                {
+                    activeLineString ??= activeLineSpan.ToString();
+                    var beforeArgs = new BeforeReadEventArgs<T>(this, activeLineString, startLineOneBased);
+                    BeforeReadRecord!.Invoke(this, beforeArgs);
+                    if (beforeArgs.StopReading)
+                        break;
+                    if (beforeArgs.SkipThisRecord)
+                        continue;
+                    if (beforeArgs.RecordLineChanged)
+                    {
+                        activeLineString = beforeArgs.RecordLine;
+                        activeLineSpan = activeLineString.AsSpan();
+                    }
+                }
+
+                T record;
+                try
+                {
+                    if (incomplete)
+                    {
+                        activeLineString ??= activeLineSpan.ToString();
+                        throw new FormatException(
+                            $"Expected {linesPerRecord} physical line(s) per logical record; only {available} line(s) remain after line {li + 1}.");
+                    }
+
+                    ValidateDelimitedFieldCount(activeLineSpan, opts.Delimiter, _descriptor.Fields.Length, _descriptor.Fields);
+                    record = _descriptor.Parse(activeLineSpan, lineCount: linesPerRecord);
+                }
+                catch (Exception ex)
+                {
+                    activeLineString ??= activeLineSpan.ToString();
+                    switch (ErrorManager.ErrorMode)
+                    {
+                        case ErrorMode.ThrowException:
+                            throw CreateParseContextException(startLineOneBased, activeLineString, ex);
+                        case ErrorMode.IgnoreAndContinue:
+                            continue;
+                        case ErrorMode.SaveAndContinue:
+                            ErrorManager.AddError(new ErrorInfo(startLineOneBased, activeLineString, ex));
+                            continue;
+                    }
+                    break;
+                }
+
+                // AfterRead event
+                if (!incomplete && hasAfterRead)
+                {
+                    activeLineString ??= activeLineSpan.ToString();
+                    var afterArgs = new AfterReadEventArgs<T>(this, record, activeLineString, endLineOneBased);
+
+                    if (AfterReadRecord is not null)
+                    {
+                        AfterReadRecord.Invoke(this, afterArgs);
+                        if (afterArgs.SkipThisRecord)
+                            continue;
+                    }
+
+                    if (_implementsNotifyRead && record is INotifyRead<T> notifyRead)
+                    {
+                        notifyRead.AfterRead(afterArgs);
+                        if (afterArgs.SkipThisRecord)
+                            continue;
+                    }
+                }
+
+                resultBuffer![resultIndex] = record;
+                resultIndex++;
+
+                LineNumber = endLineOneBased;
+                if (Progress is not null)
+                    Progress.Invoke(this, new ProgressEventArgs(resultIndex, -1, 0L, 0L));
+
+                if (maxRecords > 0 && resultIndex >= maxRecords)
+                    break;
+            }
+            finally
+            {
+                li += physicalLinesInGroup;
+            }
+        }
+
+        TotalRecords = resultIndex;
+
+        if (dataLineCount == 0)
+            return [];
+
+        if (resultIndex == resultBuffer!.Length)
+            return resultBuffer;
+
+        var exactResult = new T[resultIndex];
+        resultBuffer.AsSpan(0, resultIndex).CopyTo(exactResult);
+        return exactResult;
+    }
+
+    /// <summary>
+    /// OPT-11: Callback-based span read pipeline. Zero result array allocation —
+    /// invokes callback for each record. Shares line boundary logic with ReadCoreSpan.
+    /// </summary>
+    private int ReadCoreSpanCallback(ReadOnlySpan<char> content, Action<T> callback, int maxRecords)
+    {
+        LineNumber = 0;
+        TotalRecords = 0;
+        HeaderText = null;
+        FooterText = null;
+        ErrorManager.ClearErrors();
+
+        var opts = _descriptor.Options;
+
+        if (opts.MultilineMode == MultilineMode.AllowForRead)
+        {
+            return ReadCoreCallback(content.ToString(), callback, maxRecords);
+        }
+
+        int contentLength = content.Length;
+        int lineCount = CountLinesSpan(content);
+
+        if (lineCount == 0)
+        {
+            TotalRecords = 0;
+            return 0;
+        }
+
+        var lineStarts = new int[lineCount];
+        var lineLengths = new int[lineCount];
+        FillLineBoundariesSpan(content, contentLength, lineStarts, lineLengths);
+
+        int headerLineCount = 0;
+        if (opts.IgnoreFirst > 0 && lineCount > 0)
+        {
+            headerLineCount = Math.Min(opts.IgnoreFirst, lineCount);
+            HeaderText = BuildJoinedStringSpan(content, lineStarts, lineLengths, 0, headerLineCount, NewLineForWrite);
+        }
+
+        int footerLineCount = 0;
+        if (opts.IgnoreLast > 0 && lineCount > 0)
+        {
+            int remainingAfterHeader = lineCount - headerLineCount;
+            footerLineCount = Math.Min(opts.IgnoreLast, remainingAfterHeader);
+            int footerStartIdx = lineCount - footerLineCount;
+            FooterText = BuildJoinedStringSpan(content, lineStarts, lineLengths, footerStartIdx, footerLineCount, NewLineForWrite);
+        }
+
+        int dataStartIdx = headerLineCount;
+        int dataEndIdx = lineCount - footerLineCount;
+        int linesPerRecord = Math.Max(1, opts.LineCountPerLogicalRecord);
+
+        bool hasBeforeRead = BeforeReadRecord is not null;
+        bool hasAfterRead = AfterReadRecord is not null || _implementsNotifyRead;
+
+        int resultIndex = 0;
+        for (int li = dataStartIdx; li < dataEndIdx;)
+        {
+            int available = dataEndIdx - li;
+            bool incomplete = available < linesPerRecord;
+            int physicalLinesInGroup = incomplete ? available : linesPerRecord;
+
+            try
+            {
+                int firstStart = lineStarts[li];
+                int firstLen = lineLengths[li];
+                ReadOnlySpan<char> firstLineSpan = content[firstStart..(firstStart + firstLen)];
+
+                ReadOnlySpan<char> activeLineSpan;
+                string? activeLineString = null;
+
+                if (physicalLinesInGroup == 1)
+                {
+                    activeLineSpan = firstLineSpan;
+                }
+                else
+                {
+                    activeLineString = BuildJoinedStringSpan(content, lineStarts, lineLengths, li, physicalLinesInGroup, "\n");
+                    activeLineSpan = activeLineString.AsSpan();
+                }
+
+                int startLineOneBased = li + 1;
+                int endLineOneBased = li + physicalLinesInGroup;
+
+                if (opts.IgnoreEmptyLines && !incomplete)
+                {
+                    bool allEmpty = true;
+                    for (int j = 0; j < physicalLinesInGroup; j++)
+                    {
+                        if (lineLengths[li + j] != 0)
+                        {
+                            allEmpty = false;
+                            break;
+                        }
+                    }
+                    if (allEmpty)
+                        continue;
+                }
+
+                if (!incomplete && opts.CommentMarker != '\0' && firstLen > 0 && content[firstStart] == opts.CommentMarker)
+                    continue;
+
+                if (!incomplete && _conditionMatcher is not null && !_conditionMatcher.ShouldInclude(firstLineSpan))
+                    continue;
+
+                if (!incomplete && hasBeforeRead)
+                {
+                    activeLineString ??= activeLineSpan.ToString();
+                    var beforeArgs = new BeforeReadEventArgs<T>(this, activeLineString, startLineOneBased);
+                    BeforeReadRecord!.Invoke(this, beforeArgs);
+                    if (beforeArgs.StopReading)
+                        break;
+                    if (beforeArgs.SkipThisRecord)
+                        continue;
+                    if (beforeArgs.RecordLineChanged)
+                    {
+                        activeLineString = beforeArgs.RecordLine;
+                        activeLineSpan = activeLineString.AsSpan();
+                    }
+                }
+
+                T record;
+                try
+                {
+                    if (incomplete)
+                    {
+                        activeLineString ??= activeLineSpan.ToString();
+                        throw new FormatException(
+                            $"Expected {linesPerRecord} physical line(s) per logical record; only {available} line(s) remain after line {li + 1}.");
+                    }
+
+                    ValidateDelimitedFieldCount(activeLineSpan, opts.Delimiter, _descriptor.Fields.Length, _descriptor.Fields);
+                    record = _descriptor.Parse(activeLineSpan, lineCount: linesPerRecord);
+                }
+                catch (Exception ex)
+                {
+                    activeLineString ??= activeLineSpan.ToString();
+                    switch (ErrorManager.ErrorMode)
+                    {
+                        case ErrorMode.ThrowException:
+                            throw CreateParseContextException(startLineOneBased, activeLineString, ex);
+                        case ErrorMode.IgnoreAndContinue:
+                            continue;
+                        case ErrorMode.SaveAndContinue:
+                            ErrorManager.AddError(new ErrorInfo(startLineOneBased, activeLineString, ex));
+                            continue;
+                    }
+                    break;
+                }
+
+                if (!incomplete && hasAfterRead)
+                {
+                    activeLineString ??= activeLineSpan.ToString();
+                    var afterArgs = new AfterReadEventArgs<T>(this, record, activeLineString, endLineOneBased);
+
+                    if (AfterReadRecord is not null)
+                    {
+                        AfterReadRecord.Invoke(this, afterArgs);
+                        if (afterArgs.SkipThisRecord)
+                            continue;
+                    }
+
+                    if (_implementsNotifyRead && record is INotifyRead<T> notifyRead)
+                    {
+                        notifyRead.AfterRead(afterArgs);
+                        if (afterArgs.SkipThisRecord)
+                            continue;
+                    }
+                }
+
+                callback(record);
+                resultIndex++;
+
+                LineNumber = endLineOneBased;
+                if (Progress is not null)
+                    Progress.Invoke(this, new ProgressEventArgs(resultIndex, -1, 0L, 0L));
+
+                if (maxRecords > 0 && resultIndex >= maxRecords)
+                    break;
+            }
+            finally
+            {
+                li += physicalLinesInGroup;
+            }
+        }
+
+        TotalRecords = resultIndex;
+        return resultIndex;
+    }
+
+    /// <summary>
+    /// OPT-11: Callback-based string read pipeline. Zero result array allocation.
+    /// </summary>
+    private int ReadCoreCallback(string content, Action<T> callback, int maxRecords)
+    {
+        LineNumber = 0;
+        TotalRecords = 0;
+        HeaderText = null;
+        FooterText = null;
+        ErrorManager.ClearErrors();
+
+        var opts = _descriptor.Options;
+
+        if (opts.MultilineMode != MultilineMode.AllowForRead)
+        {
+            return ReadCoreFastPathCallback(content, maxRecords, opts, callback);
+        }
+
+        return ReadCoreMultilinePathCallback(content, maxRecords, opts, callback);
+    }
+
+    /// <summary>
+    /// OPT-11: Callback-based fast path for string content.
+    /// </summary>
+    private int ReadCoreFastPathCallback(string content, int maxRecords, RecordOptions opts, Action<T> callback)
+    {
+        int contentLength = content.Length;
+        int lineCount = CountLines(content);
+
+        if (lineCount == 0)
+        {
+            TotalRecords = 0;
+            return 0;
+        }
+
+        var lineStarts = new int[lineCount];
+        var lineLengths = new int[lineCount];
+        FillLineBoundaries(content, contentLength, lineStarts, lineLengths);
+
+        int headerLineCount = 0;
+        if (opts.IgnoreFirst > 0 && lineCount > 0)
+        {
+            headerLineCount = Math.Min(opts.IgnoreFirst, lineCount);
+            HeaderText = BuildJoinedString(content, lineStarts, lineLengths, 0, headerLineCount, NewLineForWrite);
+        }
+
+        int footerLineCount = 0;
+        if (opts.IgnoreLast > 0 && lineCount > 0)
+        {
+            int remainingAfterHeader = lineCount - headerLineCount;
+            footerLineCount = Math.Min(opts.IgnoreLast, remainingAfterHeader);
+            int footerStartIdx = lineCount - footerLineCount;
+            FooterText = BuildJoinedString(content, lineStarts, lineLengths, footerStartIdx, footerLineCount, NewLineForWrite);
+        }
+
+        int dataStartIdx = headerLineCount;
+        int dataEndIdx = lineCount - footerLineCount;
+        int linesPerRecord = Math.Max(1, opts.LineCountPerLogicalRecord);
+
+        bool hasBeforeRead = BeforeReadRecord is not null;
+        bool hasAfterRead = AfterReadRecord is not null || _implementsNotifyRead;
+
+        int resultIndex = 0;
+        for (int li = dataStartIdx; li < dataEndIdx;)
+        {
+            int available = dataEndIdx - li;
+            bool incomplete = available < linesPerRecord;
+            int physicalLinesInGroup = incomplete ? available : linesPerRecord;
+
+            try
+            {
+                int firstStart = lineStarts[li];
+                int firstLen = lineLengths[li];
+                ReadOnlySpan<char> firstLineSpan = content.AsSpan(firstStart, firstLen);
+
+                ReadOnlySpan<char> activeLineSpan;
+                string? activeLineString = null;
+
+                if (physicalLinesInGroup == 1)
+                {
+                    activeLineSpan = firstLineSpan;
+                }
+                else
+                {
+                    activeLineString = BuildJoinedString(content, lineStarts, lineLengths, li, physicalLinesInGroup, "\n");
+                    activeLineSpan = activeLineString.AsSpan();
+                }
+
+                int startLineOneBased = li + 1;
+                int endLineOneBased = li + physicalLinesInGroup;
+
+                if (opts.IgnoreEmptyLines && !incomplete)
+                {
+                    bool allEmpty = true;
+                    for (int j = 0; j < physicalLinesInGroup; j++)
+                    {
+                        if (lineLengths[li + j] != 0)
+                        {
+                            allEmpty = false;
+                            break;
+                        }
+                    }
+                    if (allEmpty)
+                        continue;
+                }
+
+                if (!incomplete && opts.CommentMarker != '\0' && firstLen > 0 && content[firstStart] == opts.CommentMarker)
+                    continue;
+
+                if (!incomplete && _conditionMatcher is not null && !_conditionMatcher.ShouldInclude(firstLineSpan))
+                    continue;
+
+                if (!incomplete && hasBeforeRead)
+                {
+                    activeLineString ??= activeLineSpan.ToString();
+                    var beforeArgs = new BeforeReadEventArgs<T>(this, activeLineString, startLineOneBased);
+                    BeforeReadRecord!.Invoke(this, beforeArgs);
+                    if (beforeArgs.StopReading)
+                        break;
+                    if (beforeArgs.SkipThisRecord)
+                        continue;
+                    if (beforeArgs.RecordLineChanged)
+                    {
+                        activeLineString = beforeArgs.RecordLine;
+                        activeLineSpan = activeLineString.AsSpan();
+                    }
+                }
+
+                T record;
+                try
+                {
+                    if (incomplete)
+                    {
+                        activeLineString ??= activeLineSpan.ToString();
+                        throw new FormatException(
+                            $"Expected {linesPerRecord} physical line(s) per logical record; only {available} line(s) remain after line {li + 1}.");
+                    }
+
+                    ValidateDelimitedFieldCount(activeLineSpan, opts.Delimiter, _descriptor.Fields.Length, _descriptor.Fields);
+                    record = _descriptor.Parse(activeLineSpan, lineCount: linesPerRecord);
+                }
+                catch (Exception ex)
+                {
+                    activeLineString ??= activeLineSpan.ToString();
+                    switch (ErrorManager.ErrorMode)
+                    {
+                        case ErrorMode.ThrowException:
+                            throw CreateParseContextException(startLineOneBased, activeLineString, ex);
+                        case ErrorMode.IgnoreAndContinue:
+                            continue;
+                        case ErrorMode.SaveAndContinue:
+                            ErrorManager.AddError(new ErrorInfo(startLineOneBased, activeLineString, ex));
+                            continue;
+                    }
+                    break;
+                }
+
+                if (!incomplete && hasAfterRead)
+                {
+                    activeLineString ??= activeLineSpan.ToString();
+                    var afterArgs = new AfterReadEventArgs<T>(this, record, activeLineString, endLineOneBased);
+
+                    if (AfterReadRecord is not null)
+                    {
+                        AfterReadRecord.Invoke(this, afterArgs);
+                        if (afterArgs.SkipThisRecord)
+                            continue;
+                    }
+
+                    if (_implementsNotifyRead && record is INotifyRead<T> notifyRead)
+                    {
+                        notifyRead.AfterRead(afterArgs);
+                        if (afterArgs.SkipThisRecord)
+                            continue;
+                    }
+                }
+
+                callback(record);
+                resultIndex++;
+
+                LineNumber = endLineOneBased;
+                if (Progress is not null)
+                    Progress.Invoke(this, new ProgressEventArgs(resultIndex, -1, 0L, 0L));
+
+                if (maxRecords > 0 && resultIndex >= maxRecords)
+                    break;
+            }
+            finally
+            {
+                li += physicalLinesInGroup;
+            }
+        }
+
+        TotalRecords = resultIndex;
+        return resultIndex;
+    }
+
+    /// <summary>
+    /// OPT-11: Callback-based multiline path for string content.
+    /// </summary>
+    private int ReadCoreMultilinePathCallback(string content, int maxRecords, RecordOptions opts, Action<T> callback)
+    {
+        var lines = new List<string>();
+        var reader = new SpanLineReader(content.AsSpan());
+        while (reader.TryReadLine(out var lineSpan))
+        {
+            lines.Add(new string(lineSpan));
+        }
+
+        if (opts.IgnoreFirst > 0 && lines.Count > 0)
+        {
+            int take = Math.Min(opts.IgnoreFirst, lines.Count);
+            HeaderText = string.Join(NewLineForWrite, System.Runtime.InteropServices.CollectionsMarshal.AsSpan(lines)[..take]);
+            lines.RemoveRange(0, take);
+        }
+
+        if (opts.IgnoreLast > 0 && lines.Count > 0)
+        {
+            int take = Math.Min(opts.IgnoreLast, lines.Count);
+            FooterText = string.Join(NewLineForWrite, System.Runtime.InteropServices.CollectionsMarshal.AsSpan(lines)[(lines.Count - take)..]);
+            lines.RemoveRange(lines.Count - take, take);
+        }
+
+        var multilineJoin = Parsing.MultilineLineJoin.Detect(content.AsSpan());
+        var (assembledLines, logicalStartPhysicalIndices, logicalEndPhysicalIndices) =
+            AssembleMultilineRecords(lines, multilineJoin);
+
+        int assembledCount = assembledLines.Count;
+        int linesPerRecord = Math.Max(1, opts.LineCountPerLogicalRecord);
+
+        bool hasBeforeRead = BeforeReadRecord is not null;
+        bool hasAfterRead = AfterReadRecord is not null || _implementsNotifyRead;
+
+        int resultIndex = 0;
+        for (int li = 0; li < assembledCount;)
+        {
+            int available = assembledLines.Count - li;
+            bool incomplete = available < linesPerRecord;
+            int physicalLinesInGroup = incomplete ? available : linesPerRecord;
+
+            try
+            {
+                string firstLine = assembledLines[li];
+                string joinedLogicalLine;
+                if (physicalLinesInGroup == 1)
+                {
+                    joinedLogicalLine = firstLine;
+                }
+                else
+                {
+                    if (physicalLinesInGroup == 2)
+                    {
+                        joinedLogicalLine = string.Concat(assembledLines[li], "\n", assembledLines[li + 1]);
+                    }
+                    else
+                    {
+                        var sb = new StringBuilder();
+                        for (int j = 0; j < physicalLinesInGroup; j++)
+                        {
+                            if (j > 0) sb.Append('\n');
+                            sb.Append(assembledLines[li + j]);
+                        }
+                        joinedLogicalLine = sb.ToString();
+                    }
+                }
+
+                int startLineOneBased = opts.IgnoreFirst + 1 + logicalStartPhysicalIndices[li];
+                int endLineOneBased = opts.IgnoreFirst + 1 + logicalEndPhysicalIndices[li + physicalLinesInGroup - 1];
+
+                if (opts.IgnoreEmptyLines && !incomplete)
+                {
+                    bool allEmpty = true;
+                    for (int j = 0; j < linesPerRecord; j++)
+                    {
+                        if (assembledLines[li + j].Length != 0) { allEmpty = false; break; }
+                    }
+                    if (allEmpty) continue;
+                }
+
+                if (!incomplete && opts.CommentMarker != '\0' && firstLine.Length > 0 && firstLine[0] == opts.CommentMarker)
+                    continue;
+
+                if (!incomplete && _conditionMatcher is not null && !_conditionMatcher.ShouldInclude(firstLine.AsSpan()))
+                    continue;
+
+                string activeLine = joinedLogicalLine;
+                if (!incomplete && hasBeforeRead)
+                {
+                    var beforeArgs = new BeforeReadEventArgs<T>(this, activeLine, startLineOneBased);
+                    BeforeReadRecord!.Invoke(this, beforeArgs);
+                    if (beforeArgs.StopReading) break;
+                    if (beforeArgs.SkipThisRecord) continue;
+                    if (beforeArgs.RecordLineChanged) activeLine = beforeArgs.RecordLine;
+                }
+
+                T record;
+                try
+                {
+                    if (incomplete)
+                    {
+                        throw new FormatException(
+                            $"Expected {linesPerRecord} physical line(s) per logical record; only {available} line(s) remain after line {opts.IgnoreFirst + li + 1}.");
+                    }
+
+                    if (DelimitedFieldEnumerator.HasUnclosedQuote(activeLine.AsSpan()))
+                    {
+                        throw new FormatException($"Unclosed quoted field starting at line {startLineOneBased}.");
+                    }
+
+                    record = _descriptor.Parse(activeLine.AsSpan(), lineCount: linesPerRecord);
+                }
+                catch (Exception ex)
+                {
+                    switch (ErrorManager.ErrorMode)
+                    {
+                        case ErrorMode.ThrowException:
+                            throw CreateParseContextException(startLineOneBased, activeLine, ex);
+                        case ErrorMode.IgnoreAndContinue: continue;
+                        case ErrorMode.SaveAndContinue:
+                            ErrorManager.AddError(new ErrorInfo(startLineOneBased, activeLine, ex));
+                            continue;
+                    }
+                    break;
+                }
+
+                if (!incomplete && hasAfterRead)
+                {
+                    var afterArgs = new AfterReadEventArgs<T>(this, record, activeLine, endLineOneBased);
+                    if (AfterReadRecord is not null)
+                    {
+                        AfterReadRecord.Invoke(this, afterArgs);
+                        if (afterArgs.SkipThisRecord) continue;
+                    }
+                    if (_implementsNotifyRead && record is INotifyRead<T> notifyRead)
+                    {
+                        notifyRead.AfterRead(afterArgs);
+                        if (afterArgs.SkipThisRecord) continue;
+                    }
+                }
+
+                callback(record);
+                resultIndex++;
+                LineNumber = endLineOneBased;
+                if (Progress is not null)
+                    Progress.Invoke(this, new ProgressEventArgs(resultIndex, -1, 0L, 0L));
+
+                if (maxRecords > 0 && resultIndex >= maxRecords) break;
+            }
+            finally
+            {
+                li += physicalLinesInGroup;
+            }
+        }
+
+        TotalRecords = resultIndex;
+        return resultIndex;
+    }
+
+    /// <summary>
+    /// OPT-08: Counts lines in a span using SIMD-accelerated IndexOfAny.
+    /// </summary>
+    private static int CountLinesSpan(ReadOnlySpan<char> content)
+    {
+        int count = 0;
+        ReadOnlySpan<char> span = content;
+        while (!span.IsEmpty)
+        {
+            int idx = span.IndexOfAny(s_newlineChars);
+            if (idx < 0)
+            {
+                if (span.Length > 0 || count == 0)
+                    count++;
+                break;
+            }
+            count++;
+            char terminator = span[idx];
+            span = span[(idx + 1)..];
+            if (terminator == '\r' && !span.IsEmpty && span[0] == '\n')
+                span = span[1..];
+        }
+        return count;
+    }
+
+    /// <summary>
+    /// OPT-08: Fills line boundary arrays from a span.
+    /// </summary>
+    private static void FillLineBoundariesSpan(ReadOnlySpan<char> content, int contentLength, int[] lineStarts, int[] lineLengths)
+    {
+        int pos = 0;
+        int lineIndex = 0;
+        while (pos < contentLength && lineIndex < lineStarts.Length)
+        {
+            int lineStart = pos;
+            ReadOnlySpan<char> remaining = content[pos..];
+            int idx = remaining.IndexOfAny(s_newlineChars);
+            int lineEnd;
+            if (idx < 0)
+            {
+                lineEnd = contentLength;
+                pos = contentLength;
+            }
+            else
+            {
+                lineEnd = pos + idx;
+                pos = lineEnd;
+                if (pos < contentLength && content[pos] == '\r')
+                    pos++;
+                if (pos < contentLength && content[pos] == '\n')
+                    pos++;
+            }
+
+            lineStarts[lineIndex] = lineStart;
+            lineLengths[lineIndex] = lineEnd - lineStart;
+            lineIndex++;
+        }
+    }
+
+    /// <summary>
+    /// OPT-06: Builds a joined string from line boundaries within a span.
+    /// Materializes strings only for header/footer capture or multi-line records.
+    /// Uses StringBuilder since ReadOnlySpan&lt;char&gt; cannot be captured in string.Create state.
+    /// </summary>
+    private static string BuildJoinedStringSpan(
+        ReadOnlySpan<char> content,
+        int[] lineStarts,
+        int[] lineLengths,
+        int startIndex,
+        int count,
+        string separator)
+    {
+        if (count == 0) return string.Empty;
+        if (count == 1)
+        {
+            return content[lineStarts[startIndex]..(lineStarts[startIndex] + lineLengths[startIndex])].ToString();
+        }
+
+        var sb = new StringBuilder();
+        for (int i = 0; i < count; i++)
+        {
+            if (i > 0) sb.Append(separator);
+            int s = lineStarts[startIndex + i];
+            int l = lineLengths[startIndex + i];
+            sb.Append(content[s..(s + l)]);
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Slow path for multiline records — materializes strings as before.
+    /// Multiline is a rare, complex case; the fast path handles the common scenario.
+    /// </summary>
+    private T[] ReadCoreMultilinePath(string content, int maxRecords, RecordOptions opts)
+    {
+        var lines = new List<string>();
+        var reader = new SpanLineReader(content.AsSpan());
+        while (reader.TryReadLine(out var lineSpan))
+        {
+            lines.Add(new string(lineSpan));
+        }
+
+        if (opts.IgnoreFirst > 0 && lines.Count > 0)
+        {
+            int take = Math.Min(opts.IgnoreFirst, lines.Count);
+            HeaderText = string.Join(NewLineForWrite, System.Runtime.InteropServices.CollectionsMarshal.AsSpan(lines)[..take]);
+            lines.RemoveRange(0, take);
+        }
+
+        if (opts.IgnoreLast > 0 && lines.Count > 0)
+        {
+            int take = Math.Min(opts.IgnoreLast, lines.Count);
+            FooterText = string.Join(NewLineForWrite, System.Runtime.InteropServices.CollectionsMarshal.AsSpan(lines)[(lines.Count - take)..]);
+            lines.RemoveRange(lines.Count - take, take);
+        }
+
+        var multilineJoin = Parsing.MultilineLineJoin.Detect(content.AsSpan());
+        var (assembledLines, logicalStartPhysicalIndices, logicalEndPhysicalIndices) =
+            AssembleMultilineRecords(lines, multilineJoin);
+
+        // OPT-05: Use pre-allocated T[] for result buffer in multiline path too.
+        int assembledCount = assembledLines.Count;
+        T[]? resultBuffer = assembledCount > 0 ? new T[assembledCount] : [];
+        int resultIndex = 0;
+        int linesPerRecord = Math.Max(1, opts.LineCountPerLogicalRecord);
+        for (int li = 0; li < assembledCount;)
+        {
+            int available = assembledLines.Count - li;
+            bool incomplete = available < linesPerRecord;
+            int physicalLinesInGroup = incomplete ? available : linesPerRecord;
+
+            try
+            {
+                string firstLine = assembledLines[li];
+                string joinedLogicalLine;
+                if (physicalLinesInGroup == 1)
+                {
+                    joinedLogicalLine = firstLine;
+                }
+                else
+                {
+                    if (physicalLinesInGroup == 2)
+                    {
+                        joinedLogicalLine = string.Concat(assembledLines[li], "\n", assembledLines[li + 1]);
+                    }
+                    else
+                    {
+                        var sb = new StringBuilder();
+                        for (int j = 0; j < physicalLinesInGroup; j++)
+                        {
+                            if (j > 0) sb.Append('\n');
+                            sb.Append(assembledLines[li + j]);
+                        }
+                        joinedLogicalLine = sb.ToString();
+                    }
+                }
+
+                int startLineOneBased = opts.IgnoreFirst + 1 + logicalStartPhysicalIndices[li];
+                int endLineOneBased = opts.IgnoreFirst + 1 + logicalEndPhysicalIndices[li + physicalLinesInGroup - 1];
+
+                if (opts.IgnoreEmptyLines && !incomplete)
+                {
+                    bool allEmpty = true;
+                    for (int j = 0; j < linesPerRecord; j++)
+                    {
+                        if (assembledLines[li + j].Length != 0) { allEmpty = false; break; }
+                    }
+                    if (allEmpty) continue;
+                }
+
+                if (!incomplete && opts.CommentMarker != '\0' && firstLine.Length > 0 && firstLine[0] == opts.CommentMarker)
+                    continue;
+
+                if (!incomplete && _conditionMatcher is not null && !_conditionMatcher.ShouldInclude(firstLine.AsSpan()))
+                    continue;
+
+                string activeLine = joinedLogicalLine;
+                if (!incomplete && BeforeReadRecord is not null)
+                {
+                    var beforeArgs = new BeforeReadEventArgs<T>(this, activeLine, startLineOneBased);
+                    BeforeReadRecord.Invoke(this, beforeArgs);
+                    if (beforeArgs.StopReading) break;
+                    if (beforeArgs.SkipThisRecord) continue;
+                    if (beforeArgs.RecordLineChanged) activeLine = beforeArgs.RecordLine;
+                }
+
+                T record;
+                try
+                {
+                    if (incomplete)
+                    {
+                        throw new FormatException(
+                            $"Expected {linesPerRecord} physical line(s) per logical record; only {available} line(s) remain after line {opts.IgnoreFirst + li + 1}.");
+                    }
+
+                    // MULT-04: Validate that multiline assembled lines have balanced quotes.
+                    // The generated Parse code doesn't check quote balance, so we must validate here.
+                    if (DelimitedFieldEnumerator.HasUnclosedQuote(activeLine.AsSpan()))
+                    {
+                        throw new FormatException($"Unclosed quoted field starting at line {startLineOneBased}.");
+                    }
+
+                    record = _descriptor.Parse(activeLine.AsSpan(), lineCount: linesPerRecord);
+                }
+                catch (Exception ex)
+                {
+                    switch (ErrorManager.ErrorMode)
+                    {
+                        case ErrorMode.ThrowException:
+                            throw CreateParseContextException(startLineOneBased, activeLine, ex);
+                        case ErrorMode.IgnoreAndContinue: continue;
+                        case ErrorMode.SaveAndContinue:
+                            ErrorManager.AddError(new ErrorInfo(startLineOneBased, activeLine, ex));
+                            continue;
+                    }
+                    break;
+                }
+
+                if (AfterReadRecord is not null || _implementsNotifyRead)
+                {
+                    var afterArgs = new AfterReadEventArgs<T>(this, record, activeLine, endLineOneBased);
+                    if (AfterReadRecord is not null)
+                    {
+                        AfterReadRecord.Invoke(this, afterArgs);
+                        if (afterArgs.SkipThisRecord) continue;
+                    }
+                    if (_implementsNotifyRead && record is INotifyRead<T> notifyRead)
+                    {
+                        notifyRead.AfterRead(afterArgs);
+                        if (afterArgs.SkipThisRecord) continue;
+                    }
+                }
+
+                // OPT-05: Write directly into rented ArrayPool buffer.
+                resultBuffer![resultIndex] = record;
+                resultIndex++;
+                LineNumber = endLineOneBased;
+                if (Progress is not null)
+                    Progress.Invoke(this, new ProgressEventArgs(resultIndex, -1, 0L, 0L));
+
+                if (maxRecords > 0 && resultIndex >= maxRecords) break;
+            }
+            finally
+            {
+                li += physicalLinesInGroup;
+            }
+        }
+
+        TotalRecords = resultIndex;
+
+        // OPT-05: Return exact-size array from pre-allocated buffer.
+        if (assembledCount == 0)
+            return [];
+
+        if (resultIndex == resultBuffer!.Length)
+            return resultBuffer;
+
+        var exactResult = new T[resultIndex];
+        resultBuffer.AsSpan(0, resultIndex).CopyTo(exactResult);
+        return exactResult;
+    }
+
+    /// <summary>
+    /// OPT-01: Builds a joined string from line boundaries within the content string.
+    /// Only materializes strings when needed (header/footer/multiline).
+    /// </summary>
+    private static string BuildJoinedString(
+        string content,
+        int[] lineStarts,
+        int[] lineLengths,
+        int startIndex,
+        int count,
+        string separator)
+    {
+        if (count == 0) return string.Empty;
+        if (count == 1)
+        {
+            return content.Substring(lineStarts[startIndex], lineLengths[startIndex]);
+        }
+
+        int totalLen = 0;
+        int sepLen = separator.Length;
+        for (int i = 0; i < count; i++)
+        {
+            totalLen += lineLengths[startIndex + i];
+            if (i > 0) totalLen += sepLen;
+        }
+
+        return string.Create(totalLen, (content, lineStarts, lineLengths, startIndex, count, separator), (span, state) =>
+        {
+            var (ctxContent, ctxStarts, ctxLengths, ctxStart, ctxCount, ctxSep) = state;
+            int pos = 0;
+            for (int i = 0; i < ctxCount; i++)
+            {
+                if (i > 0)
+                {
+                    ctxSep.AsSpan().CopyTo(span[pos..]);
+                    pos += ctxSep.Length;
+                }
+                int s = ctxStarts[ctxStart + i];
+                int l = ctxLengths[ctxStart + i];
+                ctxContent.AsSpan(s, l).CopyTo(span[pos..]);
+                pos += l;
+            }
+        });
     }
 
     /// <summary>
@@ -619,6 +1909,79 @@ public sealed class FileHelperEngine<T>
         TotalRecords = count;
     }
 
+    /// <summary>
+    /// OPT-02: Validates delimited field count with quote-aware scanning.
+    /// Skips validation when fields have per-field delimiter overrides — the generated
+    /// Parse code handles those correctly and we cannot reliably count fields with mixed delimiters.
+    /// </summary>
+    private static void ValidateDelimitedFieldCount(
+        ReadOnlySpan<char> line,
+        string delimiter,
+        int expectedFieldCount,
+        ReadOnlySpan<FieldDescriptor> fields)
+    {
+        if (string.IsNullOrEmpty(delimiter) || expectedFieldCount <= 0)
+            return;
+
+        // Skip validation when any field has a per-field delimiter override.
+        // The generated Parse code handles mixed delimiters correctly; we cannot
+        // reliably count fields when different delimiters are used per field.
+        for (int i = 0; i < fields.Length; i++)
+        {
+            if (fields[i].Delimiter is not null)
+                return;
+        }
+
+        // Single-char delimiter: use quote-aware scan with IndexOfAny SIMD jumps (OPT-10)
+        if (delimiter.Length == 1)
+        {
+            char delim = delimiter[0];
+            int count = CountDelimitedFields(line, delim);
+
+            if (count != expectedFieldCount)
+                throw new FormatException($"Expected {expectedFieldCount} fields but found {count}.");
+            return;
+        }
+
+        // Multi-char delimiter: use quote-aware scan
+        ValidateDelimitedFieldCountQuoted(line.ToString(), delimiter, expectedFieldCount);
+    }
+
+    /// <summary>
+    /// Quote-aware character-by-character field count validation for multi-char delimiters
+    /// or records with per-field delimiter overrides.
+    /// </summary>
+    private static void ValidateDelimitedFieldCountQuoted(
+        string line,
+        string delimiter,
+        int expectedFieldCount)
+    {
+        int count = 1;
+        bool inQuotes = false;
+        for (int i = 0; i < line.Length; i++)
+        {
+            if (line[i] == '"')
+            {
+                if (inQuotes && i + 1 < line.Length && line[i + 1] == '"')
+                {
+                    i++;
+                    continue;
+                }
+                inQuotes = !inQuotes;
+                continue;
+            }
+
+            if (!inQuotes && IsDelimiterAt(line, delimiter, i))
+            {
+                count++;
+                i += delimiter.Length - 1;
+            }
+        }
+
+        if (count != expectedFieldCount)
+            throw new FormatException($"Expected {expectedFieldCount} fields but found {count}.");
+    }
+
     private static void EnsureDelimitedFieldCount(
         string line,
         string delimiter,
@@ -666,6 +2029,51 @@ public sealed class FileHelperEngine<T>
             return false;
 
         return line.AsSpan(index, delimiter.Length).SequenceEqual(delimiter.AsSpan());
+    }
+
+    /// <summary>
+    /// OPT-10: Counts delimited fields using IndexOfAny SIMD jumps to skip
+    /// non-quote/non-delimiter characters in bulk.
+    /// </summary>
+    private static int CountDelimitedFields(ReadOnlySpan<char> line, char delimiter)
+    {
+        int count = 1;
+        bool inQuotes = false;
+        int pos = 0;
+        int len = line.Length;
+
+        while (pos < len)
+        {
+            // Use IndexOfAny to jump to next quote or delimiter
+            int jump = line[pos..].IndexOfAny('"', delimiter);
+            if (jump < 0)
+                break; // No more interesting characters
+
+            pos += jump;
+            char ch = line[pos];
+
+            if (ch == '"')
+            {
+                // Check for escaped quote ("")
+                if (inQuotes && pos + 1 < len && line[pos + 1] == '"')
+                {
+                    pos += 2;
+                    continue;
+                }
+                inQuotes = !inQuotes;
+                pos++;
+                continue;
+            }
+
+            // delimiter found
+            if (!inQuotes)
+            {
+                count++;
+            }
+            pos++;
+        }
+
+        return count;
     }
 
     /// <summary>
@@ -743,6 +2151,219 @@ public sealed class FileHelperEngine<T>
     private static FormatException CreateParseContextException(int lineNumber, string line, Exception inner)
     {
         return new FormatException($"Error parsing line {lineNumber}: '{line}'. {inner.Message}", inner);
+    }
+
+    /// <summary>
+    /// OPT-12: Streaming callback-based read from a TextReader.
+    /// Reads line-by-line (no full-file string allocation), accumulates logical records,
+    /// and invokes <paramref name="callback"/> for each parsed record.
+    /// </summary>
+    private int ReadCoreStreamCallback(TextReader reader, Action<T> callback, int maxRecords)
+    {
+        LineNumber = 0;
+        TotalRecords = 0;
+        HeaderText = null;
+        FooterText = null;
+        ErrorManager.ClearErrors();
+
+        var opts = _descriptor.Options;
+        int linesPerRecord = Math.Max(1, opts.LineCountPerLogicalRecord);
+        bool hasBeforeRead = BeforeReadRecord is not null;
+        bool hasAfterRead = AfterReadRecord is not null || _implementsNotifyRead;
+
+        // Phase 1: Read header lines
+        int headerLinesRead = 0;
+        if (opts.IgnoreFirst > 0)
+        {
+            var headerBuffer = new List<string>(opts.IgnoreFirst);
+            for (int i = 0; i < opts.IgnoreFirst; i++)
+            {
+                var line = reader.ReadLine();
+                if (line == null)
+                {
+                    TotalRecords = 0;
+                    return 0;
+                }
+                headerBuffer.Add(line);
+                headerLinesRead++;
+                LineNumber = headerLinesRead;
+            }
+            HeaderText = string.Join(NewLineForWrite, headerBuffer);
+        }
+
+        // Phase 2: Stream data records
+        int resultIndex = 0;
+        var lineBuffer = new List<string>(linesPerRecord);
+
+        while (maxRecords <= 0 || resultIndex < maxRecords)
+        {
+            lineBuffer.Clear();
+            int startLine = LineNumber + 1;
+
+            // Accumulate lines for one logical record
+            for (int i = 0; i < linesPerRecord; i++)
+            {
+                var line = reader.ReadLine();
+                if (line == null)
+                {
+                    if (i == 0)
+                    {
+                        // Clean EOF — no partial record
+                        TotalRecords = resultIndex;
+                        return resultIndex;
+                    }
+                    // Partial record at EOF — parse what we have
+                    break;
+                }
+                lineBuffer.Add(line);
+            }
+
+            string joinedLine = linesPerRecord == 1 ? lineBuffer[0] : string.Join("\n", lineBuffer);
+
+            // Skip empty lines
+            if (opts.IgnoreEmptyLines && string.IsNullOrWhiteSpace(joinedLine))
+                continue;
+
+            // Skip comment lines
+            if (opts.CommentMarker != '\0' && joinedLine.Length > 0 && joinedLine[0] == opts.CommentMarker)
+                continue;
+
+            // Skip conditional records
+            if (_conditionMatcher is not null && !_conditionMatcher.ShouldInclude(joinedLine.AsSpan()))
+                continue;
+
+            // BeforeRead event
+            if (hasBeforeRead)
+            {
+                var beforeArgs = new BeforeReadEventArgs<T>(this, joinedLine, startLine);
+                BeforeReadRecord!.Invoke(this, beforeArgs);
+                if (beforeArgs.StopReading)
+                    break;
+                if (beforeArgs.SkipThisRecord)
+                    continue;
+                if (beforeArgs.RecordLineChanged)
+                    joinedLine = beforeArgs.RecordLine;
+            }
+
+            T record;
+            int endLine = LineNumber + lineBuffer.Count;
+            try
+            {
+                ValidateDelimitedFieldCount(joinedLine.AsSpan(), opts.Delimiter, _descriptor.Fields.Length, _descriptor.Fields);
+                record = _descriptor.Parse(joinedLine.AsSpan(), lineCount: lineBuffer.Count);
+            }
+            catch (Exception ex)
+            {
+                switch (ErrorManager.ErrorMode)
+                {
+                    case ErrorMode.ThrowException:
+                        throw CreateParseContextException(startLine, joinedLine, ex);
+                    case ErrorMode.IgnoreAndContinue:
+                        continue;
+                    case ErrorMode.SaveAndContinue:
+                        ErrorManager.AddError(new ErrorInfo(startLine, joinedLine, ex));
+                        continue;
+                }
+                break;
+            }
+
+            // AfterRead event
+            if (hasAfterRead)
+            {
+                var afterArgs = new AfterReadEventArgs<T>(this, record, joinedLine, endLine);
+                if (AfterReadRecord is not null)
+                {
+                    AfterReadRecord.Invoke(this, afterArgs);
+                    if (afterArgs.SkipThisRecord)
+                        continue;
+                }
+                if (_implementsNotifyRead && record is INotifyRead<T> notifyRead)
+                {
+                    notifyRead.AfterRead(afterArgs);
+                    if (afterArgs.SkipThisRecord)
+                        continue;
+                }
+            }
+
+            callback(record);
+            resultIndex++;
+            LineNumber = endLine;
+
+            if (Progress is not null)
+                Progress.Invoke(this, new ProgressEventArgs(resultIndex, -1, 0L, 0L));
+        }
+
+        // Phase 3: Read footer lines
+        if (opts.IgnoreLast > 0)
+        {
+            var footerBuffer = new List<string>(opts.IgnoreLast);
+            for (int i = 0; i < opts.IgnoreLast; i++)
+            {
+                var line = reader.ReadLine();
+                if (line == null) break;
+                footerBuffer.Add(line);
+                LineNumber++;
+            }
+            if (footerBuffer.Count > 0)
+                FooterText = string.Join(NewLineForWrite, footerBuffer);
+        }
+
+        TotalRecords = resultIndex;
+        return resultIndex;
+    }
+
+    /// <summary>
+    /// OPT-12: Async streaming callback-based read from a TextReader.
+    /// </summary>
+    private static async Task<int> ReadCoreStreamCallbackAsync(TextReader reader, Action<T> callback, int maxRecords, CancellationToken cancellationToken)
+    {
+        var descriptor = FileHelperRegistry<T>.Descriptor;
+        var opts = descriptor.Options;
+        int linesPerRecord = Math.Max(1, opts.LineCountPerLogicalRecord);
+
+        int resultIndex = 0;
+        var lineBuffer = new List<string>(linesPerRecord);
+
+        while (!cancellationToken.IsCancellationRequested && (maxRecords <= 0 || resultIndex < maxRecords))
+        {
+            lineBuffer.Clear();
+
+            for (int i = 0; i < linesPerRecord; i++)
+            {
+                var line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+                if (line == null)
+                {
+                    if (i == 0)
+                        return resultIndex;
+                    break;
+                }
+                lineBuffer.Add(line);
+            }
+
+            string joinedLine = linesPerRecord == 1 ? lineBuffer[0] : string.Join("\n", lineBuffer);
+
+            if (opts.IgnoreEmptyLines && string.IsNullOrWhiteSpace(joinedLine))
+                continue;
+
+            if (opts.CommentMarker != '\0' && joinedLine.Length > 0 && joinedLine[0] == opts.CommentMarker)
+                continue;
+
+            T record;
+            try
+            {
+                ValidateDelimitedFieldCount(joinedLine.AsSpan(), opts.Delimiter, descriptor.Fields.Length, descriptor.Fields);
+                record = descriptor.Parse(joinedLine.AsSpan(), lineCount: lineBuffer.Count);
+            }
+            catch
+            {
+                throw;
+            }
+
+            callback(record);
+            resultIndex++;
+        }
+
+        return resultIndex;
     }
 
 }

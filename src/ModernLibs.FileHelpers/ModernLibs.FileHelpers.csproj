@@ -11,11 +11,38 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>FileHelpers;CSV;FixedLength;Delimited;AOT;Source Generator;net10</PackageTags>
     <RepositoryUrl>https://github.com/ModernLibs/FileHelpers</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/ModernLibs/FileHelpers</PackageProjectUrl>
+    <PackageDescription>Modern, AOT-ready rewrite of FileHelpers for .NET 10. High-performance delimited and fixed-width file parsing with zero per-record allocations for record struct types. API compatible with FileHelpers 3.x — migration is a single using change.</PackageDescription>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
+    <PackageReleaseNotes>Initial release of ModernLibs.FileHelpers 4.0.0 — AOT-compatible delimited and fixed-width parsing with source generator, async engines, multi-record and master-detail support.</PackageReleaseNotes>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference
       Include="../ModernLibs.FileHelpers.Generator/ModernLibs.FileHelpers.Generator.csproj"
       OutputItemType="Analyzer"
       ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\assets\icon.png" Pack="true" PackagePath="\" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
+    <!-- Embed the source generator as an analyzer in the package -->
+    <None Include="..\ModernLibs.FileHelpers.Generator\bin\$(Configuration)\netstandard2.0\ModernLibs.FileHelpers.Generator.dll"
+          Pack="true"
+          PackagePath="analyzers/dotnet/cs/"
+          Visible="false" />
   </ItemGroup>
 </Project>

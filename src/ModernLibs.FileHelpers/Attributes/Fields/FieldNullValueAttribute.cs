@@ -2,7 +2,7 @@ namespace ModernLibs.FileHelpers;
 
 /// <summary>
 /// Provides a default value that is used when the parsed field is empty or whitespace-only.
-/// The <paramref name="nullValue"/> must be a compile-time constant compatible with the field's type
+/// The <see cref="NullValue"/> must be a compile-time constant compatible with the field's type
 /// (the source generator performs the type coercion).
 /// </summary>
 [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property, AllowMultiple = false, Inherited = false)]

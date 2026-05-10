@@ -600,9 +600,15 @@ internal static class DescriptorEmitter
                 // Inline the scanner with a state local scoped to THIS field's loop.
                 // Use a distinct local name per field (e.g. __qsIn0, __qsIn1) to avoid
                 // cross-field shadowing at the method scope.
+                // OPT: Use IndexOfAny to skip non-quote/non-delimiter characters in SIMD jumps.
                 sb.AppendLine($"        bool __qsIn{i} = false;");
+                string delimCh = isSingleChar ? delimFirst : $"'{EscapeChar(delim[0])}'";
                 sb.AppendLine($"        while (__qsPos{i} < __qsLen{i})");
                 sb.AppendLine("        {");
+                // Use IndexOfAny to jump to next quote or first char of delimiter
+                sb.AppendLine($"            int __qsJump{i} = {srcSpan}[__qsPos{i}..].IndexOfAny({qLit}, {delimCh});");
+                sb.AppendLine($"            if (__qsJump{i} < 0) {{ __qsPos{i} = __qsLen{i}; break; }}");
+                sb.AppendLine($"            __qsPos{i} += __qsJump{i};");
                 sb.AppendLine($"            char __qsCh = {srcSpan}[__qsPos{i}];");
                 sb.AppendLine($"            if (__qsCh == {qLit})");
                 sb.AppendLine("            {");

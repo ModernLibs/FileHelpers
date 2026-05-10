@@ -110,7 +110,81 @@ while (asyncEngine.ReadNext() is { } record) { /* process */ }
 
 ### Breaking Changes
 
-#### 1. Runtime Reflection Features Removed
+#### 1. Default Encoding Changed: UTF-8 (was system ANSI code page)
+
+FileHelpers 3.x defaulted to `Encoding.GetEncoding(0)` — the system's ANSI code page (e.g. Windows-1252 on Western Windows, Shift-JIS on Japanese Windows). ModernLibs.FileHelpers defaults to `Encoding.UTF8`.
+
+**Impact:**
+
+| Scenario | 3.x (ANSI) | ModernLibs (UTF-8) | Breaking? |
+|---|---|---|---|
+| Pure ASCII (0-127) | ✅ Works | ✅ Works | No |
+| UTF-8 file with BOM | ⚠️ May misread | ✅ Works | No (fix) |
+| UTF-8 file without BOM | ❌ Garbled characters | ✅ Works | No (fix) |
+| Windows-1252 file with accents (é, ñ, ü) | ✅ Works | ❌ Mojibake | **Yes** |
+| Shift-JIS / GBK / other CJK | ✅ Works | ❌ Garbled | **Yes** |
+
+**Migration:** If your files use a legacy encoding, set it explicitly:
+
+```csharp
+var engine = new FileHelperEngine<MyRecord>();
+engine.Encoding = Encoding.GetEncoding(1252);  // Western European
+// or
+engine.Encoding = Encoding.GetEncoding(0);     // System default (3.x behavior)
+```
+
+**Why UTF-8 as default:** UTF-8 is the de facto standard for delimited files. `Encoding.GetEncoding(0)` is platform-dependent — the same file decodes differently on Windows vs Linux vs macOS. Cloud-native and cross-platform scenarios require deterministic encoding.
+
+#### 3. Non-Generic Engine Constructors Removed
+
+FileHelpers 3.x provided non-generic constructors that accepted `Type` at runtime:
+
+```csharp
+// 3.x — NOT SUPPORTED in ModernLibs
+var engine = new FileHelperEngine(typeof(Customer));
+var engine = new FileHelperEngine(typeof(Customer), Encoding.UTF8);
+```
+
+**Why removed:** These constructors are **not AOT-safe**. They require `Activator.CreateInstance(typeof(FileHelperEngine<>).MakeGenericType(recordType))` at runtime, which:
+- Uses reflection to construct generic types from runtime `Type` objects
+- Breaks IL trimming — the trimmer cannot determine which generic instantiations are needed
+- Conflicts with the source-generated descriptor model (`FileHelperRegistry<T>.Descriptor` is populated at compile time via `[ModuleInitializer]`)
+
+**Migration:** Use the generic form exclusively:
+
+```csharp
+// ModernLibs — AOT-safe, source-generated
+var engine = new FileHelperEngine<Customer>();
+engine.Encoding = Encoding.UTF8;  // Set encoding via property if needed
+```
+
+If you need dynamic type dispatch, construct the closed generic engine yourself and cache it:
+
+```csharp
+// One-time reflection at startup, then cache the result
+static readonly object s_lock = new();
+static readonly Dictionary<Type, object> s_engines = new();
+
+static FileHelperEngine<T> GetEngine<T>() => (FileHelperEngine<T>)GetEngine(typeof(T));
+
+static object GetEngine(Type recordType)
+{
+    if (!s_engines.TryGetValue(recordType, out var engine))
+    {
+        lock (s_lock)
+        {
+            if (!s_engines.TryGetValue(recordType, out engine))
+            {
+                engine = Activator.CreateInstance(typeof(FileHelperEngine<>).MakeGenericType(recordType))!;
+                s_engines[recordType] = engine;
+            }
+        }
+    }
+    return engine;
+}
+```
+
+#### 4. Runtime Reflection Features Removed
 
 Features that relied on runtime reflection are not supported:
 
@@ -134,7 +208,7 @@ public class Customer
 }
 ```
 
-#### 2. CSV-Specific Helpers
+#### 5. CSV-Specific Helpers
 
 CSV-specific expansion is postponed. Existing delimited records remain supported, but ModernLibs.FileHelpers is intentionally focusing on fixed-width, multi-record, and master/detail processing instead of competing with mature CSV-first libraries.
 
@@ -149,7 +223,7 @@ CSV-specific expansion is postponed. Existing delimited records remain supported
 
 The non-parity statements below are normative. Everything not flagged as non-parity should behave identically to FileHelpers 3.x for the supported surface.
 
-#### 3. Multi-Record Processing
+#### 6. Multi-Record Processing
 
 Multi-record processing is supported through an AOT-safe closed-set API:
 
@@ -195,7 +269,7 @@ foreach (var error in engine.ErrorManager.Errors)
   **Rationale:** preserves AOT safety and deterministic source-generated behavior.  
   **Migration action:** register each record type and selector explicitly during engine construction.
 
-#### 4. Master-Detail Processing
+#### 7. Master-Detail Processing
 
 Parent/child files are supported with `MasterDetailEngine<TMaster,TDetail>`:
 
@@ -526,7 +600,9 @@ Migrating from FileHelpers 3.x to ModernLibs.FileHelpers 4.x is straightforward:
 
 1. ✅ Update `using FileHelpers;` to `using ModernLibs.FileHelpers;`
 2. ✅ Update package reference
-3. ✅ Use generic `INotifyRead<T>`/`INotifyWrite<T>` if implementing interfaces
-4. ✅ Replace runtime ClassBuilder with source-generated types
+3. ✅ Set `engine.Encoding` if your files use a legacy encoding (default changed from ANSI to UTF-8)
+4. ✅ Replace non-generic `new FileHelperEngine(typeof(T))` with `new FileHelperEngine<T>()`
+5. ✅ Use generic `INotifyRead<T>`/`INotifyWrite<T>` if implementing interfaces
+6. ✅ Replace runtime ClassBuilder with source-generated types
 
 Most code requires **zero changes** beyond the namespace update.

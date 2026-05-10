@@ -1,0 +1,93 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Least-privilege CI token
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  pack-and-publish:
+    name: Pack and Publish to NuGet
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Required for SourceLink
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Detect version from tag
+        id: version
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          VERSION=${TAG#v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          if [[ "$VERSION" == *"-"* ]]; then
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build Release
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Test (TUnit)
+        run: >-
+          ./tests/ModernLibs.FileHelpers.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Tests
+          --ignore-exit-code 8
+
+      - name: Test (xUnit mutation)
+        run: >-
+          ./tests/ModernLibs.FileHelpers.Mutation.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Mutation.Tests
+
+      - name: Pack library
+        run: dotnet pack src/ModernLibs.FileHelpers/ --no-build --configuration Release -p:Version=${{ steps.version.outputs.version }} --output nupkgs
+
+      - name: Pack generator
+        run: dotnet pack src/ModernLibs.FileHelpers.Generator/ --no-build --configuration Release -p:Version=${{ steps.version.outputs.version }} --output nupkgs
+
+      - name: Verify packages
+        run: |
+          ls -la nupkgs/
+          # Verify .nupkg files exist
+          test -f nupkgs/ModernLibs.FileHelpers.${{ steps.version.outputs.version }}.nupkg
+          test -f nupkgs/ModernLibs.FileHelpers.${{ steps.version.outputs.version }}.snupkg
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-packages
+          path: nupkgs/
+          retention-days: 30
+
+      - name: Publish to NuGet.org
+        if: github.event_name == 'push'
+        run: dotnet nuget push "nupkgs/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: nupkgs/*.nupkg
+          prerelease: ${{ steps.version.outputs.prerelease }}
+          generate_release_notes: true

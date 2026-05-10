@@ -2,49 +2,50 @@
 
 Mutation-test runner shell for the ModernLibs.FileHelpers specialist surface. The project hosts xUnit-runner-compatible cases that Stryker.NET mutates, so it is intentionally separate from the primary TUnit suite at `tests/ModernLibs.FileHelpers.Tests`.
 
-## Status (v1.2 specialist closure — Phase 28)
+## Status (v1.3 mutation suite — Phase 30)
 
-This project currently discovers **zero** mutation-target tests. The placeholder file (`Placeholder.cs`) carries no `[Fact]`/`[Theory]` cases, so test discovery returns an empty set. Per Phase 28 decisions D-03/D-04, this is recorded as a **documented scoped exception** for `SPEC-02` rather than feature work.
+This project contains **78** xUnit `[Fact]` mutation-target tests covering the core parsing and engine surface:
 
-The exception is auditable: the project still builds, runs, and exits cleanly via the `--ignore-exit-code 8` argument configured in `ModernLibs.FileHelpers.Mutation.Tests.csproj`.
+| Target | Test Count | Coverage Areas |
+|--------|------------|----------------|
+| `DelimitedFieldEnumerator` | 25 | Delimiter detection, quoted fields, escape sequences, per-field delimiters, lenient behavior |
+| `FixedLengthSlicer` | 10 | Offset/width slicing, boundary conditions, overflow clamping |
+| `SpanLineReader` | 14 | LF/CRLF/CR handling, line numbering, large buffers, empty input |
+| `MultiRecordEngine` | 15 | Selector dispatch, error modes (Throw/Ignore/Save), multi-type parsing, I/O parity, write path |
+| `MasterDetailEngine` | 14 | Classification callback, multi-line buffering, error modes, I/O parity, write path, grouping |
 
 ## Reproducible commands
 
-### Run the mutation-runner shell directly
+### Run the mutation test suite
 
 ```bash
-dotnet run --project tests/ModernLibs.FileHelpers.Mutation.Tests/ModernLibs.FileHelpers.Mutation.Tests.csproj --configuration Release
+dotnet test --project tests/ModernLibs.FileHelpers.Mutation.Tests/
 ```
 
-Expected output: xUnit v3 reports `Total: 0` and the process exits with code 0 (because of `--ignore-exit-code 8`).
+### Run Stryker.NET mutation analysis
+
+```bash
+dotnet tool install -g dotnet-stryker
+dotnet stryker --config-file stryker-config.json
+```
+
+Configuration is in `stryker-config.json` at the repo root with:
+- Target: `src/ModernLibs.FileHelpers/ModernLibs.FileHelpers.csproj`
+- Thresholds: high=80%, low=60%, break=50%
+- Baseline enabled with fallback to `main`
+- Reporters: progress, dots, html
 
 ### Run via the testing platform
 
 ```bash
-./tests/ModernLibs.FileHelpers.Mutation.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Mutation.Tests --ignore-exit-code 8
+./tests/ModernLibs.FileHelpers.Mutation.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Mutation.Tests
 ```
 
-### Run Stryker.NET against the specialist surface
+## CI Integration
 
-Stryker.NET is invoked separately as a global tool and is not yet wired into this project. When mutation tests are added in a future milestone, the recommended invocation is:
+Mutation testing runs in CI after the unit test suite passes. The workflow:
+1. Installs `dotnet-stryker` global tool
+2. Runs `dotnet stryker --config-file stryker-config.json`
+3. Uploads the mutation report as a build artifact (30-day retention)
 
-```bash
-dotnet tool install -g dotnet-stryker
-dotnet stryker --project tests/ModernLibs.FileHelpers.Mutation.Tests/ModernLibs.FileHelpers.Mutation.Tests.csproj
-```
-
-## Why a scoped exception (D-03/D-04)
-
-- The primary TUnit suite (`tests/ModernLibs.FileHelpers.Tests`) exercises the specialist surface end-to-end with 448/448 green tests; mutation regression risk is low.
-- Stryker.NET requires xUnit/NUnit-style discovery, which means duplicating TUnit cases as xUnit `[Fact]` tests. That counts as feature work and is explicitly out of Phase 28 scope (D-02, D-09).
-- Phase 28 closes the audit by documenting the gap with a reproducible command and a follow-up routing entry, not by expanding the suite.
-
-## Follow-up routing
-
-A mutation-target population task is captured in:
-
-- `.planning/phases/24-specialist-verification-documentation/24-VERIFICATION.md` — closure verdict and scoped exception rationale.
-- `.planning/phases/28-specialist-verification-traceability-closure/28-VERIFICATION-CHECKLIST.md` — Phase 28 success-criterion mapping (added by plan 28-03).
-- `.planning/REQUIREMENTS.md` — `SPEC-02` traceability row pointing to this README.
-
-When the next milestone re-opens specialist mutation work, replace `Placeholder.cs` with `[Fact]`/`[Theory]` cases for the targeted parsers (e.g. `MultiRecordEngine`, `MasterDetailEngine`, `FixedLengthSlicer`) and update this README's status section.
+See `.github/workflows/ci.yml` for the full pipeline.

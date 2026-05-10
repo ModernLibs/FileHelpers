@@ -17,8 +17,8 @@ namespace ModernLibs.FileHelpers;
 /// to activate the path, so struct descriptors (which will not implement this interface)
 /// fall through to the normal <c>Parse</c> path.</para>
 ///
-/// <para>Phase 14 MLIN-02: Supports multi-line records. The <paramref name="lineCount"/> parameter
-/// indicates how many physical lines constitute this logical record.</para>
+/// <para>Phase 14 MLIN-02: Supports multi-line records. The `lineCount` parameter
+/// of <see cref="ParseInto"/> indicates how many physical lines constitute this logical record.</para>
 /// </summary>
 /// <typeparam name="T">A reference-type record annotated with
 /// <see cref="DelimitedRecordAttribute"/> or <see cref="FixedLengthRecordAttribute"/>.</typeparam>

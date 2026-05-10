@@ -2,19 +2,24 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <OutputType>Exe</OutputType>
-    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
     <!--
-      Phase 28 closure (SPEC-02 scoped exception): the xUnit.v3 in-process
-      runner returns exit code 0 for an empty discovery, so the previous
-      ignore-exit-code 8 workaround is no longer required. When
-      dotnet test is used (Microsoft.Testing.Platform path), exit 8
-      surfaces "zero tests ran"; reintroduce the argument here only if a
-      future runner change starts treating empty discovery as failure.
-      See tests/ModernLibs.FileHelpers.Mutation.Tests/README.md.
+      Phase 30: Stryker.NET requires VsTest-compatible tests.
+      xUnit.v3 supports both Microsoft.Testing.Platform (default) and the
+      traditional console runner. We use the console runner here so Stryker
+      can discover and execute tests.
+      See: https://github.com/stryker-mutator/stryker-net/issues/3094
     -->
+    <TestingPlatformDotnetTestSupport>false</TestingPlatformDotnetTestSupport>
+    <UseMicrosoftTestingPlatformRunner>false</UseMicrosoftTestingPlatformRunner>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
     <ProjectReference Include="../../src/ModernLibs.FileHelpers/ModernLibs.FileHelpers.csproj" />
+    <!-- Generator reference so [DelimitedRecord] types in mutation tests get descriptors -->
+    <ProjectReference Include="../../src/ModernLibs.FileHelpers.Generator/ModernLibs.FileHelpers.Generator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>

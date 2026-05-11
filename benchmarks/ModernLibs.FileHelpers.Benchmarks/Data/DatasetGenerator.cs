@@ -92,4 +92,60 @@ public static class DatasetGenerator
     }
 
     private static string Escape(string s) => s.Replace(",", "\\,");
+
+    public static string EnsureQuotedFields(string dataDir, int rows = 100_000)
+    {
+        var path = Path.Combine(dataDir, $"quoted_fields_{rows}.csv");
+        if (File.Exists(path)) return path;
+
+        using var writer = new StreamWriter(path, false, Encoding.UTF8, 65536);
+        writer.WriteLine("Id,Name,Description,Notes,Category");
+
+        var descriptions = new[]
+        {
+            "Simple text",
+            "Text with, comma",
+            "Text with \"quotes\"",
+            "Text with, \"commas and quotes\"",
+            "Normal text",
+            "Line with embedded \"stuff, here\" and more",
+            "Plain",
+            "Has, multiple, commas",
+            "Quote at \"start",
+            "End with quote\""
+        };
+        var notes = new[]
+        {
+            "No notes",
+            "Note with, comma",
+            "Important \"flag\"",
+            "",
+            "Regular note",
+            "Note with \"embedded, comma\" value",
+            "Short",
+            "Long note with lots of text and, punctuation",
+            "Special \"case\" note",
+            "Trailing comma,"
+        };
+        var categories = new[] { "A", "B", "C", "D", "E" };
+        var names = new[] { "Alpha", "Beta", "Gamma", "Delta", "Epsilon" };
+
+        for (int i = 0; i < rows; i++)
+        {
+            var name = names[i % names.Length];
+            var desc = Rfc4180Escape(descriptions[i % descriptions.Length]);
+            var note = Rfc4180Escape(notes[i % notes.Length]);
+            var cat = categories[i % categories.Length];
+            writer.WriteLine($"{i},{name},{desc},{note},{cat}");
+        }
+
+        return path;
+    }
+
+    private static string Rfc4180Escape(string s)
+    {
+        if (s.Contains(',') || s.Contains('"') || s.Contains('\n'))
+            return "\"" + s.Replace("\"", "\"\"") + "\"";
+        return s;
+    }
 }

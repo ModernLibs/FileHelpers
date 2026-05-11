@@ -19,5 +19,15 @@ public sealed class EnumConverter<TEnum> : ISpanConverter<TEnum>
 
     /// <inheritdoc/>
     public bool TryFormat(TEnum value, Span<char> destination, out int charsWritten)
-        => ((ISpanFormattable)value).TryFormat(destination, out charsWritten, "G", null);
+    {
+        var name = value.ToString();
+        if (name.Length > destination.Length)
+        {
+            charsWritten = 0;
+            return false;
+        }
+        name.AsSpan().CopyTo(destination);
+        charsWritten = name.Length;
+        return true;
+    }
 }

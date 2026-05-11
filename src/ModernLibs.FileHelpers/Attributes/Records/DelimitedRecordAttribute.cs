@@ -19,6 +19,29 @@ public sealed class DelimitedRecordAttribute : Attribute
     /// </summary>
     public MultilineMode MultilineMode { get; set; } = MultilineMode.NotAllow;
 
+    /// <summary>
+    /// Specifies how quoted fields are unescaped during parsing.
+    /// Defaults to <see cref="QuoteUnescapeMode.None"/> for backward compatibility (quotes preserved).
+    /// Set to <see cref="QuoteUnescapeMode.Standard"/> for RFC 4180 unescaping.
+    /// Phase 36 QUOTE-02: Sep-inspired quote unescape modes.
+    /// </summary>
+    public QuoteUnescapeMode QuoteUnescapeMode { get; set; } = QuoteUnescapeMode.None;
+
+    /// <summary>
+    /// Specifies trimming mode for field values during parsing.
+    /// Defaults to <see cref="TrimMode.None"/> for backward compatibility.
+    /// Phase 36 QUOTE-03: Sep-inspired trim options.
+    /// </summary>
+    public TrimMode TrimMode { get; set; } = TrimMode.None;
+
+    /// <summary>
+    /// Indicates whether the first row is a header row containing column names.
+    /// When true, the engine parses the header and maps columns to fields by name.
+    /// Defaults to false for backward compatibility.
+    /// Phase 38 HDR-01: Sep-inspired header row support.
+    /// </summary>
+    public bool HasHeader { get; set; }
+
     /// <summary>Marks this type as a delimited record.</summary>
     /// <param name="delimiter">The separator string used to split fields (e.g., <c>","</c>, <c>"\t"</c>, <c>"|"</c>).</param>
     public DelimitedRecordAttribute(string delimiter)

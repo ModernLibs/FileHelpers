@@ -1700,6 +1700,13 @@ internal static class DescriptorEmitter
         sb.AppendLine($"            LineCountPerLogicalRecord = {lineCount},");
         // Phase 18 MULT-01: Emit MultilineMode for multiline quoted field support
         sb.AppendLine($"            MultilineMode = (global::ModernLibs.FileHelpers.MultilineMode){model.MultilineMode},");
+        // Phase 36 QUOTE-02: Emit QuoteUnescapeMode for Sep-inspired quote unescaping
+        sb.AppendLine($"            QuoteUnescapeMode = (global::ModernLibs.FileHelpers.QuoteUnescapeMode){model.QuoteUnescapeMode},");
+        // Phase 36 QUOTE-03: Emit TrimMode for Sep-inspired field trimming
+        sb.AppendLine($"            TrimMode = (global::ModernLibs.FileHelpers.TrimMode){model.TrimMode},");
+        // Phase 38 HDR-01: Emit HasHeader for Sep-inspired header row support
+        string hasHeaderLit = model.HasHeader ? "true" : "false";
+        sb.AppendLine($"            HasHeader = {hasHeaderLit},");
         sb.AppendLine("        };");
     }
 

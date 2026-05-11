@@ -60,6 +60,33 @@ internal static class RecordModelExtractor
             multilineMode = mm;
         }
 
+        // Phase 36 QUOTE-02: Extract QuoteUnescapeMode from DelimitedRecordAttribute
+        int quoteUnescapeMode = 0; // Default to None = 0
+        var unescapeArg = attr.NamedArguments.FirstOrDefault(
+            kv => string.Equals(kv.Key, "QuoteUnescapeMode", System.StringComparison.Ordinal)).Value;
+        if (unescapeArg is { Kind: TypedConstantKind.Enum } unescapeNamed && unescapeNamed.Value is int um)
+        {
+            quoteUnescapeMode = um;
+        }
+
+        // Phase 36 QUOTE-03: Extract TrimMode from DelimitedRecordAttribute
+        int recordTrimMode = 0; // Default to None = 0
+        var trimArg = attr.NamedArguments.FirstOrDefault(
+            kv => string.Equals(kv.Key, "TrimMode", System.StringComparison.Ordinal)).Value;
+        if (trimArg is { Kind: TypedConstantKind.Enum } trimNamed && trimNamed.Value is int recTrim)
+        {
+            recordTrimMode = recTrim;
+        }
+
+        // Phase 38 HDR-01: Extract HasHeader from DelimitedRecordAttribute
+        bool hasHeader = false;
+        var headerArg = attr.NamedArguments.FirstOrDefault(
+            kv => string.Equals(kv.Key, "HasHeader", System.StringComparison.Ordinal)).Value;
+        if (headerArg.Value is bool hdr)
+        {
+            hasHeader = hdr;
+        }
+
         // Extract fields: public instance fields and properties only
         var fields = ImmutableArray.CreateBuilder<FieldModel>();
         int implicitOrder = 0;
@@ -112,6 +139,7 @@ internal static class RecordModelExtractor
             int? alignMode = null;  // Phase 12: 0=Left, 1=Center, 2=Right
             char? alignChar = null; // Phase 12: custom pad char, null = space
             int fixedLength = -1;   // Phase 12: FieldFixedLength for alignment width in delimited records
+            string? fieldName = null; // Phase 38 HDR-03: explicit column name from [FieldName]
 
             // Scan member attributes for field-level overrides
             foreach (var mAttr in member.GetAttributes())
@@ -182,6 +210,12 @@ internal static class RecordModelExtractor
                              && mAttr.ConstructorArguments[0].Value is string del:
                         // FDEL-01: extract per-field delimiter override
                         fieldDelimiter = del;
+                        break;
+                    case "ModernLibs.FileHelpers.FieldNameAttribute"
+                             when mAttr.ConstructorArguments.Length > 0
+                             && mAttr.ConstructorArguments[0].Value is string fn:
+                        // Phase 38 HDR-03: extract explicit column name mapping
+                        fieldName = fn;
                         break;
                     case "ModernLibs.FileHelpers.FieldAlignAttribute":
                         // Phase 12: Extract alignment mode and optional pad character
@@ -258,7 +292,8 @@ internal static class RecordModelExtractor
                 AlignMode: alignMode,
                 AlignChar: alignChar,
                 IsNotEmpty: isNotEmpty,  // Phase 13 FAVL-06
-                IsInNewLine: isInNewLine));  // Phase 14 MLIN-01
+                IsInNewLine: isInNewLine,  // Phase 14 MLIN-01
+                FieldName: fieldName));  // Phase 38 HDR-03
         }
 
         // Sort by order for deterministic output (SGEN-11).
@@ -279,7 +314,10 @@ internal static class RecordModelExtractor
             CommentMarker: commentMarker,
             Condition: condition,
             ConditionPattern: conditionPattern,
-            MultilineMode: multilineMode);
+            MultilineMode: multilineMode,
+            QuoteUnescapeMode: quoteUnescapeMode,
+            TrimMode: recordTrimMode,
+            HasHeader: hasHeader);
     }
 
     internal static RecordModel? ExtractFixedLength(
@@ -509,7 +547,8 @@ internal static class RecordModelExtractor
                 AlignChar: alignChar,
                 OverflowMode: overflowMode,
                 IsNotEmpty: isNotEmpty,  // Phase 13 FAVL-06
-                IsInNewLine: isInNewLine));  // Phase 14 MLIN-01
+                IsInNewLine: isInNewLine,  // Phase 14 MLIN-01
+                FieldName: null));  // Phase 38: FieldName not applicable to fixed-length
         }
 
         var sortedArray = fields

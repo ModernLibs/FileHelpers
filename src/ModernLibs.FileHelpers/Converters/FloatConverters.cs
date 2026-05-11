@@ -100,8 +100,7 @@ public sealed class PercentDoubleConverter : ISpanConverter<double>
     /// <inheritdoc/>
     public bool TryFormat(double value, Span<char> destination, out int charsWritten)
     {
-        // Write value into a temporary buffer, then append '%' to destination.
-        char[] tmp = new char[24];
+        Span<char> tmp = stackalloc char[24];
         if (!value.TryFormat(tmp, out int cw, default, CultureInfo.InvariantCulture))
         {
             charsWritten = 0;
@@ -114,7 +113,7 @@ public sealed class PercentDoubleConverter : ISpanConverter<double>
             return false;
         }
 
-        tmp.AsSpan(0, cw).CopyTo(destination);
+        tmp[..cw].CopyTo(destination);
         destination[cw] = '%';
         charsWritten = cw + 1;
         return true;

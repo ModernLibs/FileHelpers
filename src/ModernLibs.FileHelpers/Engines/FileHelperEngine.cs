@@ -1581,7 +1581,7 @@ public sealed class FileHelperEngine<T>
     /// <summary>
     /// OPT-06: Builds a joined string from line boundaries within a span.
     /// Materializes strings only for header/footer capture or multi-line records.
-    /// Uses StringBuilder since ReadOnlySpan&lt;char&gt; cannot be captured in string.Create state.
+    /// Uses pre-sized buffer to avoid StringBuilder reallocations.
     /// </summary>
     private static string BuildJoinedStringSpan(
         ReadOnlySpan<char> content,
@@ -1597,15 +1597,28 @@ public sealed class FileHelperEngine<T>
             return content[lineStarts[startIndex]..(lineStarts[startIndex] + lineLengths[startIndex])].ToString();
         }
 
-        var sb = new StringBuilder();
+        int totalLength = 0;
         for (int i = 0; i < count; i++)
         {
-            if (i > 0) sb.Append(separator);
+            totalLength += lineLengths[startIndex + i];
+            if (i > 0) totalLength += separator.Length;
+        }
+
+        var buffer = new char[totalLength];
+        int pos = 0;
+        for (int i = 0; i < count; i++)
+        {
+            if (i > 0)
+            {
+                separator.AsSpan().CopyTo(buffer.AsSpan(pos));
+                pos += separator.Length;
+            }
             int s = lineStarts[startIndex + i];
             int l = lineLengths[startIndex + i];
-            sb.Append(content[s..(s + l)]);
+            content.Slice(s, l).CopyTo(buffer.AsSpan(pos));
+            pos += l;
         }
-        return sb.ToString();
+        return new string(buffer);
     }
 
     /// <summary>

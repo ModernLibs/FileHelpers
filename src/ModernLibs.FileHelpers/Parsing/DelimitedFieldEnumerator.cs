@@ -118,9 +118,7 @@ public ref struct DelimitedFieldEnumerator
         // Fast path: field does not start with a quote.
         if (span[0] != '"')
         {
-            int delimIdx = delimiter.Length == 1
-                ? span.IndexOf(delimiter[0])
-                : span.IndexOf(delimiter, StringComparison.Ordinal);
+            int delimIdx = FindDelimiter(span, delimiter);
 
             if (delimIdx < 0)
             {
@@ -147,16 +145,33 @@ public ref struct DelimitedFieldEnumerator
     }
 
     /// <summary>
+    /// SIMD-accelerated delimiter search (SIMD-01..05).
+    /// Uses AVX2/NEON/Vector{T} paths when available, falls back to scalar.
+    /// </summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    private static int FindDelimiter(ReadOnlySpan<char> span, ReadOnlySpan<char> delimiter)
+    {
+        if (delimiter.Length == 1)
+        {
+            // Single-char delimiter: use SIMD-accelerated IndexOf
+            return SimdDelimiterFinder.IndexOf(span, delimiter[0]);
+        }
+        // Multi-char delimiter: scalar search (rare case)
+        return span.IndexOf(delimiter, System.StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Handles RFC 4180 quoted field parsing: fast no-escape path and full "" unescape path.
     /// Lenient: never throws on malformed/unclosed quoted fields (D-03).
+    /// SIMD-01: Uses SIMD-accelerated quote search.
     /// </summary>
     private bool MoveNextQuoted(ReadOnlySpan<char> span, ReadOnlySpan<char> delimiter)
     {
         // span[0] == '"' guaranteed by caller.
         var inner = span[1..]; // skip opening quote
 
-        // Find the first '"' inside the quoted content.
-        int firstQuote = inner.IndexOf('"');
+        // Find the first '"' inside the quoted content (SIMD-accelerated).
+        int firstQuote = SimdDelimiterFinder.IndexOf(inner, '"');
         if (firstQuote < 0)
         {
             // Lenient: no closing quote found (D-03) — treat entire remainder as the field.
@@ -215,7 +230,7 @@ public ref struct DelimitedFieldEnumerator
 
         while (!remaining.IsEmpty)
         {
-            int q = remaining.IndexOf('"');
+            int q = SimdDelimiterFinder.IndexOf(remaining, '"');
             if (q < 0)
             {
                 // Lenient: no closing quote (D-03) — copy rest as-is.

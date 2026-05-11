@@ -15,7 +15,7 @@ public class WriteBenchmarks
     private FileHelperEngine<PackageAsset> _engine = null!;
     private string _outputPath = "";
 
-    [Params(10_000, 100_000)]
+    [Params(10_000, 100_000, 1_000_000)]
     public int Rows { get; set; }
 
     [GlobalSetup]

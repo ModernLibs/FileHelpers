@@ -39,5 +39,6 @@ internal sealed record FieldModel(
     char? AlignChar = null,                                             // Phase 12: custom pad char; null = default space
     int OverflowMode = 0,                                                // Phase 20: 0=DiscardEnd, 1=Error from [FieldFixedLength]
     bool IsNotEmpty = false,                                            // Phase 13 FAVL-06: from [FieldNotEmpty]
-    bool IsInNewLine = false)                                           // Phase 14 MLIN-01: from [FieldInNewLine]
+    bool IsInNewLine = false,                                           // Phase 14 MLIN-01: from [FieldInNewLine]
+    string? FieldName = null)                                           // Phase 38 HDR-03: from [FieldName("ColumnName")]
     : IEquatable<FieldModel>;

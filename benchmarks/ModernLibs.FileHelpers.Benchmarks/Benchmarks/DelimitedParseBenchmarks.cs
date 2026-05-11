@@ -39,13 +39,43 @@ public sealed class PackageAsset
     [FieldOrder(25)] public bool RequireLicenseAcceptance { get; set; }
 }
 
+// Full 25-field row for fair competitor comparison
+public sealed class PackageAssetRow
+{
+    public int Id { get; set; }
+    public string Version { get; set; } = "";
+    public string Authors { get; set; } = "";
+    public string Description { get; set; } = "";
+    public string Tags { get; set; } = "";
+    public int DownloadCount { get; set; }
+    public string ProjectUrl { get; set; } = "";
+    public string LicenseUrl { get; set; } = "";
+    public string IconUrl { get; set; } = "";
+    public string Language { get; set; } = "";
+    public string Framework { get; set; } = "";
+    public string MinClientVersion { get; set; } = "";
+    public int Type { get; set; }
+    public bool IsPrerelease { get; set; }
+    public DateTime Published { get; set; }
+    public DateTime LastUpdated { get; set; }
+    public long PackageSize { get; set; }
+    public int DependencyCount { get; set; }
+    public bool HasReadme { get; set; }
+    public bool HasLicense { get; set; }
+    public bool HasIcon { get; set; }
+    public bool IsSigned { get; set; }
+    public string RepositoryType { get; set; } = "";
+    public string RepositoryUrl { get; set; } = "";
+    public bool RequireLicenseAcceptance { get; set; }
+}
+
 [MemoryDiagnoser]
 public class DelimitedParseBenchmarks
 {
     private string _filePath = "";
     private FileHelperEngine<PackageAsset> _engine = null!;
 
-    [Params(10_000, 100_000)]
+    [Params(10_000, 100_000, 1_000_000)]
     public int Rows { get; set; }
 
     [GlobalSetup]
@@ -63,7 +93,7 @@ public class DelimitedParseBenchmarks
     [Benchmark]
     public List<PackageAssetRow> ReadAllRows_Sylvan()
     {
-        var results = new List<PackageAssetRow>();
+        var results = new List<PackageAssetRow>(Rows);
         using var reader = CsvDataReader.Create(_filePath);
         while (reader.Read())
         {
@@ -75,6 +105,25 @@ public class DelimitedParseBenchmarks
                 Description = reader.GetString(3),
                 Tags = reader.GetString(4),
                 DownloadCount = reader.GetInt32(5),
+                ProjectUrl = reader.GetString(6),
+                LicenseUrl = reader.GetString(7),
+                IconUrl = reader.GetString(8),
+                Language = reader.GetString(9),
+                Framework = reader.GetString(10),
+                MinClientVersion = reader.GetString(11),
+                Type = reader.GetInt32(12),
+                IsPrerelease = reader.GetBoolean(13),
+                Published = reader.GetDateTime(14),
+                LastUpdated = reader.GetDateTime(15),
+                PackageSize = reader.GetInt64(16),
+                DependencyCount = reader.GetInt32(17),
+                HasReadme = reader.GetBoolean(18),
+                HasLicense = reader.GetBoolean(19),
+                HasIcon = reader.GetBoolean(20),
+                IsSigned = reader.GetBoolean(21),
+                RepositoryType = reader.GetString(22),
+                RepositoryUrl = reader.GetString(23),
+                RequireLicenseAcceptance = reader.GetBoolean(24),
             });
         }
         return results;
@@ -101,21 +150,24 @@ public class DelimitedParseBenchmarks
     [Benchmark]
     public int[] ReadFirstColumn_Sylvan()
     {
-        var ids = new List<int>();
+        var ids = new int[Rows];
+        int idx = 0;
         using var reader = CsvDataReader.Create(_filePath);
         while (reader.Read())
-            ids.Add(reader.GetInt32(0));
+            ids[idx++] = reader.GetInt32(0);
+        return ids;
+    }
+
+    [Benchmark]
+    public int[] ReadFirstColumn_CsvHelper()
+    {
+        using var reader = new System.IO.StreamReader(_filePath);
+        using var csv = new CsvHelper.CsvReader(reader, System.Globalization.CultureInfo.InvariantCulture);
+        csv.Read();
+        csv.ReadHeader();
+        var ids = new List<int>(Rows);
+        while (csv.Read())
+            ids.Add(csv.GetField<int>("Id"));
         return ids.ToArray();
     }
-}
-
-// Lightweight row type for competitor benchmarks (only first 6 fields)
-public sealed class PackageAssetRow
-{
-    public int Id { get; set; }
-    public string Version { get; set; } = "";
-    public string Authors { get; set; } = "";
-    public string Description { get; set; } = "";
-    public string Tags { get; set; } = "";
-    public int DownloadCount { get; set; }
 }

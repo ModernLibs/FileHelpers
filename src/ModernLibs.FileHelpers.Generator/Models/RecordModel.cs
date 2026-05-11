@@ -20,5 +20,8 @@ internal sealed record RecordModel(
     char CommentMarker = '\0',              // from [IgnoreCommentedLines(char)]
     int Condition = 0,                      // from [ConditionalRecord(RecordCondition, string)]; 0 = RecordCondition.None
     string ConditionPattern = "",           // from [ConditionalRecord(RecordCondition, string)]
-    int MultilineMode = 3)                  // Phase 18: from [DelimitedRecord(MultilineMode)]; 3 = MultilineMode.NotAllow
+    int MultilineMode = 3,                  // Phase 18: from [DelimitedRecord(MultilineMode)]; 3 = MultilineMode.NotAllow
+    int QuoteUnescapeMode = 0,              // Phase 36: from [DelimitedRecord(QuoteUnescapeMode)]; 0 = None
+    int TrimMode = 0,                       // Phase 36: from [DelimitedRecord(TrimMode)]; 0 = None
+    bool HasHeader = false)                 // Phase 38: from [DelimitedRecord(HasHeader)]
     ;

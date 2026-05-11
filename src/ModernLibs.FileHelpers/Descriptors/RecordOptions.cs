@@ -61,6 +61,27 @@ public readonly struct RecordOptions : IEquatable<RecordOptions>
     /// </summary>
     public MultilineMode MultilineMode { get; init; }
 
+    /// <summary>
+    /// Quote unescape mode (from <see cref="DelimitedRecordAttribute.QuoteUnescapeMode"/>).
+    /// Default: <see cref="QuoteUnescapeMode.None"/>.
+    /// Phase 36 QUOTE-02: Sep-inspired quote unescape modes.
+    /// </summary>
+    public QuoteUnescapeMode QuoteUnescapeMode { get; init; }
+
+    /// <summary>
+    /// Trim mode for field values (from <see cref="DelimitedRecordAttribute.TrimMode"/>).
+    /// Default: <see cref="TrimMode.None"/>.
+    /// Phase 36 QUOTE-03: Sep-inspired trim options.
+    /// </summary>
+    public TrimMode TrimMode { get; init; }
+
+    /// <summary>
+    /// Whether the first row is a header row (from <see cref="DelimitedRecordAttribute.HasHeader"/>).
+    /// Default: false.
+    /// Phase 38 HDR-01: Sep-inspired header row support.
+    /// </summary>
+    public bool HasHeader { get; init; }
+
     /// <inheritdoc/>
     public bool Equals(RecordOptions other) =>
         IgnoreFirst == other.IgnoreFirst
@@ -71,7 +92,10 @@ public readonly struct RecordOptions : IEquatable<RecordOptions>
         && Condition == other.Condition
         && string.Equals(ConditionPattern, other.ConditionPattern, StringComparison.Ordinal)
         && LineCountPerLogicalRecord == other.LineCountPerLogicalRecord
-        && MultilineMode == other.MultilineMode;
+        && MultilineMode == other.MultilineMode
+        && QuoteUnescapeMode == other.QuoteUnescapeMode
+        && TrimMode == other.TrimMode
+        && HasHeader == other.HasHeader;
 
     /// <inheritdoc/>
     public override bool Equals(object? obj) => obj is RecordOptions other && Equals(other);
@@ -79,9 +103,8 @@ public readonly struct RecordOptions : IEquatable<RecordOptions>
     /// <inheritdoc/>
     public override int GetHashCode()
     {
-        // HashCode.Combine only supports up to 8 arguments - combine in two steps
         int hash = HashCode.Combine(IgnoreFirst, IgnoreLast, IgnoreEmptyLines, CommentMarker, Delimiter, Condition, ConditionPattern, LineCountPerLogicalRecord);
-        return HashCode.Combine(hash, MultilineMode);
+        return HashCode.Combine(hash, MultilineMode, QuoteUnescapeMode, TrimMode, HasHeader);
     }
 
     /// <summary>Equality operator.</summary>

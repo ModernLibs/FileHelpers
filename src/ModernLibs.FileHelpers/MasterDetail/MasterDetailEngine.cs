@@ -17,6 +17,32 @@ public sealed class MasterDetailEngine<TMaster, TDetail>
         _selector = selector;
     }
 
+    /// <summary>
+    /// Creates a master/detail engine with a common selector mode and selector string.
+    /// Matches FileHelpers 3.x API for ergonomic master/detail classification.
+    /// </summary>
+    public MasterDetailEngine(CommonSelectorMode mode, string selector)
+    {
+        ArgumentNullException.ThrowIfNull(selector);
+        _selector = CreateFromCommonSelector(mode, selector);
+    }
+
+    private static MasterDetailSelector CreateFromCommonSelector(CommonSelectorMode mode, string selector)
+    {
+        return mode switch
+        {
+            CommonSelectorMode.MasterIfContains => line => line.IndexOf(selector.AsSpan(), StringComparison.Ordinal) >= 0 ? RecordAction.Master : RecordAction.Detail,
+            CommonSelectorMode.MasterIfBegins => line => line.StartsWith(selector.AsSpan()) ? RecordAction.Master : RecordAction.Detail,
+            CommonSelectorMode.MasterIfEnds => line => line.EndsWith(selector.AsSpan()) ? RecordAction.Master : RecordAction.Detail,
+            CommonSelectorMode.MasterIfEnclosed => line => line.StartsWith(selector.AsSpan()) && line.EndsWith(selector.AsSpan()) ? RecordAction.Master : RecordAction.Detail,
+            CommonSelectorMode.DetailIfContains => line => line.IndexOf(selector.AsSpan(), StringComparison.Ordinal) >= 0 ? RecordAction.Detail : RecordAction.Master,
+            CommonSelectorMode.DetailIfBegins => line => line.StartsWith(selector.AsSpan()) ? RecordAction.Detail : RecordAction.Master,
+            CommonSelectorMode.DetailIfEnds => line => line.EndsWith(selector.AsSpan()) ? RecordAction.Detail : RecordAction.Master,
+            CommonSelectorMode.DetailIfEnclosed => line => line.StartsWith(selector.AsSpan()) && line.EndsWith(selector.AsSpan()) ? RecordAction.Detail : RecordAction.Master,
+            _ => throw new ArgumentOutOfRangeException(nameof(mode)),
+        };
+    }
+
     /// <summary>Reads grouped master/detail records from a string.</summary>
     public MasterDetails<TMaster, TDetail>[] ReadString(string content)
     {

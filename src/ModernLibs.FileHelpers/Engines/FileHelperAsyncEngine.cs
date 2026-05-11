@@ -41,7 +41,7 @@ namespace ModernLibs.FileHelpers;
 /// <see cref="IRecordDescriptor{T}"/> registered in <see cref="FileHelperRegistry{T}"/>
 /// via a <c>[ModuleInitializer]</c> before the engine is constructed.
 /// </typeparam>
-public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
+public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
 {
     private readonly IRecordDescriptor<T> _descriptor;
     private readonly RecordConditionMatcher? _conditionMatcher;
@@ -398,6 +398,26 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
         return results.ToArray();
     }
 
+    /// <summary>
+    /// Reads all remaining records from the current position until EOF.
+    /// Useful after calling <see cref="ReadNext()"/> a few times and then
+    /// wanting to consume the rest in one call.
+    /// </summary>
+    /// <returns>Array of all remaining parsed records.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when no read session is open.</exception>
+    public T[] ReadRemaining()
+    {
+        ThrowIfNoReader();
+
+        var results = new List<T>();
+        T? record;
+        while ((record = ReadNext()) is not null)
+        {
+            results.Add(record);
+        }
+        return results.ToArray();
+    }
+
     // =========================================================================
     // IAsyncEnumerable stub — ENGI-11 (Plan 04)
     // =========================================================================
@@ -567,6 +587,7 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
     /// <summary>
     /// Phase 18: Helper method to parse a record with error handling outside try-catch
     /// to allow yield return in calling async iterator.
+    /// Phase 41: Supports recycling via _recyclable.ParseInto when RecycleRecords is enabled.
     /// </summary>
     private (bool Success, bool ShouldContinue) TryParseRecord(
         string line,
@@ -580,7 +601,22 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
         try
         {
             EnsureDelimitedFieldCount(line, delimiter, fieldCount, _descriptor.Fields);
-            record = _descriptor.Parse(line.AsSpan(), lineCount: 1);
+            if (RecycleRecords && _recyclable is not null)
+            {
+                if (_recycled is null)
+                {
+                    _recycled = _descriptor.Parse(line.AsSpan(), lineCount: 1);
+                }
+                else
+                {
+                    _recyclable.ParseInto(line.AsSpan(), lineCount: 1, _recycled);
+                }
+                record = _recycled;
+            }
+            else
+            {
+                record = _descriptor.Parse(line.AsSpan(), lineCount: 1);
+            }
             return (true, true);
         }
         catch (Exception ex)
@@ -615,6 +651,22 @@ public sealed class FileHelperAsyncEngine<T> : IEnumerable<T>, IDisposable
         ArgumentNullException.ThrowIfNull(filePath);
         ThrowIfWriterOpen();
         _writer = new StreamWriter(filePath, append: false, Encoding);
+        _ownsWriter = true;
+        InitWriteSession();
+    }
+
+    /// <summary>
+    /// Opens <paramref name="filePath"/> in append mode for streaming writes.
+    /// Records written via <see cref="WriteNext(T)"/> are appended to the end of the file.
+    /// The engine owns the <see cref="StreamWriter"/> and disposes it on <see cref="Close"/>/<see cref="Dispose"/>.
+    /// </summary>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="filePath"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when a write session is already open.</exception>
+    public void BeginAppendFile(string filePath)
+    {
+        ArgumentNullException.ThrowIfNull(filePath);
+        ThrowIfWriterOpen();
+        _writer = new StreamWriter(filePath, append: true, Encoding);
         _ownsWriter = true;
         InitWriteSession();
     }

@@ -40,5 +40,7 @@ internal sealed record FieldModel(
     int OverflowMode = 0,                                                // Phase 20: 0=DiscardEnd, 1=Error from [FieldFixedLength]
     bool IsNotEmpty = false,                                            // Phase 13 FAVL-06: from [FieldNotEmpty]
     bool IsInNewLine = false,                                           // Phase 14 MLIN-01: from [FieldInNewLine]
-    string? FieldName = null)                                           // Phase 38 HDR-03: from [FieldName("ColumnName")]
+    string? FieldName = null,                                           // Phase 38 HDR-03: from [FieldName("ColumnName")]
+    string? Caption = null,                                             // Phase 50 GAP-02: from [FieldCaption("Display Name")]
+    string? CultureName = null)                                         // Phase 51 GAP-04: from [FieldConverter(CultureName = "fr-FR")]
     : IEquatable<FieldModel>;

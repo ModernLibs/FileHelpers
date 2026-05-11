@@ -44,6 +44,8 @@ internal static class DescriptorEmitter
             : $"global::{model.Namespace}.{model.TypeName}";
 
         // ---- file-scoped descriptor class ----
+        // For ref struct types, emit a special descriptor that uses Parse(ref T, ...) instead of Parse(...)
+        // since ref struct types cannot be return values or generic type arguments.
         // For class record types with mutable (non-init-only) fields, also implement
         // IRecyclableDescriptor<T> (ENGI-15 / Plan 04).
         //
@@ -57,10 +59,24 @@ internal static class DescriptorEmitter
         bool isReferenceType = model.TypeKind.IndexOf("struct", System.StringComparison.OrdinalIgnoreCase) < 0;
         bool hasAnyInitOnly = HasAnyInitOnlyField(model.Fields, model.Fields.Length);
         bool isClassType = isReferenceType && !hasAnyInitOnly;
-        string implements = isClassType
-            ? $"global::ModernLibs.FileHelpers.IRecyclableDescriptor<{fqType}>"
-            : $"global::ModernLibs.FileHelpers.IRecordDescriptor<{fqType}>";
-        sb.AppendLine($"file sealed class __{model.TypeName}Descriptor : {implements}");
+        bool isRefStruct = model.IsRefStruct;
+
+        string implements;
+        if (isRefStruct)
+        {
+            // Ref struct types: emit a simple descriptor with Parse(ref T, ...) method
+            // No interface implementation since ref struct can't be used as generic type arguments
+            implements = "";
+        }
+        else if (isClassType)
+        {
+            implements = $" : global::ModernLibs.FileHelpers.IRecyclableDescriptor<{fqType}>";
+        }
+        else
+        {
+            implements = $" : global::ModernLibs.FileHelpers.IRecordDescriptor<{fqType}>";
+        }
+        sb.AppendLine($"file sealed class __{model.TypeName}Descriptor{implements}");
         sb.AppendLine("{");
         sb.AppendLine($"    public static readonly __{model.TypeName}Descriptor Instance = new();");
         sb.AppendLine();
@@ -68,8 +84,19 @@ internal static class DescriptorEmitter
         // Static cached converter fields for custom and DateMultiFormat converters (D-15).
         EmitConverterFields(sb, model.Fields);
 
+        // Phase 51 GAP-04: Static cached CultureInfo fields for culture-aware parsing
+        EmitCultureFields(sb, model.Fields);
+
         // Real inlined Parse body — Phase 5 implementation.
-        EmitParseBody(sb, model, fqType);
+        // For ref struct types, emit Parse(ref T, ...) instead of Parse(...)
+        if (isRefStruct)
+        {
+            EmitParseBodyRefStruct(sb, model, fqType);
+        }
+        else
+        {
+            EmitParseBody(sb, model, fqType);
+        }
         sb.AppendLine();
 
         // ParseInto body — Phase 8 ENGI-15: emitted only for class record types.
@@ -80,9 +107,12 @@ internal static class DescriptorEmitter
             sb.AppendLine();
         }
 
-        // Real Format body — Phase 6 implementation via EmitFormatBody.
-        EmitFormatBody(sb, model, fqType);
-        sb.AppendLine();
+        // Format body — only emit for non-ref-struct types (ref struct can't be used with IBufferWriter)
+        if (!isRefStruct)
+        {
+            EmitFormatBody(sb, model, fqType);
+            sb.AppendLine();
+        }
 
         // Fields property backed by a static array — avoids per-call allocation.
         sb.AppendLine("    public global::System.ReadOnlySpan<global::ModernLibs.FileHelpers.FieldDescriptor> Fields =>");
@@ -113,8 +143,16 @@ internal static class DescriptorEmitter
                 : "null";
             // Phase 14 MLIN-01: Emit IsInNewLine for multi-line record support
             string isInNewLineArg = field.IsInNewLine ? "true" : "false";
+            // Phase 50 GAP-02: Emit FieldCaption (null if not specified)
+            string captionArg = field.Caption is not null
+                ? $"\"{EscapeString(field.Caption)}\""
+                : "null";
+            // Phase 51 GAP-04: Emit CultureName (null if not specified)
+            string cultureNameArg = field.CultureName is not null
+                ? $"\"{EscapeString(field.CultureName)}\""
+                : "null";
             // nameof() and typeof() are AOT-safe compile-time literals (T-03-10: accept).
-            sb.AppendLine($"        new(nameof({fqType}.{field.Name}), typeof({field.FullTypeName}), {field.Order}, {offset}, {width}, {delimiterArg}, {isInNewLineArg}){comma}");
+            sb.AppendLine($"        new(nameof({fqType}.{field.Name}), typeof({field.FullTypeName}), {field.Order}, {offset}, {width}, {delimiterArg}, {isInNewLineArg}, {captionArg}, {cultureNameArg}){comma}");
             if (isFixed && field.FixedLength > 0) runningOffset += field.FixedLength;
         }
         sb.AppendLine("    ];");
@@ -125,15 +163,20 @@ internal static class DescriptorEmitter
         // [ModuleInitializer] requires at least internal accessibility (C# spec 9.2.4).
         // file-scoped class with internal static method satisfies both the file-scope isolation
         // and the accessibility constraint.
-        sb.AppendLine($"file static class __{model.TypeName}Registration");
-        sb.AppendLine("{");
-        sb.AppendLine("    [global::System.Runtime.CompilerServices.ModuleInitializer]");
-        sb.AppendLine("    internal static void Register()");
-        sb.AppendLine("    {");
-        sb.AppendLine($"        global::ModernLibs.FileHelpers.FileHelperRegistry<{fqType}>");
-        sb.AppendLine($"            .SetDescriptor(__{model.TypeName}Descriptor.Instance);");
-        sb.AppendLine("    }");
-        sb.AppendLine("}");
+        // Ref struct types are NOT registered in FileHelperRegistry<T> because ref struct
+        // cannot be used as generic type arguments. They are parsed directly via the descriptor.
+        if (!isRefStruct)
+        {
+            sb.AppendLine($"file static class __{model.TypeName}Registration");
+            sb.AppendLine("{");
+            sb.AppendLine("    [global::System.Runtime.CompilerServices.ModuleInitializer]");
+            sb.AppendLine("    internal static void Register()");
+            sb.AppendLine("    {");
+            sb.AppendLine($"        global::ModernLibs.FileHelpers.FileHelperRegistry<{fqType}>");
+            sb.AppendLine($"            .SetDescriptor(__{model.TypeName}Descriptor.Instance);");
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
+        }
 
         string sourceText = sb.ToString();
 
@@ -271,6 +314,83 @@ internal static class DescriptorEmitter
         else
         {
             EmitConstructorCall(sb, fqType, fields, fieldCount, usePositionalCtor);
+        }
+
+        sb.AppendLine("    }");
+    }
+
+    /// <summary>
+    /// Phase 44: Emits a Parse method for ref struct types that takes ref T record
+    /// instead of returning T, since ref struct types cannot be return values.
+    /// </summary>
+    private static void EmitParseBodyRefStruct(StringBuilder sb, RecordModel model, string fqType)
+    {
+        sb.AppendLine($"    public void Parse(global::System.ReadOnlySpan<char> lines, int lineCount, ref {fqType} record)");
+        sb.AppendLine("    {");
+
+        var fields = model.Fields;
+        int fieldCount = fields.Length;
+
+        if (fieldCount == 0)
+        {
+            sb.AppendLine("    }");
+            return;
+        }
+
+        sb.AppendLine("        // Phase 44: Ref struct parsing — assigns directly to record fields");
+        sb.AppendLine("        const int __expectedLines = 1;");
+        sb.AppendLine("        var line = lines;");
+        sb.AppendLine();
+
+        bool isDelimited = string.Equals(model.RecordKind, "Delimited", System.StringComparison.Ordinal);
+        bool hasQuotedField = HasAnyQuotedField(fields, fieldCount);
+
+        if (hasQuotedField)
+        {
+            for (int i = 0; i < fieldCount; i++)
+            {
+                if (fields[i].IsQuoted)
+                    sb.AppendLine($"        char[]? __qRent{i} = null;");
+            }
+            sb.AppendLine("        try");
+            sb.AppendLine("        {");
+        }
+
+        if (isDelimited)
+        {
+            EmitDelimitedFieldSplitting(sb, model, fields, fieldCount, hasMultiLine: false);
+        }
+        else
+        {
+            EmitFixedLengthFieldSplitting(sb, fields, fieldCount, hasMultiLine: false);
+        }
+
+        EmitFieldQuotedStripPass(sb, fields, fieldCount);
+        EmitFieldTrimPass(sb, fields, fieldCount);
+        EmitFieldNotEmptyValidation(sb, fields, fieldCount);
+
+        sb.AppendLine();
+        for (int i = 0; i < fieldCount; i++)
+        {
+            var field = fields[i];
+            string tryParseCode = GetInlineTryParseRefStruct($"__f{i}", field, i);
+            sb.AppendLine($"        {tryParseCode}");
+        }
+
+        if (hasQuotedField)
+        {
+            sb.AppendLine("        }");
+            sb.AppendLine("        finally");
+            sb.AppendLine("        {");
+            for (int i = 0; i < fieldCount; i++)
+            {
+                if (fields[i].IsQuoted)
+                {
+                    sb.AppendLine($"            if (__qRent{i} is not null)");
+                    sb.AppendLine($"                global::System.Buffers.ArrayPool<char>.Shared.Return(__qRent{i});");
+                }
+            }
+            sb.AppendLine("        }");
         }
 
         sb.AppendLine("    }");
@@ -883,9 +1003,26 @@ internal static class DescriptorEmitter
         if (field.ConverterKind == GeneratorConverterKind.DateMultiFormat)
             return EmitDateMultiFormatTryParse(fieldVar, field, fieldIdx);
 
+        // Phase 51 GAP-04: Date converters with format string and/or culture need static cached field
+        bool isDateConverter = field.ConverterKind == GeneratorConverterKind.Date;
+
+        if (isDateConverter && (field.ConverterArgs.Length > 0 || !string.IsNullOrEmpty(field.CultureName)))
+            return EmitDateWithFormatTryParse(fieldVar, field, fieldIdx);
+
         string converterClass = GetBuiltInConverterClass(field.ConverterKind, field.FullTypeName);
 
-        return $"if (!{converterClass}.Instance.TryParse({fieldVar}, out var __v{fieldIdx})) __v{fieldIdx} = default;";
+        // Phase 51 GAP-04: use culture-aware converter instance when CultureName is specified
+        string converterInstance = GetConverterInstanceExpression(field, converterClass);
+
+        return $"if (!{converterInstance}.TryParse({fieldVar}, out var __v{fieldIdx})) __v{fieldIdx} = default;";
+    }
+
+    /// <summary>
+    /// Phase 51 GAP-04: Emits a date converter with format string and/or culture using a static cached field.
+    /// </summary>
+    private static string EmitDateWithFormatTryParse(string fieldVar, FieldModel field, int fieldIdx)
+    {
+        return $"if (!__conv_field{fieldIdx}.TryParse({fieldVar}, out var __v{fieldIdx})) __v{fieldIdx} = default;";
     }
 
     /// <summary>
@@ -896,6 +1033,7 @@ internal static class DescriptorEmitter
     {
         // __conv_field{fieldIdx} is a static cached DateMultiFormatConverter instance
         // declared by EmitConverterFields in the generated descriptor class body.
+        // Phase 51 GAP-04: pass culture if specified
         return $"if (!__conv_field{fieldIdx}.TryParse({fieldVar}, out var __v{fieldIdx})) __v{fieldIdx} = default;";
     }
 
@@ -916,6 +1054,99 @@ internal static class DescriptorEmitter
         // __conv_field{fieldIdx} is a static cached ConverterBaseAdapter<T> instance
         // declared by EmitConverterFields in the generated descriptor class body.
         return $"if (!__conv_field{fieldIdx}.TryParse({fieldVar}, out var __v{fieldIdx})) __v{fieldIdx} = default; // Legacy ConverterBase adapter — allocates strings per field. Implement ISpanConverter<T> for zero-alloc.";
+    }
+
+    /// <summary>
+    /// Phase 44: Generates inline TryParse code for ref struct types that assigns
+    /// directly to record fields instead of creating local variables.
+    /// </summary>
+    private static string GetInlineTryParseRefStruct(string fieldVar, FieldModel field, int fieldIdx)
+    {
+        string typeName = field.TypeName;
+        string fullTypeName = field.FullTypeName;
+
+        if (field.ConverterKind != GeneratorConverterKind.None)
+        {
+            return EmitBuiltInConverterTryParseRefStruct(fieldVar, field, fieldIdx);
+        }
+
+        if (field.ConverterTypeName is not null)
+        {
+            return EmitCustomConverterTryParseRefStruct(fieldVar, field, fieldIdx);
+        }
+
+        const string globalPrefix = "global::";
+        string normalized = typeName.TrimEnd('?');
+        if (normalized.StartsWith(globalPrefix, System.StringComparison.Ordinal))
+            normalized = normalized.Substring(globalPrefix.Length);
+
+        string normalizedFull = fullTypeName.TrimEnd('?');
+        if (normalizedFull.StartsWith(globalPrefix, System.StringComparison.Ordinal))
+            normalizedFull = normalizedFull.Substring(globalPrefix.Length);
+
+        string? result = GetTryParseForNormalizedTypeRefStruct(fieldVar, field.Name, normalized);
+        if (result != null)
+            return result;
+
+        result = GetTryParseForNormalizedTypeRefStruct(fieldVar, field.Name, normalizedFull);
+        if (result != null)
+            return result;
+
+        if (string.Equals(normalized, "DateTime", System.StringComparison.Ordinal) ||
+            string.Equals(normalizedFull, "System.DateTime", System.StringComparison.Ordinal))
+            return $"if (!global::ModernLibs.FileHelpers.Converters.DateTimeConverter.Instance.TryParse({fieldVar}, out record.{field.Name})) record.{field.Name} = default;";
+
+        if (string.Equals(normalized, "DateOnly", System.StringComparison.Ordinal) ||
+            string.Equals(normalizedFull, "System.DateOnly", System.StringComparison.Ordinal))
+            return $"if (!global::ModernLibs.FileHelpers.Converters.DateOnlyConverter.Instance.TryParse({fieldVar}, out record.{field.Name})) record.{field.Name} = default;";
+
+        if (string.Equals(normalized, "TimeOnly", System.StringComparison.Ordinal) ||
+            string.Equals(normalizedFull, "System.TimeOnly", System.StringComparison.Ordinal))
+            return $"if (!global::ModernLibs.FileHelpers.Converters.TimeOnlyConverter.Instance.TryParse({fieldVar}, out record.{field.Name})) record.{field.Name} = default;";
+
+        return $"record.{field.Name} = default; // TODO Phase 44: implicit enum dispatch";
+    }
+
+    private static string EmitBuiltInConverterTryParseRefStruct(string fieldVar, FieldModel field, int fieldIdx)
+    {
+        if (field.ConverterKind == GeneratorConverterKind.DateMultiFormat)
+            return $"if (!__conv_field{fieldIdx}.TryParse({fieldVar}, out record.{field.Name})) record.{field.Name} = default;";
+
+        string converterClass = GetBuiltInConverterClass(field.ConverterKind, field.FullTypeName);
+        return $"if (!{converterClass}.Instance.TryParse({fieldVar}, out record.{field.Name})) record.{field.Name} = default;";
+    }
+
+    private static string EmitCustomConverterTryParseRefStruct(string fieldVar, FieldModel field, int fieldIdx)
+    {
+        if (field.DirectSpanConverter)
+        {
+            return $"if (!__conv_field{fieldIdx}.TryParse({fieldVar}, out record.{field.Name})) record.{field.Name} = default;";
+        }
+        return $"if (!__conv_field{fieldIdx}.TryParse({fieldVar}, out record.{field.Name})) record.{field.Name} = default;";
+    }
+
+    private static string? GetTryParseForNormalizedTypeRefStruct(string fieldVar, string fieldName, string normalized)
+    {
+        return normalized switch
+        {
+            "String" or "string" => $"record.{fieldName} = {fieldVar}.ToString();",
+            "ReadOnlySpan<Char>" or "System.ReadOnlySpan<char>" => $"record.{fieldName} = {fieldVar};",
+            "Char" or "char" => $"record.{fieldName} = {fieldVar}.Length > 0 ? {fieldVar}[0] : default;",
+            "Boolean" or "bool" => $"if (!global::System.Boolean.TryParse({fieldVar}, out record.{fieldName})) record.{fieldName} = default;",
+            "Byte" or "byte" => $"if (!global::System.Byte.TryParse({fieldVar}, out record.{fieldName})) record.{fieldName} = default;",
+            "SByte" or "sbyte" => $"if (!global::System.SByte.TryParse({fieldVar}, out record.{fieldName})) record.{fieldName} = default;",
+            "Int16" or "short" => $"if (!global::System.Int16.TryParse({fieldVar}, out record.{fieldName})) record.{fieldName} = default;",
+            "UInt16" or "ushort" => $"if (!global::System.UInt16.TryParse({fieldVar}, out record.{fieldName})) record.{fieldName} = default;",
+            "Int32" or "int" => $"if (!global::System.Int32.TryParse({fieldVar}, out record.{fieldName})) record.{fieldName} = default;",
+            "UInt32" or "uint" => $"if (!global::System.UInt32.TryParse({fieldVar}, out record.{fieldName})) record.{fieldName} = default;",
+            "Int64" or "long" => $"if (!global::System.Int64.TryParse({fieldVar}, out record.{fieldName})) record.{fieldName} = default;",
+            "UInt64" or "ulong" => $"if (!global::System.UInt64.TryParse({fieldVar}, out record.{fieldName})) record.{fieldName} = default;",
+            "Single" or "float" => $"if (!global::System.Single.TryParse({fieldVar}, out record.{fieldName})) record.{fieldName} = default;",
+            "Double" or "double" => $"if (!global::System.Double.TryParse({fieldVar}, out record.{fieldName})) record.{fieldName} = default;",
+            "Decimal" or "decimal" => $"if (!global::System.Decimal.TryParse({fieldVar}, out record.{fieldName})) record.{fieldName} = default;",
+            "Guid" or "System.Guid" => $"if (!global::System.Guid.TryParse({fieldVar}, out record.{fieldName})) record.{fieldName} = default;",
+            _ => null,
+        };
     }
 
     /// <summary>
@@ -945,8 +1176,36 @@ internal static class DescriptorEmitter
                 }
                 fmtLiteral.Append(" }");
 
+                // Phase 51 GAP-04: pass culture if specified
+                string? cultureName = field.CultureName;
+                string cultureArg = !string.IsNullOrEmpty(cultureName)
+                    ? $", __culture_{cultureName!.Replace('-', '_')}"
+                    : string.Empty;
+
                 sb.AppendLine($"    private static readonly global::ModernLibs.FileHelpers.Converters.DateMultiFormatConverter __conv_field{i}");
-                sb.AppendLine($"        = new({fmtLiteral});");
+                sb.AppendLine($"        = new({fmtLiteral}{cultureArg});");
+                anyEmitted = true;
+            }
+            // Phase 51 GAP-04: Date converter with format and/or culture
+            else if (field.ConverterKind == GeneratorConverterKind.Date
+                     && (field.ConverterArgs.Length > 0 || !string.IsNullOrEmpty(field.CultureName)))
+            {
+                string? cultureName = field.CultureName;
+                string cultureArg = !string.IsNullOrEmpty(cultureName)
+                    ? $"__culture_{cultureName!.Replace('-', '_')}"
+                    : "null";
+
+                if (field.ConverterArgs.Length > 0)
+                {
+                    string formatArg = $"\"{EscapeString(field.ConverterArgs[0])}\"";
+                    sb.AppendLine($"    private static readonly global::ModernLibs.FileHelpers.Converters.DateTimeConverter __conv_field{i}");
+                    sb.AppendLine($"        = new({formatArg}, {cultureArg});");
+                }
+                else
+                {
+                    sb.AppendLine($"    private static readonly global::ModernLibs.FileHelpers.Converters.DateTimeConverter __conv_field{i}");
+                    sb.AppendLine($"        = new(null, {cultureArg});");
+                }
                 anyEmitted = true;
             }
             else if (field.ConverterTypeName is not null)
@@ -968,6 +1227,56 @@ internal static class DescriptorEmitter
         }
 
         if (anyEmitted) sb.AppendLine();
+    }
+
+    /// <summary>
+    /// Phase 51 GAP-04: Emit static cached CultureInfo fields for each unique culture name.
+    /// Uses GetCultureInfo() which is AOT-safe and caches instances internally.
+    /// </summary>
+    private static void EmitCultureFields(StringBuilder sb, EquatableArray<FieldModel> fields)
+    {
+        var cultureNames = new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal);
+        foreach (var field in fields)
+        {
+            string? cn = field.CultureName;
+            if (!string.IsNullOrEmpty(cn))
+                cultureNames.Add(cn!);
+        }
+
+        foreach (var cultureName in cultureNames)
+        {
+            string safeName = cultureName.Replace('-', '_');
+            sb.AppendLine($"    private static readonly global::System.Globalization.CultureInfo __culture_{safeName}");
+            sb.AppendLine($"        = global::System.Globalization.CultureInfo.GetCultureInfo(\"{cultureName}\");");
+        }
+
+        if (cultureNames.Count > 0) sb.AppendLine();
+    }
+
+    /// <summary>
+    /// Phase 51 GAP-04: Returns the converter instance expression for a built-in converter.
+    /// When CultureName is specified, emits `new ConverterClass(__culture_X)` for numeric converters
+    /// or `new ConverterClass(null, __culture_X)` for date converters (format, culture signature).
+    /// </summary>
+    private static string GetConverterInstanceExpression(FieldModel field, string converterClass)
+    {
+        string? cultureName = field.CultureName;
+        if (!string.IsNullOrEmpty(cultureName))
+        {
+            string safeName = cultureName!.Replace('-', '_');
+            // Date converters have (string? format, CultureInfo? culture) signature
+            // Numeric converters have (IFormatProvider? culture) signature
+            bool isDateConverter = converterClass.Contains("DateTimeConverter", StringComparison.Ordinal)
+                || converterClass.Contains("DateOnlyConverter", StringComparison.Ordinal)
+                || converterClass.Contains("TimeOnlyConverter", StringComparison.Ordinal);
+
+            if (isDateConverter)
+            {
+                return $"new {converterClass}(null, __culture_{safeName})";
+            }
+            return $"new {converterClass}(__culture_{safeName})";
+        }
+        return $"{converterClass}.Instance";
     }
 
     private static string? GetTryParseForNormalizedType(string fieldVar, string typeName, int fieldIdx)
@@ -1192,7 +1501,9 @@ internal static class DescriptorEmitter
         {
             string converterClass = GetBuiltInConverterClass(field.ConverterKind, field.FullTypeName);
             int bufSize = GetConverterBufferSize(field.ConverterKind);
-            return $"{{ global::System.Span<char> __buf{n} = stackalloc char[{bufSize}]; {converterClass}.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
+            // Phase 51 GAP-04: use culture-aware converter instance when CultureName is specified
+            string converterInstance = GetConverterInstanceExpression(field, converterClass);
+            return $"{{ global::System.Span<char> __buf{n} = stackalloc char[{bufSize}]; {converterInstance}.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
         }
 
         if (field.ConverterKind == GeneratorConverterKind.DateMultiFormat)
@@ -1230,13 +1541,22 @@ internal static class DescriptorEmitter
 
         // Pattern D — floating-point (via built-in converters for InvariantCulture)
         if (IsDecimalType(typeName, fullTypeName))
-            return $"{{ global::System.Span<char> __buf{n} = stackalloc char[32]; global::ModernLibs.FileHelpers.Converters.DecimalConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
+        {
+            string converterInstance = GetConverterInstanceExpression(field, "global::ModernLibs.FileHelpers.Converters.DecimalConverter");
+            return $"{{ global::System.Span<char> __buf{n} = stackalloc char[32]; {converterInstance}.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
+        }
 
         if (IsDoubleType(typeName, fullTypeName))
-            return $"{{ global::System.Span<char> __buf{n} = stackalloc char[24]; global::ModernLibs.FileHelpers.Converters.DoubleConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
+        {
+            string converterInstance = GetConverterInstanceExpression(field, "global::ModernLibs.FileHelpers.Converters.DoubleConverter");
+            return $"{{ global::System.Span<char> __buf{n} = stackalloc char[24]; {converterInstance}.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
+        }
 
         if (IsSingleType(typeName, fullTypeName))
-            return $"{{ global::System.Span<char> __buf{n} = stackalloc char[16]; global::ModernLibs.FileHelpers.Converters.SingleConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
+        {
+            string converterInstance = GetConverterInstanceExpression(field, "global::ModernLibs.FileHelpers.Converters.SingleConverter");
+            return $"{{ global::System.Span<char> __buf{n} = stackalloc char[16]; {converterInstance}.TryFormat({fieldRef}, __buf{n}, out int __cw{n}); var __d{n} = writer.GetSpan(__cw{n}); __buf{n}[..__cw{n}].CopyTo(__d{n}); writer.Advance(__cw{n}); }}";
+        }
 
         // Pattern D — bool
         if (IsBoolType(typeName, fullTypeName))
@@ -1302,7 +1622,9 @@ internal static class DescriptorEmitter
             field.ConverterKind != GeneratorConverterKind.DateMultiFormat)
         {
             string converterClass = GetBuiltInConverterClass(field.ConverterKind, field.FullTypeName);
-            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = {converterClass}.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});{GetFormattedOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+            // Phase 51 GAP-04: use culture-aware converter instance when CultureName is specified
+            string converterInstance = GetConverterInstanceExpression(field, converterClass);
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = {converterInstance}.TryFormat({fieldRef}, __buf{n}, out int __cw{n});{GetFormattedOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
         }
 
         if (field.ConverterKind == GeneratorConverterKind.DateMultiFormat || field.ConverterTypeName is not null)
@@ -1314,13 +1636,22 @@ internal static class DescriptorEmitter
         // Pattern E for all other value types: stackalloc W, TryFormat, truncate
         // Floating-point: use built-in converters for InvariantCulture
         if (IsDecimalType(typeName, fullTypeName))
-            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = global::ModernLibs.FileHelpers.Converters.DecimalConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});{GetFormattedOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+        {
+            string converterInstance = GetConverterInstanceExpression(field, "global::ModernLibs.FileHelpers.Converters.DecimalConverter");
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = {converterInstance}.TryFormat({fieldRef}, __buf{n}, out int __cw{n});{GetFormattedOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+        }
 
         if (IsDoubleType(typeName, fullTypeName))
-            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = global::ModernLibs.FileHelpers.Converters.DoubleConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});{GetFormattedOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+        {
+            string converterInstance = GetConverterInstanceExpression(field, "global::ModernLibs.FileHelpers.Converters.DoubleConverter");
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = {converterInstance}.TryFormat({fieldRef}, __buf{n}, out int __cw{n});{GetFormattedOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+        }
 
         if (IsSingleType(typeName, fullTypeName))
-            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = global::ModernLibs.FileHelpers.Converters.SingleConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});{GetFormattedOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+        {
+            string converterInstance = GetConverterInstanceExpression(field, "global::ModernLibs.FileHelpers.Converters.SingleConverter");
+            return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = {converterInstance}.TryFormat({fieldRef}, __buf{n}, out int __cw{n});{GetFormattedOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
+        }
 
         if (IsBoolType(typeName, fullTypeName))
             return $"{{ var __d{n} = writer.GetSpan({w}); __d{n}.Fill(' '); global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = global::ModernLibs.FileHelpers.Converters.BoolConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});{GetFormattedOverflowGuard(field, n, w)} int __cp{n} = global::System.Math.Min(__cw{n}, {w}); __buf{n}[..__cp{n}].CopyTo(__d{n}); writer.Advance({w}); }}";
@@ -1443,7 +1774,9 @@ internal static class DescriptorEmitter
             field.ConverterKind != GeneratorConverterKind.DateMultiFormat)
         {
             string converterClass = GetBuiltInConverterClass(field.ConverterKind, field.FullTypeName);
-            return $"global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = {converterClass}.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+            // Phase 51 GAP-04: use culture-aware converter instance when CultureName is specified
+            string converterInstance = GetConverterInstanceExpression(field, converterClass);
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = {converterInstance}.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
         }
 
         if (field.ConverterKind == GeneratorConverterKind.DateMultiFormat || field.ConverterTypeName is not null)
@@ -1453,13 +1786,22 @@ internal static class DescriptorEmitter
 
         // Built-in type converters
         if (IsDecimalType(typeName, fullTypeName))
-            return $"global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = global::ModernLibs.FileHelpers.Converters.DecimalConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+        {
+            string converterInstance = GetConverterInstanceExpression(field, "global::ModernLibs.FileHelpers.Converters.DecimalConverter");
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = {converterInstance}.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+        }
 
         if (IsDoubleType(typeName, fullTypeName))
-            return $"global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = global::ModernLibs.FileHelpers.Converters.DoubleConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+        {
+            string converterInstance = GetConverterInstanceExpression(field, "global::ModernLibs.FileHelpers.Converters.DoubleConverter");
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = {converterInstance}.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+        }
 
         if (IsSingleType(typeName, fullTypeName))
-            return $"global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = global::ModernLibs.FileHelpers.Converters.SingleConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+        {
+            string converterInstance = GetConverterInstanceExpression(field, "global::ModernLibs.FileHelpers.Converters.SingleConverter");
+            return $"global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = {converterInstance}.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";
+        }
 
         if (IsBoolType(typeName, fullTypeName))
             return $"global::System.Span<char> __buf{n} = stackalloc char[{formatBufferWidth}]; bool __ok{n} = global::ModernLibs.FileHelpers.Converters.BoolConverter.Instance.TryFormat({fieldRef}, __buf{n}, out int __cw{n});";

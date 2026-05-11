@@ -23,5 +23,6 @@ internal sealed record RecordModel(
     int MultilineMode = 3,                  // Phase 18: from [DelimitedRecord(MultilineMode)]; 3 = MultilineMode.NotAllow
     int QuoteUnescapeMode = 0,              // Phase 36: from [DelimitedRecord(QuoteUnescapeMode)]; 0 = None
     int TrimMode = 0,                       // Phase 36: from [DelimitedRecord(TrimMode)]; 0 = None
-    bool HasHeader = false)                 // Phase 38: from [DelimitedRecord(HasHeader)]
+    bool HasHeader = false,                 // Phase 38: from [DelimitedRecord(HasHeader)]
+    bool IsRefStruct = false)               // Phase 44: true if type is a ref struct
     ;

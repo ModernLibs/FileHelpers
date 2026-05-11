@@ -22,6 +22,14 @@ namespace ModernLibs.FileHelpers;
 /// When <see langword="true"/>, this field begins on a new input line (from [FieldInNewLine]).
 /// Default: <see langword="false"/>. Phase 14 MLIN-01.
 /// </param>
+/// <param name="Caption">
+/// Optional display caption from [FieldCaption]. Used in header generation instead of <see cref="Name"/>.
+/// <c>null</c> means "use field name". Default: <c>null</c>. Phase 50 GAP-02.
+/// </param>
+/// <param name="CultureName">
+/// Optional culture name (e.g., "fr-FR") from [FieldConverter] for locale-specific parsing/formatting.
+/// <c>null</c> means "use InvariantCulture". Default: <c>null</c>. Phase 51 GAP-04.
+/// </param>
 public readonly record struct FieldDescriptor(
     string Name,
     Type FieldType,
@@ -29,4 +37,6 @@ public readonly record struct FieldDescriptor(
     int Offset = -1,
     int Width = -1,
     string? Delimiter = null,
-    bool IsInNewLine = false);
+    bool IsInNewLine = false,
+    string? Caption = null,
+    string? CultureName = null);

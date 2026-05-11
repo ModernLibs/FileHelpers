@@ -34,6 +34,7 @@ internal static class RecordModelExtractor
             ? typeSymbol.IsValueType ? "record struct" : "record class"
             : typeSymbol.IsValueType ? "struct" : "class";
         bool isReadOnly = typeSymbol.IsReadOnly;
+        bool isRefStruct = typeSymbol.IsRefLikeType;
 
         // Extract [DelimitedRecord] constructor arg (the delimiter string)
         var attr = ctx.Attributes[0];
@@ -87,17 +88,35 @@ internal static class RecordModelExtractor
             hasHeader = hdr;
         }
 
-        // Extract fields: public instance fields and properties only
+        // Phase 50 GAP-03: Check for [IgnoreInheritedClass] to exclude base class fields
+        bool ignoreInherited = false;
+        foreach (var ta in typeSymbol.GetAttributes())
+        {
+            string? attrName = ta.AttributeClass?.ToDisplayString();
+            if (string.Equals(attrName, "ModernLibs.FileHelpers.IgnoreInheritedClassAttribute", StringComparison.Ordinal))
+            {
+                ignoreInherited = true;
+                break;
+            }
+        }
+
+        // Extract fields: public instance fields and properties only.
+        // Phase 50 GAP-03: Walk inheritance chain to include base class members.
+        // GetMembers() returns inherited members from referenced assemblies but may not
+        // include members from base types in the same compilation, so we walk explicitly.
+        var allMembers = GetAllMembers(typeSymbol, ct);
         var fields = ImmutableArray.CreateBuilder<FieldModel>();
         int implicitOrder = 0;
 
-        foreach (var member in typeSymbol.GetMembers())
+        foreach (var member in allMembers)
         {
             ct.ThrowIfCancellationRequested();
 
             if (member.IsStatic) continue;
             if (member.DeclaredAccessibility != Accessibility.Public) continue;
             if (member.IsImplicitlyDeclared) continue;  // Skip compiler-generated members (e.g., EqualityContract on record class)
+            // Phase 50 GAP-03: Skip inherited members when [IgnoreInheritedClass] is present
+            if (ignoreInherited && !SymbolEqualityComparer.Default.Equals(member.ContainingType, typeSymbol)) continue;
 
             ITypeSymbol? memberType = null;
             bool isInitOnly = false;
@@ -140,6 +159,8 @@ internal static class RecordModelExtractor
             char? alignChar = null; // Phase 12: custom pad char, null = space
             int fixedLength = -1;   // Phase 12: FieldFixedLength for alignment width in delimited records
             string? fieldName = null; // Phase 38 HDR-03: explicit column name from [FieldName]
+            string? fieldCaption = null; // Phase 50 GAP-02: display caption from [FieldCaption]
+            string? cultureName = null; // Phase 51 GAP-04: culture name from [FieldConverter(CultureName = "...")]
 
             // Scan member attributes for field-level overrides
             foreach (var mAttr in member.GetAttributes())
@@ -217,6 +238,12 @@ internal static class RecordModelExtractor
                         // Phase 38 HDR-03: extract explicit column name mapping
                         fieldName = fn;
                         break;
+                    case "ModernLibs.FileHelpers.FieldCaptionAttribute"
+                             when mAttr.ConstructorArguments.Length > 0
+                             && mAttr.ConstructorArguments[0].Value is string fc:
+                        // Phase 50 GAP-02: extract display caption
+                        fieldCaption = fc;
+                        break;
                     case "ModernLibs.FileHelpers.FieldAlignAttribute":
                         // Phase 12: Extract alignment mode and optional pad character
                         // First constructor arg is AlignMode (int): 0=Left, 1=Center, 2=Right
@@ -275,6 +302,15 @@ internal static class RecordModelExtractor
                             var immutable = System.Collections.Immutable.ImmutableArray.Create(strArgs);
                             converterArgs = new EquatableArray<string>(immutable);
                         }
+                        // GAP-04: extract CultureName named argument
+                        foreach (var na in mAttr.NamedArguments)
+                        {
+                            if (string.Equals(na.Key, "CultureName", StringComparison.Ordinal) && na.Value.Value is string cn)
+                            {
+                                cultureName = cn;
+                                break;
+                            }
+                        }
                         break;
                     }
                 }
@@ -293,7 +329,9 @@ internal static class RecordModelExtractor
                 AlignChar: alignChar,
                 IsNotEmpty: isNotEmpty,  // Phase 13 FAVL-06
                 IsInNewLine: isInNewLine,  // Phase 14 MLIN-01
-                FieldName: fieldName));  // Phase 38 HDR-03
+                FieldName: fieldName,  // Phase 38 HDR-03
+                Caption: fieldCaption,  // Phase 50 GAP-02
+                CultureName: cultureName));  // Phase 51 GAP-04
         }
 
         // Sort by order for deterministic output (SGEN-11).
@@ -317,7 +355,8 @@ internal static class RecordModelExtractor
             MultilineMode: multilineMode,
             QuoteUnescapeMode: quoteUnescapeMode,
             TrimMode: recordTrimMode,
-            HasHeader: hasHeader);
+            HasHeader: hasHeader,
+            IsRefStruct: isRefStruct);
     }
 
     internal static RecordModel? ExtractFixedLength(
@@ -337,6 +376,7 @@ internal static class RecordModelExtractor
             ? typeSymbol.IsValueType ? "record struct" : "record class"
             : typeSymbol.IsValueType ? "struct" : "class";
         bool isReadOnly = typeSymbol.IsReadOnly;
+        bool isRefStruct = typeSymbol.IsRefLikeType;
 
         // Read [FixedLengthRecord] FixedMode argument (int enum value, 0-3)
         var attr = ctx.Attributes[0];
@@ -357,15 +397,32 @@ internal static class RecordModelExtractor
         // Phase 7 + Phase 15: extract record-level filtering attributes for fixed-length records too.
         var (igFirst, igLast, igEmpty, commentMarker, condition, conditionPattern) = ExtractRecordLevelFilters(typeSymbol, ct);
 
+        // Phase 50 GAP-03: Check for [IgnoreInheritedClass] to exclude base class fields
+        bool ignoreInheritedFixed = false;
+        foreach (var ta in typeSymbol.GetAttributes())
+        {
+            string? attrName = ta.AttributeClass?.ToDisplayString();
+            if (string.Equals(attrName, "ModernLibs.FileHelpers.IgnoreInheritedClassAttribute", StringComparison.Ordinal))
+            {
+                ignoreInheritedFixed = true;
+                break;
+            }
+        }
+
+        // Extract fields: public instance fields and properties only.
+        // Phase 50 GAP-03: Walk inheritance chain to include base class members.
+        var allMembersFixed = GetAllMembers(typeSymbol, ct);
         var fields = ImmutableArray.CreateBuilder<FieldModel>();
         int implicitOrder = 0;
 
-        foreach (var member in typeSymbol.GetMembers())
+        foreach (var member in allMembersFixed)
         {
             ct.ThrowIfCancellationRequested();
             if (member.IsStatic) continue;
             if (member.DeclaredAccessibility != Accessibility.Public) continue;
             if (member.IsImplicitlyDeclared) continue;  // Skip compiler-generated members (e.g., EqualityContract on record class)
+            // Phase 50 GAP-03: Skip inherited members when [IgnoreInheritedClass] is present
+            if (ignoreInheritedFixed && !SymbolEqualityComparer.Default.Equals(member.ContainingType, typeSymbol)) continue;
 
             ITypeSymbol? memberType = null;
             bool isInitOnly = false;
@@ -406,6 +463,8 @@ internal static class RecordModelExtractor
             int? alignMode = null;  // Phase 12: 0=Left, 1=Center, 2=Right
             char? alignChar = null; // Phase 12: custom pad char, null = space
             int overflowMode = 0;   // Phase 20: OverflowMode.DiscardEnd by default
+            string? fieldCaption = null; // Phase 50 GAP-02: display caption from [FieldCaption]
+            string? cultureName = null; // Phase 51 GAP-04: culture name from [FieldConverter(CultureName = "...")]
 
             foreach (var mAttr in member.GetAttributes())
             {
@@ -529,8 +588,23 @@ internal static class RecordModelExtractor
                             var immutable = System.Collections.Immutable.ImmutableArray.Create(strArgs);
                             converterArgs = new EquatableArray<string>(immutable);
                         }
+                        // GAP-04: extract CultureName named argument
+                        foreach (var na in mAttr.NamedArguments)
+                        {
+                            if (string.Equals(na.Key, "CultureName", StringComparison.Ordinal) && na.Value.Value is string cn)
+                            {
+                                cultureName = cn;
+                                break;
+                            }
+                        }
                         break;
                     }
+                    case "ModernLibs.FileHelpers.FieldCaptionAttribute"
+                             when mAttr.ConstructorArguments.Length > 0
+                             && mAttr.ConstructorArguments[0].Value is string fc:
+                        // Phase 50 GAP-02: extract display caption
+                        fieldCaption = fc;
+                        break;
                 }
             }
 
@@ -548,7 +622,9 @@ internal static class RecordModelExtractor
                 OverflowMode: overflowMode,
                 IsNotEmpty: isNotEmpty,  // Phase 13 FAVL-06
                 IsInNewLine: isInNewLine,  // Phase 14 MLIN-01
-                FieldName: null));  // Phase 38: FieldName not applicable to fixed-length
+                FieldName: null,  // Phase 38: FieldName not applicable to fixed-length
+                Caption: fieldCaption,  // Phase 50 GAP-02
+                CultureName: cultureName));  // Phase 51 GAP-04
         }
 
         var sortedArray = fields
@@ -565,7 +641,8 @@ internal static class RecordModelExtractor
             IgnoreEmptyLines: igEmpty,
             CommentMarker: commentMarker,
             Condition: condition,
-            ConditionPattern: conditionPattern);
+            ConditionPattern: conditionPattern,
+            IsRefStruct: isRefStruct);
     }
 
     /// <summary>
@@ -709,5 +786,33 @@ internal static class RecordModelExtractor
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Phase 50 GAP-03: Collects all public instance members from <paramref name="type"/>
+    /// and all its base classes, walking up the inheritance chain.
+    /// Returns members in derived-first order (derived class members first, then base class members).
+    /// This ensures inherited fields are included even when the base type is in the same compilation.
+    /// </summary>
+    private static IEnumerable<ISymbol> GetAllMembers(INamedTypeSymbol type, CancellationToken ct)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        INamedTypeSymbol? current = type;
+        while (current is not null)
+        {
+            ct.ThrowIfCancellationRequested();
+            // Skip object base class
+            if (current.SpecialType == SpecialType.System_Object)
+                break;
+
+            foreach (var member in current.GetMembers())
+            {
+                // Deduplicate: derived class members take precedence
+                if (seen.Add(member.Name))
+                    yield return member;
+            }
+
+            current = current.BaseType;
+        }
     }
 }

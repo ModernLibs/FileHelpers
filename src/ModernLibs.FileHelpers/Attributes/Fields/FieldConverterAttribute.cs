@@ -22,6 +22,13 @@ public sealed class FieldConverterAttribute : Attribute
     /// <summary>Additional string arguments forwarded to the converter's constructor (e.g., format strings for dates).</summary>
     public string[] ConverterArgs { get; }
 
+    /// <summary>
+    /// Gets or sets the culture name (e.g., "fr-FR", "de-DE") to use when parsing
+    /// and formatting this field. When null or empty, <see cref="System.Globalization.CultureInfo.InvariantCulture"/>
+    /// is used.
+    /// </summary>
+    public string? CultureName { get; set; }
+
     /// <summary>Uses the specified built-in converter with optional format arguments.</summary>
     /// <param name="converter">The built-in converter to use.</param>
     /// <param name="args">Optional format arguments (e.g., <c>"yyyy-MM-dd"</c> for date converters).</param>

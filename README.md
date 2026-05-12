@@ -58,6 +58,7 @@ All existing attributes, engines, and converters work the same way.
 
 ## Documentation
 
+- [Opt-In Performance Features](docs/OPT-IN-FEATURES.md) — streaming, recycling, pooling, and ref struct records
 - [Packaging Guide](docs/PACKAGING.md) — versioning, pre-release policy, release checklist
 - [Samples](samples/) — migration examples from FileHelpers 3.x
 - [Benchmarks](benchmarks/) — BenchmarkDotNet performance tests

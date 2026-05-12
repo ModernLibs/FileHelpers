@@ -59,10 +59,13 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
     // eliminating the dead branch entirely in the hot path.
     private static readonly bool s_isStruct = typeof(T).IsValueType;
 
+    // LIMIT-02: Compile-time detection of INotifyRead<T> — constant-folded per T,
+    // eliminating the dead branch entirely for Native AOT.
+    private static readonly bool s_hasNotifyRead = typeof(INotifyRead<T>).IsAssignableFrom(typeof(T));
+
     private readonly IRecordDescriptor<T> _descriptor;
     private readonly IRecyclableDescriptor<T>? _recyclable;
     private readonly Parsing.RecordConditionMatcher? _conditionMatcher;
-    private readonly bool _implementsNotifyRead;    // INTF-05
     private readonly bool _implementsNotifyWrite;   // INTF-06
     private T? _recycled;
 
@@ -96,9 +99,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
         _descriptor = FileHelperRegistry<T>.Descriptor;
         _recyclable = _descriptor as IRecyclableDescriptor<T>;
 
-        // INTF-05, INTF-06: Detect interface implementation once at construction
-        // to avoid repeated typeof operations in hot path
-        _implementsNotifyRead = typeof(INotifyRead<T>).IsAssignableFrom(typeof(T));
+        // INTF-06: Detect interface implementation once at construction
         _implementsNotifyWrite = typeof(INotifyWrite<T>).IsAssignableFrom(typeof(T));
 
         // CREC-11: Initialize matcher once per engine instance
@@ -403,14 +404,10 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
     /// STRM-01: Asynchronous streaming read that yields records one at a time via
     /// <see cref="IAsyncEnumerable{T}"/>. Uses <see cref="Parsing.PipelineLineReader"/> for
     /// memory-efficient file reading — never materializes the full file content.
+    /// Honors <see cref="IgnoreFirstAttribute"/>, <see cref="IgnoreLastAttribute"/>,
+    /// <see cref="IgnoreEmptyLinesAttribute"/>, and <see cref="IgnoreCommentedLinesAttribute"/>.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// <strong>Known limitation:</strong> <see cref="IgnoreLastAttribute"/> is not honored
-    /// by this method. Trailing lines that would be skipped by <c>[IgnoreLast(N)]</c> will be
-    /// parsed as data records. Use <see cref="ReadFile(string)"/> when <c>IgnoreLast</c>
-    /// semantics are required.
-    /// </para>
     /// <para>
     /// <strong>Allocation note:</strong> For class record types, each record is a new heap
     /// allocation. Enable <see cref="FileHelperAsyncEngine{T}.RecycleRecords"/> on
@@ -434,6 +431,11 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
         var lineBuffer = new StringBuilder();
         bool isBuffering = false;
         int multilineStartLine = 0;
+
+        // LIMIT-01: tail buffer for IgnoreLast in async streaming
+        Queue<T>? tailBuffer = null;
+        if (opts.IgnoreLast > 0)
+            tailBuffer = new Queue<T>(opts.IgnoreLast + 1);
 
         using var stream = File.OpenRead(filePath);
         var lineReader = new Parsing.PipelineLineReader(stream, Encoding);
@@ -501,9 +503,25 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                         }
 
                         lineBuffer.Clear();
-                        totalRecords++;
-                        LineNumber = multilineStartLine;
-                        yield return parseResult;
+
+                        // LIMIT-01: tail buffer logic
+                        if (tailBuffer is not null)
+                        {
+                            tailBuffer.Enqueue(parseResult);
+                            if (tailBuffer.Count > opts.IgnoreLast)
+                            {
+                                var toYield = tailBuffer.Dequeue();
+                                totalRecords++;
+                                LineNumber = multilineStartLine;
+                                yield return toYield;
+                            }
+                        }
+                        else
+                        {
+                            totalRecords++;
+                            LineNumber = multilineStartLine;
+                            yield return parseResult;
+                        }
                     }
                     continue;
                 }
@@ -523,9 +541,24 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                 yield break;
             }
 
-            totalRecords++;
-            LineNumber = lineNumber;
-            yield return singleParseResult;
+            // LIMIT-01: tail buffer logic
+            if (tailBuffer is not null)
+            {
+                tailBuffer.Enqueue(singleParseResult);
+                if (tailBuffer.Count > opts.IgnoreLast)
+                {
+                    var toYield = tailBuffer.Dequeue();
+                    totalRecords++;
+                    LineNumber = lineNumber;
+                    yield return toYield;
+                }
+            }
+            else
+            {
+                totalRecords++;
+                LineNumber = lineNumber;
+                yield return singleParseResult;
+            }
         }
 
         if (isBuffering && lineBuffer.Length > 0)
@@ -538,11 +571,40 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                 var finalResult = TryParseRecordForAsyncStream(finalSpan, finalLine, multilineStartLine, opts);
                 if (finalResult != null)
                 {
-                    totalRecords++;
-                    LineNumber = multilineStartLine;
-                    yield return finalResult;
+                    if (tailBuffer is not null)
+                    {
+                        tailBuffer.Enqueue(finalResult);
+                        if (tailBuffer.Count > opts.IgnoreLast)
+                        {
+                            var toYield = tailBuffer.Dequeue();
+                            totalRecords++;
+                            LineNumber = multilineStartLine;
+                            yield return toYield;
+                        }
+                    }
+                    else
+                    {
+                        totalRecords++;
+                        LineNumber = multilineStartLine;
+                        yield return finalResult;
+                    }
                 }
             }
+        }
+
+        // LIMIT-01: capture footer text from remaining tail buffer entries
+        if (tailBuffer is not null && tailBuffer.Count > 0)
+        {
+            var footerRecords = new string[tailBuffer.Count];
+            int i = 0;
+            while (tailBuffer.Count > 0)
+            {
+                var rec = tailBuffer.Dequeue();
+                using var buf = new RentedBufferWriter(256);
+                _descriptor.Format(rec, buf);
+                footerRecords[i++] = buf.WrittenSpan.ToString();
+            }
+            FooterText = string.Join(NewLineForWrite, footerRecords);
         }
 
         TotalRecords = totalRecords;
@@ -581,13 +643,6 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
     /// records one at a time via <see cref="IEnumerable{T}"/>. The reader is NOT disposed
     /// by the engine — the caller owns its lifetime.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <strong>Known limitation:</strong> <see cref="IgnoreLastAttribute"/> is not honored
-    /// by this method. Use <see cref="ReadStream(TextReader)"/> when <c>IgnoreLast</c>
-    /// semantics are required.
-    /// </para>
-    /// </remarks>
     /// <param name="reader">The text reader to stream from.</param>
     /// <returns>An enumerable of parsed records.</returns>
     public IEnumerable<T> ReadSync(TextReader reader)
@@ -608,13 +663,6 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
     /// via <see cref="IEnumerable{T}"/>. Lines are extracted via <see cref="SpanLineReader"/>
     /// to avoid full materialization.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <strong>Known limitation:</strong> <see cref="IgnoreLastAttribute"/> is not honored
-    /// by this method. Use <see cref="ReadString(string)"/> when <c>IgnoreLast</c>
-    /// semantics are required.
-    /// </para>
-    /// </remarks>
     /// <param name="content">The string content to stream from.</param>
     /// <returns>An enumerable of parsed records.</returns>
     public IEnumerable<T> ReadSync(string content)
@@ -646,6 +694,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                 if (line == null)
                 {
                     TotalRecords = 0;
+                    FooterText = null;
                     yield break;
                 }
                 lineNumber++;
@@ -657,6 +706,15 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
         var multilineBuffer = new StringBuilder();
         bool isBuffering = false;
         int multilineStartLine = 0;
+
+        // LIMIT-01: tail buffer for IgnoreLast in sync streaming
+        Queue<T>? tailBuffer = null;
+        Queue<int>? tailStartLines = null;
+        if (opts.IgnoreLast > 0)
+        {
+            tailBuffer = new Queue<T>(opts.IgnoreLast + 1);
+            tailStartLines = new Queue<int>(opts.IgnoreLast + 1);
+        }
 
         while (maxRecords <= 0 || totalRecords < maxRecords)
         {
@@ -670,6 +728,20 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                 {
                     if (i == 0)
                     {
+                        // EOF: drain tail buffer
+                        if (tailBuffer is not null && tailBuffer.Count > 0)
+                        {
+                            var footerRecords = new string[tailBuffer.Count];
+                            int fi = 0;
+                            while (tailBuffer.Count > 0)
+                            {
+                                var rec = tailBuffer.Dequeue();
+                                using var buf = new RentedBufferWriter(256);
+                                _descriptor.Format(rec, buf);
+                                footerRecords[fi++] = buf.WrittenSpan.ToString();
+                            }
+                            FooterText = string.Join(NewLineForWrite, footerRecords);
+                        }
                         TotalRecords = totalRecords;
                         yield break;
                     }
@@ -704,9 +776,28 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                     {
                         isBuffering = false;
                         var parsed = ParseAndYieldSync(assembled.AsSpan(), assembled, multilineStartLine, opts, ref totalRecords);
-                        if (s_isStruct || !EqualityComparer<T>.Default.Equals(parsed, default))
-                            yield return parsed;
                         multilineBuffer.Clear();
+
+                        if (s_isStruct || !EqualityComparer<T>.Default.Equals(parsed, default))
+                        {
+                            if (tailBuffer is not null)
+                            {
+                                tailBuffer.Enqueue(parsed);
+                                tailStartLines!.Enqueue(multilineStartLine);
+                                if (tailBuffer.Count > opts.IgnoreLast)
+                                {
+                                    var toYield = tailBuffer.Dequeue();
+                                    LineNumber = tailStartLines.Dequeue();
+                                    yield return toYield;
+                                }
+                            }
+                            else
+                            {
+                                LineNumber = multilineStartLine;
+                                yield return parsed;
+                            }
+                        }
+                        continue;
                     }
                     continue;
                 }
@@ -718,7 +809,39 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
 
             var parsedRecord = ParseAndYieldSync(joinedLine.AsSpan(), joinedLine, startLine, opts, ref totalRecords);
             if (s_isStruct || !EqualityComparer<T>.Default.Equals(parsedRecord, default))
-                yield return parsedRecord;
+            {
+                if (tailBuffer is not null)
+                {
+                    tailBuffer.Enqueue(parsedRecord);
+                    tailStartLines!.Enqueue(startLine);
+                    if (tailBuffer.Count > opts.IgnoreLast)
+                    {
+                        var toYield = tailBuffer.Dequeue();
+                        LineNumber = tailStartLines.Dequeue();
+                        yield return toYield;
+                    }
+                }
+                else
+                {
+                    LineNumber = startLine;
+                    yield return parsedRecord;
+                }
+            }
+        }
+
+        // EOF: drain tail buffer into FooterText
+        if (tailBuffer is not null && tailBuffer.Count > 0)
+        {
+            var footerRecords = new string[tailBuffer.Count];
+            int fi = 0;
+            while (tailBuffer.Count > 0)
+            {
+                var rec = tailBuffer.Dequeue();
+                using var buf = new RentedBufferWriter(256);
+                _descriptor.Format(rec, buf);
+                footerRecords[fi++] = buf.WrittenSpan.ToString();
+            }
+            FooterText = string.Join(NewLineForWrite, footerRecords);
         }
 
         TotalRecords = totalRecords;
@@ -955,8 +1078,8 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
 
         // OPT-09: Hoist event subscription checks outside the loop to avoid
         // repeated null checks and unnecessary string materialization.
-        bool hasBeforeRead = BeforeReadRecord is not null;
-        bool hasAfterRead = AfterReadRecord is not null || _implementsNotifyRead;
+        bool hasBeforeRead = BeforeReadRecord is not null || s_hasNotifyRead;
+        bool hasAfterRead = AfterReadRecord is not null || s_hasNotifyRead;
 
         for (int li = dataStartIdx; li < dataEndIdx;)
         {
@@ -1011,12 +1134,26 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                 if (!incomplete && _conditionMatcher is not null && !_conditionMatcher.ShouldInclude(firstLineSpan))
                     continue;
 
-                // BeforeRead event — requires string materialization
+                // BeforeRead event and interface — requires string materialization
                 if (!incomplete && hasBeforeRead)
                 {
                     activeLineString ??= activeLineSpan.ToString();
                     var beforeArgs = new BeforeReadEventArgs<T>(this, activeLineString, startLineOneBased);
-                    BeforeReadRecord!.Invoke(this, beforeArgs);
+
+                    if (BeforeReadRecord is not null)
+                    {
+                        BeforeReadRecord.Invoke(this, beforeArgs);
+                    }
+
+                    if (s_hasNotifyRead)
+                    {
+                        var notifyRecord = _descriptor.CreateDefaultInstance();
+                        if (notifyRecord is INotifyRead<T> notifyRead)
+                        {
+                            notifyRead.BeforeRead(beforeArgs);
+                        }
+                    }
+
                     if (beforeArgs.StopReading)
                         break;
                     if (beforeArgs.SkipThisRecord)
@@ -1072,7 +1209,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                             continue;
                     }
 
-                    if (_implementsNotifyRead && record is INotifyRead<T> notifyRead)
+                    if (s_hasNotifyRead && record is INotifyRead<T> notifyRead)
                     {
                         notifyRead.AfterRead(afterArgs);
                         if (afterArgs.SkipThisRecord)
@@ -1235,8 +1372,8 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
         int resultIndex = 0;
         int linesPerRecord = Math.Max(1, opts.LineCountPerLogicalRecord);
 
-        bool hasBeforeRead = BeforeReadRecord is not null;
-        bool hasAfterRead = AfterReadRecord is not null || _implementsNotifyRead;
+        bool hasBeforeRead = BeforeReadRecord is not null || s_hasNotifyRead;
+        bool hasAfterRead = AfterReadRecord is not null || s_hasNotifyRead;
 
         for (int li = dataStartIdx; li < dataEndIdx;)
         {
@@ -1290,12 +1427,26 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                 if (!incomplete && _conditionMatcher is not null && !_conditionMatcher.ShouldInclude(firstLineSpan))
                     continue;
 
-                // BeforeRead event — requires string materialization
+                // BeforeRead event and interface — requires string materialization
                 if (!incomplete && hasBeforeRead)
                 {
                     activeLineString ??= activeLineSpan.ToString();
                     var beforeArgs = new BeforeReadEventArgs<T>(this, activeLineString, startLineOneBased);
-                    BeforeReadRecord!.Invoke(this, beforeArgs);
+
+                    if (BeforeReadRecord is not null)
+                    {
+                        BeforeReadRecord.Invoke(this, beforeArgs);
+                    }
+
+                    if (s_hasNotifyRead)
+                    {
+                        var notifyRecord = _descriptor.CreateDefaultInstance();
+                        if (notifyRecord is INotifyRead<T> notifyRead)
+                        {
+                            notifyRead.BeforeRead(beforeArgs);
+                        }
+                    }
+
                     if (beforeArgs.StopReading)
                         break;
                     if (beforeArgs.SkipThisRecord)
@@ -1349,7 +1500,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                             continue;
                     }
 
-                    if (_implementsNotifyRead && record is INotifyRead<T> notifyRead)
+                    if (s_hasNotifyRead && record is INotifyRead<T> notifyRead)
                     {
                         notifyRead.AfterRead(afterArgs);
                         if (afterArgs.SkipThisRecord)
@@ -1438,8 +1589,8 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
         int dataEndIdx = lineCount - footerLineCount;
         int linesPerRecord = Math.Max(1, opts.LineCountPerLogicalRecord);
 
-        bool hasBeforeRead = BeforeReadRecord is not null;
-        bool hasAfterRead = AfterReadRecord is not null || _implementsNotifyRead;
+        bool hasBeforeRead = BeforeReadRecord is not null || s_hasNotifyRead;
+        bool hasAfterRead = AfterReadRecord is not null || s_hasNotifyRead;
 
         int resultIndex = 0;
         for (int li = dataStartIdx; li < dataEndIdx;)
@@ -1495,7 +1646,19 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                 {
                     activeLineString ??= activeLineSpan.ToString();
                     var beforeArgs = new BeforeReadEventArgs<T>(this, activeLineString, startLineOneBased);
-                    BeforeReadRecord!.Invoke(this, beforeArgs);
+                    if (BeforeReadRecord is not null)
+                    {
+                        BeforeReadRecord.Invoke(this, beforeArgs);
+                    }
+
+                    if (s_hasNotifyRead)
+                    {
+                        var notifyRecord = _descriptor.CreateDefaultInstance();
+                        if (notifyRecord is INotifyRead<T> notifyRead)
+                        {
+                            notifyRead.BeforeRead(beforeArgs);
+                        }
+                    }
                     if (beforeArgs.StopReading)
                         break;
                     if (beforeArgs.SkipThisRecord)
@@ -1506,6 +1669,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                         activeLineSpan = activeLineString.AsSpan();
                     }
                 }
+
 
                 T record;
                 try
@@ -1548,7 +1712,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                             continue;
                     }
 
-                    if (_implementsNotifyRead && record is INotifyRead<T> notifyRead)
+                    if (s_hasNotifyRead && record is INotifyRead<T> notifyRead)
                     {
                         notifyRead.AfterRead(afterArgs);
                         if (afterArgs.SkipThisRecord)
@@ -1635,8 +1799,8 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
         int dataEndIdx = lineCount - footerLineCount;
         int linesPerRecord = Math.Max(1, opts.LineCountPerLogicalRecord);
 
-        bool hasBeforeRead = BeforeReadRecord is not null;
-        bool hasAfterRead = AfterReadRecord is not null || _implementsNotifyRead;
+        bool hasBeforeRead = BeforeReadRecord is not null || s_hasNotifyRead;
+        bool hasAfterRead = AfterReadRecord is not null || s_hasNotifyRead;
 
         int resultIndex = 0;
         for (int li = dataStartIdx; li < dataEndIdx;)
@@ -1692,7 +1856,19 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                 {
                     activeLineString ??= activeLineSpan.ToString();
                     var beforeArgs = new BeforeReadEventArgs<T>(this, activeLineString, startLineOneBased);
-                    BeforeReadRecord!.Invoke(this, beforeArgs);
+                    if (BeforeReadRecord is not null)
+                    {
+                        BeforeReadRecord.Invoke(this, beforeArgs);
+                    }
+
+                    if (s_hasNotifyRead)
+                    {
+                        var notifyRecord = _descriptor.CreateDefaultInstance();
+                        if (notifyRecord is INotifyRead<T> notifyRead)
+                        {
+                            notifyRead.BeforeRead(beforeArgs);
+                        }
+                    }
                     if (beforeArgs.StopReading)
                         break;
                     if (beforeArgs.SkipThisRecord)
@@ -1703,6 +1879,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                         activeLineSpan = activeLineString.AsSpan();
                     }
                 }
+
 
                 T record;
                 try
@@ -1745,7 +1922,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                             continue;
                     }
 
-                    if (_implementsNotifyRead && record is INotifyRead<T> notifyRead)
+                    if (s_hasNotifyRead && record is INotifyRead<T> notifyRead)
                     {
                         notifyRead.AfterRead(afterArgs);
                         if (afterArgs.SkipThisRecord)
@@ -1806,8 +1983,8 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
         int assembledCount = assembledLines.Count;
         int linesPerRecord = Math.Max(1, opts.LineCountPerLogicalRecord);
 
-        bool hasBeforeRead = BeforeReadRecord is not null;
-        bool hasAfterRead = AfterReadRecord is not null || _implementsNotifyRead;
+        bool hasBeforeRead = BeforeReadRecord is not null || s_hasNotifyRead;
+        bool hasAfterRead = AfterReadRecord is not null || s_hasNotifyRead;
 
         int resultIndex = 0;
         for (int li = 0; li < assembledCount;)
@@ -1865,7 +2042,19 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                 if (!incomplete && hasBeforeRead)
                 {
                     var beforeArgs = new BeforeReadEventArgs<T>(this, activeLine, startLineOneBased);
-                    BeforeReadRecord!.Invoke(this, beforeArgs);
+                    if (BeforeReadRecord is not null)
+                    {
+                        BeforeReadRecord.Invoke(this, beforeArgs);
+                    }
+
+                    if (s_hasNotifyRead)
+                    {
+                        var notifyRecord = _descriptor.CreateDefaultInstance();
+                        if (notifyRecord is INotifyRead<T> notifyRead)
+                        {
+                            notifyRead.BeforeRead(beforeArgs);
+                        }
+                    }
                     if (beforeArgs.StopReading) break;
                     if (beforeArgs.SkipThisRecord) continue;
                     if (beforeArgs.RecordLineChanged) activeLine = beforeArgs.RecordLine;
@@ -1882,7 +2071,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
 
                     if (DelimitedFieldEnumerator.HasUnclosedQuote(activeLine.AsSpan()))
                     {
-                        throw new FormatException($"Unclosed quoted field starting at line {startLineOneBased}.");
+                        throw new FormatException($"Unclosed quoted field starting at line {startLineOneBased}. Check that all opening quotes have matching closing quotes (use \"\" for escaped quotes within quoted fields).");
                     }
 
                     record = ParseOrRecycle(activeLine.AsSpan(), linesPerRecord);
@@ -1909,7 +2098,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                         AfterReadRecord.Invoke(this, afterArgs);
                         if (afterArgs.SkipThisRecord) continue;
                     }
-                    if (_implementsNotifyRead && record is INotifyRead<T> notifyRead)
+                    if (s_hasNotifyRead && record is INotifyRead<T> notifyRead)
                     {
                         notifyRead.AfterRead(afterArgs);
                         if (afterArgs.SkipThisRecord) continue;
@@ -1986,8 +2175,8 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
         int dataEndIdx = lineCount - footerLineCount;
         int linesPerRecord = Math.Max(1, opts.LineCountPerLogicalRecord);
 
-        bool hasBeforeRead = BeforeReadRecord is not null;
-        bool hasAfterRead = AfterReadRecord is not null || _implementsNotifyRead;
+        bool hasBeforeRead = BeforeReadRecord is not null || s_hasNotifyRead;
+        bool hasAfterRead = AfterReadRecord is not null || s_hasNotifyRead;
 
         int resultIndex = 0;
         for (int li = dataStartIdx; li < dataEndIdx;)
@@ -2043,7 +2232,19 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                 {
                     activeLineString ??= activeLineSpan.ToString();
                     var beforeArgs = new BeforeReadEventArgs<T>(this, activeLineString, startLineOneBased);
-                    BeforeReadRecord!.Invoke(this, beforeArgs);
+                    if (BeforeReadRecord is not null)
+                    {
+                        BeforeReadRecord.Invoke(this, beforeArgs);
+                    }
+
+                    if (s_hasNotifyRead)
+                    {
+                        var notifyRecord = _descriptor.CreateDefaultInstance();
+                        if (notifyRecord is INotifyRead<T> notifyRead)
+                        {
+                            notifyRead.BeforeRead(beforeArgs);
+                        }
+                    }
                     if (beforeArgs.StopReading)
                         break;
                     if (beforeArgs.SkipThisRecord)
@@ -2054,6 +2255,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                         activeLineSpan = activeLineString.AsSpan();
                     }
                 }
+
 
                 T record;
                 try
@@ -2096,7 +2298,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                             continue;
                     }
 
-                    if (_implementsNotifyRead && record is INotifyRead<T> notifyRead)
+                    if (s_hasNotifyRead && record is INotifyRead<T> notifyRead)
                     {
                         notifyRead.AfterRead(afterArgs);
                         if (afterArgs.SkipThisRecord)
@@ -2181,8 +2383,8 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
         int dataEndIdx = lineCount - footerLineCount;
         int linesPerRecord = Math.Max(1, opts.LineCountPerLogicalRecord);
 
-        bool hasBeforeRead = BeforeReadRecord is not null;
-        bool hasAfterRead = AfterReadRecord is not null || _implementsNotifyRead;
+        bool hasBeforeRead = BeforeReadRecord is not null || s_hasNotifyRead;
+        bool hasAfterRead = AfterReadRecord is not null || s_hasNotifyRead;
 
         int resultIndex = 0;
         for (int li = dataStartIdx; li < dataEndIdx;)
@@ -2238,7 +2440,19 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                 {
                     activeLineString ??= activeLineSpan.ToString();
                     var beforeArgs = new BeforeReadEventArgs<T>(this, activeLineString, startLineOneBased);
-                    BeforeReadRecord!.Invoke(this, beforeArgs);
+                    if (BeforeReadRecord is not null)
+                    {
+                        BeforeReadRecord.Invoke(this, beforeArgs);
+                    }
+
+                    if (s_hasNotifyRead)
+                    {
+                        var notifyRecord = _descriptor.CreateDefaultInstance();
+                        if (notifyRecord is INotifyRead<T> notifyRead)
+                        {
+                            notifyRead.BeforeRead(beforeArgs);
+                        }
+                    }
                     if (beforeArgs.StopReading)
                         break;
                     if (beforeArgs.SkipThisRecord)
@@ -2249,6 +2463,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                         activeLineSpan = activeLineString.AsSpan();
                     }
                 }
+
 
                 T record;
                 try
@@ -2291,7 +2506,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                             continue;
                     }
 
-                    if (_implementsNotifyRead && record is INotifyRead<T> notifyRead)
+                    if (s_hasNotifyRead && record is INotifyRead<T> notifyRead)
                     {
                         notifyRead.AfterRead(afterArgs);
                         if (afterArgs.SkipThisRecord)
@@ -2350,8 +2565,8 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
         int assembledCount = assembledLines.Count;
         int linesPerRecord = Math.Max(1, opts.LineCountPerLogicalRecord);
 
-        bool hasBeforeRead = BeforeReadRecord is not null;
-        bool hasAfterRead = AfterReadRecord is not null || _implementsNotifyRead;
+        bool hasBeforeRead = BeforeReadRecord is not null || s_hasNotifyRead;
+        bool hasAfterRead = AfterReadRecord is not null || s_hasNotifyRead;
 
         int resultIndex = 0;
         for (int li = 0; li < assembledCount;)
@@ -2409,7 +2624,19 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                 if (!incomplete && hasBeforeRead)
                 {
                     var beforeArgs = new BeforeReadEventArgs<T>(this, activeLine, startLineOneBased);
-                    BeforeReadRecord!.Invoke(this, beforeArgs);
+                    if (BeforeReadRecord is not null)
+                    {
+                        BeforeReadRecord.Invoke(this, beforeArgs);
+                    }
+
+                    if (s_hasNotifyRead)
+                    {
+                        var notifyRecord = _descriptor.CreateDefaultInstance();
+                        if (notifyRecord is INotifyRead<T> notifyRead)
+                        {
+                            notifyRead.BeforeRead(beforeArgs);
+                        }
+                    }
                     if (beforeArgs.StopReading) break;
                     if (beforeArgs.SkipThisRecord) continue;
                     if (beforeArgs.RecordLineChanged) activeLine = beforeArgs.RecordLine;
@@ -2426,7 +2653,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
 
                     if (DelimitedFieldEnumerator.HasUnclosedQuote(activeLine.AsSpan()))
                     {
-                        throw new FormatException($"Unclosed quoted field starting at line {startLineOneBased}.");
+                        throw new FormatException($"Unclosed quoted field starting at line {startLineOneBased}. Check that all opening quotes have matching closing quotes (use \"\" for escaped quotes within quoted fields).");
                     }
 
                     record = ParseOrRecycle(activeLine.AsSpan(), linesPerRecord);
@@ -2453,7 +2680,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                         AfterReadRecord.Invoke(this, afterArgs);
                         if (afterArgs.SkipThisRecord) continue;
                     }
-                    if (_implementsNotifyRead && record is INotifyRead<T> notifyRead)
+                    if (s_hasNotifyRead && record is INotifyRead<T> notifyRead)
                     {
                         notifyRead.AfterRead(afterArgs);
                         if (afterArgs.SkipThisRecord) continue;
@@ -2690,7 +2917,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                     // The generated Parse code doesn't check quote balance, so we must validate here.
                     if (DelimitedFieldEnumerator.HasUnclosedQuote(activeLine.AsSpan()))
                     {
-                        throw new FormatException($"Unclosed quoted field starting at line {startLineOneBased}.");
+                        throw new FormatException($"Unclosed quoted field starting at line {startLineOneBased}. Check that all opening quotes have matching closing quotes (use \"\" for escaped quotes within quoted fields).");
                     }
 
                     record = ParseOrRecycle(activeLine.AsSpan(), linesPerRecord);
@@ -2709,7 +2936,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                     break;
                 }
 
-                if (AfterReadRecord is not null || _implementsNotifyRead)
+                if (AfterReadRecord is not null || s_hasNotifyRead)
                 {
                     var afterArgs = new AfterReadEventArgs<T>(this, record, activeLine, endLineOneBased);
                     if (AfterReadRecord is not null)
@@ -2717,7 +2944,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                         AfterReadRecord.Invoke(this, afterArgs);
                         if (afterArgs.SkipThisRecord) continue;
                     }
-                    if (_implementsNotifyRead && record is INotifyRead<T> notifyRead)
+                    if (s_hasNotifyRead && record is INotifyRead<T> notifyRead)
                     {
                         notifyRead.AfterRead(afterArgs);
                         if (afterArgs.SkipThisRecord) continue;
@@ -2911,7 +3138,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
             int count = CountDelimitedFields(line, delim);
 
             if (count != expectedFieldCount)
-                throw new FormatException($"Expected {expectedFieldCount} fields but found {count}.");
+                throw new FormatException($"Expected {expectedFieldCount} fields but found {count} in line: '{line}'. Check that all delimiters are present and no fields contain unescaped delimiter characters.");
             return;
         }
 
@@ -3120,9 +3347,11 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
         return (result, startPhysical, endPhysical);
     }
 
-    private static FormatException CreateParseContextException(int lineNumber, string line, Exception inner)
+    private static FormatException CreateParseContextException(int lineNumber, string line, Exception inner, int columnIndex = -1, string? fieldName = null)
     {
-        return new FormatException($"Error parsing line {lineNumber}: '{line}'. {inner.Message}", inner);
+        var columnInfo = columnIndex >= 0 ? $", column {columnIndex + 1}" : "";
+        var fieldInfo = fieldName != null ? $", field '{fieldName}'" : "";
+        return new FormatException($"Error parsing line {lineNumber}{columnInfo}{fieldInfo}: '{line}'. {inner.Message}", inner);
     }
 
     /// <summary>
@@ -3140,8 +3369,8 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
 
         var opts = _descriptor.Options;
         int linesPerRecord = Math.Max(1, opts.LineCountPerLogicalRecord);
-        bool hasBeforeRead = BeforeReadRecord is not null;
-        bool hasAfterRead = AfterReadRecord is not null || _implementsNotifyRead;
+        bool hasBeforeRead = BeforeReadRecord is not null || s_hasNotifyRead;
+        bool hasAfterRead = AfterReadRecord is not null || s_hasNotifyRead;
 
         // Phase 1: Read header lines
         int headerLinesRead = 0;
@@ -3208,7 +3437,19 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
             if (hasBeforeRead)
             {
                 var beforeArgs = new BeforeReadEventArgs<T>(this, joinedLine, startLine);
-                BeforeReadRecord!.Invoke(this, beforeArgs);
+                if (BeforeReadRecord is not null)
+                    {
+                        BeforeReadRecord.Invoke(this, beforeArgs);
+                    }
+
+                    if (s_hasNotifyRead)
+                    {
+                        var notifyRecord = _descriptor.CreateDefaultInstance();
+                        if (notifyRecord is INotifyRead<T> notifyRead)
+                        {
+                            notifyRead.BeforeRead(beforeArgs);
+                        }
+                    }
                 if (beforeArgs.StopReading)
                     break;
                 if (beforeArgs.SkipThisRecord)
@@ -3249,7 +3490,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>
                     if (afterArgs.SkipThisRecord)
                         continue;
                 }
-                if (_implementsNotifyRead && record is INotifyRead<T> notifyRead)
+                if (s_hasNotifyRead && record is INotifyRead<T> notifyRead)
                 {
                     notifyRead.AfterRead(afterArgs);
                     if (afterArgs.SkipThisRecord)

@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace ModernLibs.FileHelpers;
 
 /// <summary>
@@ -17,11 +19,57 @@ public sealed class ErrorInfo
     /// </summary>
     public Exception? ExceptionInfo { get; }
 
+    /// <summary>Name of the field that caused the error, or null if not field-specific.</summary>
+    public string? FieldName { get; }
+
+    /// <summary>Zero-based column position within the line, or -1 if unknown.</summary>
+    public int ColumnIndex { get; }
+
+    /// <summary>Raw input text that failed to parse, or null if not available.</summary>
+    public string? RawFieldValue { get; }
+
     /// <summary>Internal constructor; engines create <see cref="ErrorInfo"/> instances.</summary>
-    internal ErrorInfo(int lineNumber, string recordString, Exception? exceptionInfo)
+    internal ErrorInfo(int lineNumber, string recordString, Exception? exceptionInfo, string? fieldName = null, int columnIndex = -1, string? rawFieldValue = null)
     {
         LineNumber = lineNumber;
         RecordString = recordString;
         ExceptionInfo = exceptionInfo;
+        FieldName = fieldName;
+        ColumnIndex = columnIndex;
+        RawFieldValue = rawFieldValue;
+    }
+
+    /// <inheritdoc/>
+    public override string ToString()
+    {
+        var sb = new StringBuilder();
+        sb.Append("Line ");
+        sb.Append(LineNumber);
+        if (ColumnIndex >= 0)
+        {
+            sb.Append(", Column ");
+            sb.Append(ColumnIndex + 1);
+        }
+        if (FieldName != null)
+        {
+            sb.Append(", Field '");
+            sb.Append(FieldName);
+            sb.Append('\'');
+        }
+        sb.Append(": '");
+        sb.Append(RecordString);
+        sb.Append('\'');
+        if (RawFieldValue != null)
+        {
+            sb.Append(" [raw: '");
+            sb.Append(RawFieldValue);
+            sb.Append("']");
+        }
+        if (ExceptionInfo != null)
+        {
+            sb.Append(" — ");
+            sb.Append(ExceptionInfo.Message);
+        }
+        return sb.ToString();
     }
 }

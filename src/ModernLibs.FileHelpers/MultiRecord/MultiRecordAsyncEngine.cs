@@ -143,7 +143,7 @@ public sealed class MultiRecordAsyncEngine : IAsyncDisposable
 
         if (recordType is null)
         {
-            var selectorException = CreateSelectorMissException(lineNumber, line);
+            var selectorException = CreateSelectorMissException(lineNumber, line, _recordTypes);
             switch (ErrorManager.ErrorMode)
             {
                 case ErrorMode.ThrowException:
@@ -159,9 +159,10 @@ public sealed class MultiRecordAsyncEngine : IAsyncDisposable
         return recordType!.Parse(line.AsSpan());
     }
 
-    private static FormatException CreateSelectorMissException(int lineNumber, string line)
+    private static FormatException CreateSelectorMissException(int lineNumber, string line, IMultiRecordType[] recordTypes)
     {
-        return new FormatException($"No multi-record selector matched line {lineNumber}: '{line}'.");
+        var types = string.Join(", ", recordTypes.Select(t => t.GetType().Name));
+        return new FormatException($"No multi-record selector matched line {lineNumber}: '{line}'. Available record types: {types}.");
     }
 
     /// <inheritdoc/>

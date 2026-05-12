@@ -200,4 +200,200 @@ public sealed class DiagnosticTests
         // Descriptor must NOT be emitted when MFH003 fires (ambiguous layout)
         await Assert.That(result.GeneratedTrees.Length).IsEqualTo(0);
     }
+
+    // ── MLFH006 (Phase 57 DX-01) ─────────────────────────────────────────────────
+
+    /// <summary>MLFH006: FieldConverter target type lacks parameterless constructor — emits Error.</summary>
+    [Test]
+    [DisplayName("Generator emits MLFH006 error when FieldConverter target type lacks parameterless constructor")]
+    public async Task MLFH006_ConverterMissingParameterlessCtor_EmitsError()
+    {
+        // Arrange: CustomConverter extends ConverterBase but has only a parameterized constructor
+        var source = """
+            using ModernLibs.FileHelpers;
+            using ModernLibs.FileHelpers.Converters;
+            public sealed class CustomConverter : ConverterBase
+            {
+                public CustomConverter(string format) { }
+                public override object ConvertFromString(string from) => from;
+                public override string ConvertToString(object from) => from?.ToString() ?? "";
+            }
+            [DelimitedRecord(",")]
+            public sealed class RecordWithBadConverter
+            {
+                [FieldOrder(1)] [FieldConverter(typeof(CustomConverter))] public string Value = "";
+            }
+            """;
+
+        var compilation = CreateCompilation(source);
+        var generator = new FileHelpersGenerator();
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(generator.AsSourceGenerator());
+
+        driver = driver.RunGenerators(compilation);
+        var result = driver.GetRunResult();
+
+        var mfh006 = result.Diagnostics.FirstOrDefault(d => string.Equals(d.Id, "MLFH006", StringComparison.Ordinal));
+
+        await Assert.That(mfh006).IsNotNull();
+        await Assert.That(mfh006!.Severity).IsEqualTo(DiagnosticSeverity.Error);
+        await Assert.That(mfh006.GetMessage(CultureInfo.InvariantCulture)).Contains("Value");
+        await Assert.That(mfh006.GetMessage(CultureInfo.InvariantCulture)).Contains("CustomConverter");
+    }
+
+    // ── MLFH007 (Phase 57 DX-01) ─────────────────────────────────────────────────
+
+    /// <summary>MLFH007: FieldFixedLength exceeds default threshold of 1000 — emits Warning.</summary>
+    [Test]
+    [DisplayName("Generator emits MLFH007 warning when FieldFixedLength exceeds default threshold")]
+    public async Task MLFH007_ExcessiveFieldWidth_EmitsWarning()
+    {
+        // Arrange: FieldFixedLength(2000) exceeds default threshold of 1000
+        var source = """
+            using ModernLibs.FileHelpers;
+            [FixedLengthRecord]
+            public sealed class RecordWithWideField
+            {
+                [FieldOrder(1)] [FieldFixedLength(2000)] public string WideField = "";
+            }
+            """;
+
+        var compilation = CreateCompilation(source);
+        var generator = new FileHelpersGenerator();
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(generator.AsSourceGenerator());
+
+        driver = driver.RunGenerators(compilation);
+        var result = driver.GetRunResult();
+
+        var mfh007 = result.Diagnostics.FirstOrDefault(d => string.Equals(d.Id, "MLFH007", StringComparison.Ordinal));
+
+        await Assert.That(mfh007).IsNotNull();
+        await Assert.That(mfh007!.Severity).IsEqualTo(DiagnosticSeverity.Warning);
+        await Assert.That(mfh007.GetMessage(CultureInfo.InvariantCulture)).Contains("WideField");
+        await Assert.That(mfh007.GetMessage(CultureInfo.InvariantCulture)).Contains("2000");
+        await Assert.That(mfh007.GetMessage(CultureInfo.InvariantCulture)).Contains("1000");
+    }
+
+    // ── MLFH008 (Phase 57 DX-01) ─────────────────────────────────────────────────
+
+    /// <summary>MLFH008: FieldOrder has gaps in sequence — emits Warning.</summary>
+    [Test]
+    [DisplayName("Generator emits MLFH008 warning when FieldOrder has gaps")]
+    public async Task MLFH008_FieldOrderGaps_EmitsWarning()
+    {
+        // Arrange: FieldOrder values 1, 2, 5, 6 — gap between 2 and 5
+        var source = """
+            using ModernLibs.FileHelpers;
+            [DelimitedRecord(",")]
+            public sealed class RecordWithGaps
+            {
+                [FieldOrder(1)] public string First = "";
+                [FieldOrder(2)] public string Second = "";
+                [FieldOrder(5)] public string Fifth = "";
+                [FieldOrder(6)] public string Sixth = "";
+            }
+            """;
+
+        var compilation = CreateCompilation(source);
+        var generator = new FileHelpersGenerator();
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(generator.AsSourceGenerator());
+
+        driver = driver.RunGenerators(compilation);
+        var result = driver.GetRunResult();
+
+        var mfh008 = result.Diagnostics.FirstOrDefault(d => string.Equals(d.Id, "MLFH008", StringComparison.Ordinal));
+
+        await Assert.That(mfh008).IsNotNull();
+        await Assert.That(mfh008!.Severity).IsEqualTo(DiagnosticSeverity.Warning);
+        await Assert.That(mfh008.GetMessage(CultureInfo.InvariantCulture)).Contains("RecordWithGaps");
+        await Assert.That(mfh008.GetMessage(CultureInfo.InvariantCulture)).Contains("2");
+        await Assert.That(mfh008.GetMessage(CultureInfo.InvariantCulture)).Contains("5");
+    }
+
+    /// <summary>MLFH008: Consecutive FieldOrder values — does NOT emit warning.</summary>
+    [Test]
+    [DisplayName("Generator does NOT emit MLFH008 when FieldOrder has no gaps")]
+    public async Task MLFH008_NoGaps_NoWarning()
+    {
+        // Arrange: Consecutive FieldOrder values 1, 2, 3
+        var source = """
+            using ModernLibs.FileHelpers;
+            [DelimitedRecord(",")]
+            public sealed class RecordConsecutive
+            {
+                [FieldOrder(1)] public string First = "";
+                [FieldOrder(2)] public string Second = "";
+                [FieldOrder(3)] public string Third = "";
+            }
+            """;
+
+        var compilation = CreateCompilation(source);
+        var generator = new FileHelpersGenerator();
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(generator.AsSourceGenerator());
+
+        driver = driver.RunGenerators(compilation);
+        var result = driver.GetRunResult();
+
+        var mfh008 = result.Diagnostics.FirstOrDefault(d => string.Equals(d.Id, "MLFH008", StringComparison.Ordinal));
+
+        await Assert.That(mfh008).IsNull();
+    }
+
+    // ── MLFH009 (Phase 57 DX-01) ─────────────────────────────────────────────────
+
+    /// <summary>MLFH009: Record type has no public fields — emits Warning.</summary>
+    [Test]
+    [DisplayName("Generator emits MLFH009 warning when record type has no public fields")]
+    public async Task MLFH009_NoPublicFields_EmitsWarning()
+    {
+        // Arrange: DelimitedRecord on a class with only private fields
+        var source = """
+            using ModernLibs.FileHelpers;
+            [DelimitedRecord(",")]
+            public sealed class EmptyRecord
+            {
+                private string _hidden = "";
+            }
+            """;
+
+        var compilation = CreateCompilation(source);
+        var generator = new FileHelpersGenerator();
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(generator.AsSourceGenerator());
+
+        driver = driver.RunGenerators(compilation);
+        var result = driver.GetRunResult();
+
+        var mfh009 = result.Diagnostics.FirstOrDefault(d => string.Equals(d.Id, "MLFH009", StringComparison.Ordinal));
+
+        await Assert.That(mfh009).IsNotNull();
+        await Assert.That(mfh009!.Severity).IsEqualTo(DiagnosticSeverity.Warning);
+        await Assert.That(mfh009.GetMessage(CultureInfo.InvariantCulture)).Contains("EmptyRecord");
+        await Assert.That(mfh009.GetMessage(CultureInfo.InvariantCulture)).Contains("class");
+    }
+
+    /// <summary>MLFH009: Record type has public fields — does NOT emit warning.</summary>
+    [Test]
+    [DisplayName("Generator does NOT emit MLFH009 when record type has public fields")]
+    public async Task MLFH009_HasPublicFields_NoWarning()
+    {
+        // Arrange: Standard DelimitedRecord with one public field
+        var source = """
+            using ModernLibs.FileHelpers;
+            [DelimitedRecord(",")]
+            public sealed class ValidRecord
+            {
+                [FieldOrder(1)] public string Name = "";
+            }
+            """;
+
+        var compilation = CreateCompilation(source);
+        var generator = new FileHelpersGenerator();
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(generator.AsSourceGenerator());
+
+        driver = driver.RunGenerators(compilation);
+        var result = driver.GetRunResult();
+
+        var mfh009 = result.Diagnostics.FirstOrDefault(d => string.Equals(d.Id, "MLFH009", StringComparison.Ordinal));
+
+        await Assert.That(mfh009).IsNull();
+    }
 }

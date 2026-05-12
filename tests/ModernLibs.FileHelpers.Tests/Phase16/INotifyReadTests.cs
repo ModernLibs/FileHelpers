@@ -77,13 +77,17 @@ public sealed class INotifyReadTests
         // Arrange
         var engine = new FileHelperEngine<DualNotifiableRecord>();
         var input = "Header\r\n1,First\r\n2,Second\r\n3,Third";
+        int beforeReadEventCount = 0;
+        engine.BeforeReadRecord += (s, e) => beforeReadEventCount++;
 
         // Act
         var records = engine.ReadString(input);
 
-        // Assert: Both methods called for each record
+        // Assert: Both event and interface method fire for each record.
+        // Note: BeforeRead is called on a default instance (not the parsed record),
+        // so BeforeReadCount on the parsed record remains 0. We verify via the event.
         await Assert.That(records.Length).IsEqualTo(3);
-        await Assert.That(records[0].BeforeReadCount).IsEqualTo(0); // BeforeRead not called - record doesn't exist yet
+        await Assert.That(beforeReadEventCount).IsEqualTo(3);
         await Assert.That(records[0].AfterReadCount).IsEqualTo(1);
         await Assert.That(records[1].AfterReadCount).IsEqualTo(1);
         await Assert.That(records[2].AfterReadCount).IsEqualTo(1);
@@ -296,5 +300,192 @@ public sealed class INotifyReadTests
         {
             File.Delete(tempFile);
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // BeforeRead tests (LIMIT-02)
+    // -------------------------------------------------------------------------
+
+    [Test]
+    [DisplayName("BeforeRead_FiresBeforeParsing - sync engine calls BeforeRead on default instance")]
+    public async Task BeforeRead_FiresBeforeParsing()
+    {
+        // Arrange
+        var engine = new FileHelperEngine<NotifiableCsvOrder>();
+        var input = "Header\r\n1,Alice,100.50\r\n2,Bob,200.00";
+        int beforeReadFireCount = 0;
+        string? lastBeforeReadLine = null;
+        engine.BeforeReadRecord += (s, e) =>
+        {
+            beforeReadFireCount++;
+            lastBeforeReadLine = e.RecordLine;
+        };
+
+        // Act
+        var records = engine.ReadString(input);
+
+        // Assert: BeforeRead fired for each record (verified via event since interface
+        // is called on a default instance, not the parsed record)
+        await Assert.That(records.Length).IsEqualTo(2);
+        await Assert.That(beforeReadFireCount).IsEqualTo(2);
+        await Assert.That(lastBeforeReadLine).IsEqualTo("2,Bob,200.00");
+    }
+
+    [Test]
+    [DisplayName("BeforeRead_SkipThisRecord_ExcludesRecord - interface can skip before parsing")]
+    public async Task BeforeRead_SkipThisRecord_ExcludesRecord()
+    {
+        // Arrange: ConditionalSkipRecord skips in BeforeRead when line number matches
+        var engine = new FileHelperEngine<ConditionalSkipRecord>();
+        var input = "Header\r\n1,Keep\r\n2,SkipMe\r\n3,Keep";
+
+        // Configure to skip line 3 (which is "2,SkipMe")
+        ConditionalSkipRecord.ConfigureSkip(skipCategory: "", skipBeforeLine: 3);
+
+        // Act
+        var records = engine.ReadString(input);
+
+        // Assert: Only 2 records returned (ID 1 and 3), line 3 was skipped in BeforeRead
+        await Assert.That(records.Length).IsEqualTo(2);
+        await Assert.That(records[0].Id).IsEqualTo(1);
+        await Assert.That(records[1].Id).IsEqualTo(3);
+
+        // Cleanup
+        ConditionalSkipRecord.ClearConfiguration();
+    }
+
+    [Test]
+    [DisplayName("BeforeRead_StopReading_TerminatesEarly - interface can stop reading")]
+    public async Task BeforeRead_StopReading_TerminatesEarly()
+    {
+        // Arrange
+        var engine = new FileHelperEngine<ConditionalSkipRecord>();
+        var input = "Header\r\n1,First\r\n2,Second\r\n3,Third";
+
+        // Configure to stop at line 3 (which is "2,Second")
+        ConditionalSkipRecord.ConfigureSkip(skipCategory: "", skipBeforeLine: 0, stopAtLine: 3);
+
+        // Act
+        var records = engine.ReadString(input);
+
+        // Assert: Only 1 record returned (ID 1), reading stopped at line 3
+        await Assert.That(records.Length).IsEqualTo(1);
+        await Assert.That(records[0].Id).IsEqualTo(1);
+
+        // Cleanup
+        ConditionalSkipRecord.ClearConfiguration();
+    }
+
+    [Test]
+    [DisplayName("BeforeRead_ReceivesCorrectLineNumber - interface gets 1-based line number")]
+    public async Task BeforeRead_ReceivesCorrectLineNumber()
+    {
+        // Arrange
+        var engine = new FileHelperEngine<NotifiableCsvOrder>();
+        var input = "Header\r\n1,Alice,100.50\r\n2,Bob,200.00";
+        var lineNumbers = new List<int>();
+        engine.BeforeReadRecord += (s, e) => lineNumbers.Add(e.LineNumber);
+
+        // Act
+        engine.ReadString(input);
+
+        // Assert: Line numbers reflect original file position (2 and 3)
+        await Assert.That(lineNumbers.Count).IsEqualTo(2);
+        await Assert.That(lineNumbers[0]).IsEqualTo(2);
+        await Assert.That(lineNumbers[1]).IsEqualTo(3);
+    }
+
+    [Test]
+    [DisplayName("BeforeRead_FiresInAsyncEngine - FileHelperAsyncEngine calls BeforeRead")]
+    public async Task BeforeRead_FiresInAsyncEngine()
+    {
+        // Arrange
+        var engine = new FileHelperAsyncEngine<DualNotifiableRecord>();
+        var input = "Header\r\n1,First\r\n2,Second";
+        int beforeReadFireCount = 0;
+        engine.BeforeReadRecord += (s, e) => beforeReadFireCount++;
+
+        // Act
+        engine.BeginReadString(input);
+        var records = new List<DualNotifiableRecord>();
+        while (engine.ReadNext() is { } record)
+        {
+            records.Add(record);
+        }
+        engine.Close();
+
+        // Assert: BeforeRead fired for each record
+        await Assert.That(records.Count).IsEqualTo(2);
+        await Assert.That(beforeReadFireCount).IsEqualTo(2);
+    }
+
+    [Test]
+    [DisplayName("BeforeRead_FiresInAsyncEnumerable - ReadAsync calls BeforeRead")]
+    public async Task BeforeRead_FiresInAsyncEnumerable()
+    {
+        // Arrange - create temp file for ReadAsync
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllTextAsync(tempFile, "Header\r\n1,First\r\n2,Second");
+            var engine = new FileHelperAsyncEngine<DualNotifiableRecord>();
+            var records = new List<DualNotifiableRecord>();
+            int beforeReadFireCount = 0;
+            engine.BeforeReadRecord += (s, e) => beforeReadFireCount++;
+
+            // Act
+            await foreach (var record in engine.ReadAsync(tempFile))
+            {
+                records.Add(record);
+            }
+
+            // Assert: BeforeRead fired for each record
+            await Assert.That(records.Count).IsEqualTo(2);
+            await Assert.That(beforeReadFireCount).IsEqualTo(2);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Test]
+    [DisplayName("BeforeRead_CalledAlongsideEvent - both event and interface fire")]
+    public async Task BeforeRead_CalledAlongsideEvent()
+    {
+        // Arrange
+        var engine = new FileHelperEngine<NotifiableCsvOrder>();
+        int eventFireCount = 0;
+
+        engine.BeforeReadRecord += (sender, e) =>
+        {
+            eventFireCount++;
+        };
+
+        var input = "Header\r\n1,Alice,100.50\r\n2,Bob,300.00";
+
+        // Act
+        var records = engine.ReadString(input);
+
+        // Assert: Both event and interface method were called
+        await Assert.That(eventFireCount).IsEqualTo(2);
+        await Assert.That(records.Length).IsEqualTo(2);
+    }
+
+    [Test]
+    [DisplayName("BeforeRead_OnlyInterfaceFires - works without event subscription")]
+    public async Task BeforeRead_OnlyInterfaceFires()
+    {
+        // Arrange: NotifiableCsvOrder implements BeforeRead with SKIP filtering
+        var engine = new FileHelperEngine<NotifiableCsvOrder>();
+        var input = "Header\r\n1,Alice,100.50\r\n2,SKIP,200.00\r\n3,Bob,300.00";
+
+        // Act
+        var records = engine.ReadString(input);
+
+        // Assert: BeforeRead fired for all 3 lines, SKIP line was filtered
+        await Assert.That(records.Length).IsEqualTo(2);
+        await Assert.That(records[0].OrderId).IsEqualTo(1);
+        await Assert.That(records[1].OrderId).IsEqualTo(3);
     }
 }

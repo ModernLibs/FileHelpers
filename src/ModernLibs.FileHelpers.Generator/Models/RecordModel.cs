@@ -13,16 +13,17 @@ internal sealed record RecordModel(
     string RecordKind,
     string Delimiter,
     EquatableArray<FieldModel> Fields,
-    string? FixedMode = null,              // null for delimited; "ExactLength"/"AllowMoreChars"/etc for fixed
-    int IgnoreFirst = 0,                    // from [IgnoreFirst(N)]
-    int IgnoreLast = 0,                     // from [IgnoreLast(N)]
-    bool IgnoreEmptyLines = false,          // from [IgnoreEmptyLines]
-    char CommentMarker = '\0',              // from [IgnoreCommentedLines(char)]
-    int Condition = 0,                      // from [ConditionalRecord(RecordCondition, string)]; 0 = RecordCondition.None
-    string ConditionPattern = "",           // from [ConditionalRecord(RecordCondition, string)]
-    int MultilineMode = 3,                  // Phase 18: from [DelimitedRecord(MultilineMode)]; 3 = MultilineMode.NotAllow
-    int QuoteUnescapeMode = 0,              // Phase 36: from [DelimitedRecord(QuoteUnescapeMode)]; 0 = None
-    int TrimMode = 0,                       // Phase 36: from [DelimitedRecord(TrimMode)]; 0 = None
-    bool HasHeader = false,                 // Phase 38: from [DelimitedRecord(HasHeader)]
-    bool IsRefStruct = false)               // Phase 44: true if type is a ref struct
+    string? FixedMode = null,
+    int IgnoreFirst = 0,
+    int IgnoreLast = 0,
+    bool IgnoreEmptyLines = false,
+    char CommentMarker = '\0',
+    int Condition = 0,
+    string ConditionPattern = "",
+    int MultilineMode = 3,
+    int QuoteUnescapeMode = 0,
+    int TrimMode = 0,
+    bool HasHeader = false,
+    bool IsRefStruct = false,
+    bool ImplementsNotifyRead = false)
     ;

@@ -100,6 +100,9 @@ internal static class RecordModelExtractor
             }
         }
 
+        // Detect INotifyRead<T> implementation for partial method emission
+        bool implementsNotifyRead = ImplementsINotifyRead(typeSymbol, ctx.SemanticModel.Compilation);
+
         // Extract fields: public instance fields and properties only.
         // Phase 50 GAP-03: Walk inheritance chain to include base class members.
         // GetMembers() returns inherited members from referenced assemblies but may not
@@ -154,6 +157,7 @@ internal static class RecordModelExtractor
             char quoteChar = '"';
             string? fieldDelimiter = null;  // FDEL-01: per-field delimiter override from [FieldDelimiter]
             string? unrecognisedConverterType = null;
+            string? missingParameterlessCtor = null;  // Phase 57 DX-01: recognized converter type lacks public parameterless ctor
             bool directSpanConverter = false;
             int? alignMode = null;  // Phase 12: 0=Left, 1=Center, 2=Right
             char? alignChar = null; // Phase 12: custom pad char, null = space
@@ -268,16 +272,29 @@ internal static class RecordModelExtractor
                         {
                             if (IsConverterBaseSubtype(typeSym))
                             {
-                                converterTypeName = typeSym.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                                converterKind = GeneratorConverterKind.None;
+                                if (HasPublicParameterlessConstructor(typeSym))
+                                {
+                                    converterTypeName = typeSym.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                                    converterKind = GeneratorConverterKind.None;
+                                }
+                                else
+                                {
+                                    missingParameterlessCtor = typeSym.ToDisplayString();
+                                }
                             }
                             else if (memberType is not null
-                                     && ImplementsSpanConverterForField(typeSym, memberType, ctx.SemanticModel.Compilation)
-                                     && HasPublicParameterlessConstructor(typeSym))
+                                     && ImplementsSpanConverterForField(typeSym, memberType, ctx.SemanticModel.Compilation))
                             {
-                                converterTypeName = typeSym.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                                converterKind = GeneratorConverterKind.None;
-                                directSpanConverter = true;
+                                if (HasPublicParameterlessConstructor(typeSym))
+                                {
+                                    converterTypeName = typeSym.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                                    converterKind = GeneratorConverterKind.None;
+                                    directSpanConverter = true;
+                                }
+                                else
+                                {
+                                    missingParameterlessCtor = typeSym.ToDisplayString();
+                                }
                             }
                             else
                             {
@@ -331,7 +348,8 @@ internal static class RecordModelExtractor
                 IsInNewLine: isInNewLine,  // Phase 14 MLIN-01
                 FieldName: fieldName,  // Phase 38 HDR-03
                 Caption: fieldCaption,  // Phase 50 GAP-02
-                CultureName: cultureName));  // Phase 51 GAP-04
+                CultureName: cultureName,  // Phase 51 GAP-04
+                MissingParameterlessCtorTypeName: missingParameterlessCtor));  // Phase 57 DX-01
         }
 
         // Sort by order for deterministic output (SGEN-11).
@@ -356,7 +374,8 @@ internal static class RecordModelExtractor
             QuoteUnescapeMode: quoteUnescapeMode,
             TrimMode: recordTrimMode,
             HasHeader: hasHeader,
-            IsRefStruct: isRefStruct);
+            IsRefStruct: isRefStruct,
+            ImplementsNotifyRead: implementsNotifyRead);
     }
 
     internal static RecordModel? ExtractFixedLength(
@@ -409,6 +428,9 @@ internal static class RecordModelExtractor
             }
         }
 
+        // Detect INotifyRead<T> implementation for partial method emission
+        bool implementsNotifyReadFixed = ImplementsINotifyRead(typeSymbol, ctx.SemanticModel.Compilation);
+
         // Extract fields: public instance fields and properties only.
         // Phase 50 GAP-03: Walk inheritance chain to include base class members.
         var allMembersFixed = GetAllMembers(typeSymbol, ct);
@@ -459,6 +481,7 @@ internal static class RecordModelExtractor
             char quoteChar = '"';
             string? fieldDelimiter = null;  // FDEL-01: per-field delimiter override from [FieldDelimiter]
             string? unrecognisedConverterType = null;
+            string? missingParameterlessCtor = null;  // Phase 57 DX-01: recognized converter type lacks public parameterless ctor
             bool directSpanConverter = false;
             int? alignMode = null;  // Phase 12: 0=Left, 1=Center, 2=Right
             char? alignChar = null; // Phase 12: custom pad char, null = space
@@ -556,16 +579,29 @@ internal static class RecordModelExtractor
                         {
                             if (IsConverterBaseSubtype(typeSym))
                             {
-                                converterTypeName = typeSym.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                                converterKind = GeneratorConverterKind.None;
+                                if (HasPublicParameterlessConstructor(typeSym))
+                                {
+                                    converterTypeName = typeSym.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                                    converterKind = GeneratorConverterKind.None;
+                                }
+                                else
+                                {
+                                    missingParameterlessCtor = typeSym.ToDisplayString();
+                                }
                             }
                             else if (memberType is not null
-                                     && ImplementsSpanConverterForField(typeSym, memberType, ctx.SemanticModel.Compilation)
-                                     && HasPublicParameterlessConstructor(typeSym))
+                                     && ImplementsSpanConverterForField(typeSym, memberType, ctx.SemanticModel.Compilation))
                             {
-                                converterTypeName = typeSym.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                                converterKind = GeneratorConverterKind.None;
-                                directSpanConverter = true;
+                                if (HasPublicParameterlessConstructor(typeSym))
+                                {
+                                    converterTypeName = typeSym.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                                    converterKind = GeneratorConverterKind.None;
+                                    directSpanConverter = true;
+                                }
+                                else
+                                {
+                                    missingParameterlessCtor = typeSym.ToDisplayString();
+                                }
                             }
                             else
                             {
@@ -624,7 +660,8 @@ internal static class RecordModelExtractor
                 IsInNewLine: isInNewLine,  // Phase 14 MLIN-01
                 FieldName: null,  // Phase 38: FieldName not applicable to fixed-length
                 Caption: fieldCaption,  // Phase 50 GAP-02
-                CultureName: cultureName));  // Phase 51 GAP-04
+                CultureName: cultureName,  // Phase 51 GAP-04
+                MissingParameterlessCtorTypeName: missingParameterlessCtor));  // Phase 57 DX-01
         }
 
         var sortedArray = fields
@@ -642,7 +679,8 @@ internal static class RecordModelExtractor
             CommentMarker: commentMarker,
             Condition: condition,
             ConditionPattern: conditionPattern,
-            IsRefStruct: isRefStruct);
+            IsRefStruct: isRefStruct,
+            ImplementsNotifyRead: implementsNotifyReadFixed);
     }
 
     /// <summary>
@@ -783,6 +821,29 @@ internal static class RecordModelExtractor
                 continue;
 
             return ctor.DeclaredAccessibility == Accessibility.Public;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Detects whether <paramref name="typeSymbol"/> implements <c>INotifyRead&lt;T&gt;</c>.
+    /// Used by the generator to decide whether to emit partial method implementations.
+    /// </summary>
+    private static bool ImplementsINotifyRead(INamedTypeSymbol typeSymbol, Compilation compilation)
+    {
+        INamedTypeSymbol? ifaceTemplate = compilation.GetTypeByMetadataName("ModernLibs.FileHelpers.INotifyRead`1");
+        if (ifaceTemplate is null)
+            return false;
+
+        foreach (INamedTypeSymbol iface in typeSymbol.AllInterfaces)
+        {
+            if (!SymbolEqualityComparer.Default.Equals(iface.OriginalDefinition, ifaceTemplate))
+                continue;
+            if (iface.TypeArguments.Length != 1)
+                continue;
+            if (SymbolEqualityComparer.Default.Equals(iface.TypeArguments[0], typeSymbol))
+                return true;
         }
 
         return false;

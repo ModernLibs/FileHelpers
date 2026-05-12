@@ -1,0 +1,68 @@
+name: Fuzz Testing
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly extended fuzzing run — Sunday at 00:00 UTC
+    - cron: '0 0 * * 0'
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Fuzz Testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build fuzz test project
+        run: dotnet build tests/ModernLibs.FileHelpers.Fuzz.Tests/ --configuration Release --no-restore
+
+      - name: Run fuzz targets against seed corpus
+        run: |
+          for target in delimited spanline fixedlength converters; do
+            echo "Running fuzz target: $target"
+            for file in tests/ModernLibs.FileHelpers.Fuzz.Tests/FuzzCorpus/*.txt; do
+              dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests/ -c Release --no-build -- "$target" < "$file"
+            done
+          done
+
+      - name: Run TUnit fuzz tests
+        run: >-
+          ./tests/ModernLibs.FileHelpers.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Tests
+          --disable-logo
+          --output Detailed
+        env:
+          DOTNET_ROOT: ${{ runner.tool_cache }}/dotnet
+
+      # Weekly extended run — save corpus artifacts
+      - name: Save corpus artifacts (weekly)
+        if: github.event_name == 'schedule'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-corpus
+          path: tests/ModernLibs.FileHelpers.Fuzz.Tests/FuzzCorpus/
+          retention-days: 30

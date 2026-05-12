@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using Microsoft.CodeAnalysis;
@@ -18,6 +19,9 @@ public sealed class FileHelpersGenerator : IIncrementalGenerator
 {
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
+        // ---- .editorconfig threshold pipeline (MLFH007) ----
+        IncrementalValueProvider<int> configProvider = CreateConfigProvider(context);
+
         // ---- [DelimitedRecord] pipeline arm ----
         // ForAttributeWithMetadataName filters at Roslyn's internal attribute index (~99% skipped).
         // All lambdas MUST be static to prevent closure capture (breaks caching).
@@ -33,7 +37,8 @@ public sealed class FileHelpersGenerator : IIncrementalGenerator
             .Select(static (m, _) => m!)
             .WithTrackingName(TrackingNames.DelimitedFiltered);
 
-        context.RegisterSourceOutput(validDelimited, static (spc, model) => EmitDelimited(spc, model));
+        var delimitedWithConfig = validDelimited.Combine(configProvider);
+        context.RegisterSourceOutput(delimitedWithConfig, static (spc, tuple) => EmitDelimited(spc, tuple.Left, tuple.Right));
 
         // ---- [FixedLengthRecord] pipeline arm (SGEN-06, SGEN-08) ----
         IncrementalValuesProvider<RecordModel?> rawFixed = context.SyntaxProvider
@@ -48,7 +53,8 @@ public sealed class FileHelpersGenerator : IIncrementalGenerator
             .Select(static (m, _) => m!)
             .WithTrackingName(TrackingNames.FixedLengthFiltered);
 
-        context.RegisterSourceOutput(validFixed, static (spc, model) => EmitFixedLength(spc, model));
+        var fixedWithConfig = validFixed.Combine(configProvider);
+        context.RegisterSourceOutput(fixedWithConfig, static (spc, tuple) => EmitFixedLength(spc, tuple.Left, tuple.Right));
 
         // ---- MLFH001 engine-usage detection arm (SGEN-07) ----
         // Detects FileHelperRegistry<T> or FileHelperEngine<T> where T lacks a record attribute.
@@ -70,13 +76,35 @@ public sealed class FileHelpersGenerator : IIncrementalGenerator
                 typeName)));
     }
 
+    private static IncrementalValueProvider<int> CreateConfigProvider(IncrementalGeneratorInitializationContext context)
+    {
+        return context.AnalyzerConfigOptionsProvider
+            .Select(static (options, ct) =>
+            {
+                ct.ThrowIfCancellationRequested();
+                if (options.GlobalOptions.TryGetValue("build_property.filehelpers_max_field_width", out string? raw)
+                    && int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int threshold)
+                    && threshold > 0)
+                {
+                    return threshold;
+                }
+                return 1000; // default threshold
+            })
+            .WithTrackingName("FileHelpers.ConfigThreshold");
+    }
+
     /// <summary>
     /// RegisterSourceOutput handler for the Delimited arm.
     /// Checks MLFH003 (duplicate [FieldOrder]), MLFH004 (unrecognised [FieldConverter(typeof)]
-    /// type), and MLFH005 (invalid ConditionalRecord regex) before emitting the descriptor.
+    /// type), MLFH005 (invalid ConditionalRecord regex), MLFH006 (missing parameterless ctor),
+    /// MLFH007 (excessive field width), MLFH008 (field order gaps), and MLFH009 (no public fields)
+    /// before emitting the descriptor.
     /// </summary>
-    private static void EmitDelimited(SourceProductionContext spc, RecordModel model)
+    private static void EmitDelimited(SourceProductionContext spc, RecordModel model, int maxFieldWidth)
     {
+        // MLFH009: warn if record has no public fields (non-suppressing)
+        ReportNoPublicFields(spc, model);
+
         // MLFH003: consecutive-pairs duplicate detection on the already-sorted Fields array.
         if (ReportDuplicateOrders(spc, model)) return; // suppress descriptor — layout is ambiguous
 
@@ -88,17 +116,30 @@ public sealed class FileHelpersGenerator : IIncrementalGenerator
         // MLFH005 (CREC-11): validate ConditionalRecord regex patterns at compile time
         if (ReportInvalidConditionalRecordRegex(spc, model)) return; // suppress descriptor for invalid regex
 
+        // MLFH006: warn on recognized converter types lacking parameterless constructor (non-suppressing)
+        ReportMissingParameterlessConstructor(spc, model);
+
+        // MLFH007: warn on excessive field width (non-suppressing)
+        ReportExcessiveFieldWidth(spc, model, maxFieldWidth);
+
+        // MLFH008: warn on gaps in FieldOrder sequence (non-suppressing)
+        ReportFieldOrderGaps(spc, model);
+
         DescriptorEmitter.Emit(spc, model);
     }
 
     /// <summary>
     /// RegisterSourceOutput handler for the FixedLength arm.
     /// Checks MLFH002 (missing [FieldFixedLength]), MLFH003 (duplicate [FieldOrder]),
-    /// MLFH004 (unrecognised [FieldConverter(typeof)] type), and MLFH005 (invalid ConditionalRecord
-    /// regex) before emitting.
+    /// MLFH004 (unrecognised [FieldConverter(typeof)] type), MLFH005 (invalid ConditionalRecord
+    /// regex), MLFH006 (missing parameterless ctor), MLFH007 (excessive field width),
+    /// MLFH008 (field order gaps), and MLFH009 (no public fields) before emitting.
     /// </summary>
-    private static void EmitFixedLength(SourceProductionContext spc, RecordModel model)
+    private static void EmitFixedLength(SourceProductionContext spc, RecordModel model, int maxFieldWidth)
     {
+        // MLFH009: warn if record has no public fields (non-suppressing)
+        ReportNoPublicFields(spc, model);
+
         // MLFH002: emit diagnostic for each field missing / non-positive [FieldFixedLength].
         // WR-05: widened the check from `< 0` (attribute missing) to `<= 0` (missing OR
         // explicitly zero-width). A zero-width field silently reads empty slices and writes
@@ -129,6 +170,15 @@ public sealed class FileHelpersGenerator : IIncrementalGenerator
 
         // MLFH005 (CREC-11): validate ConditionalRecord regex patterns at compile time
         if (ReportInvalidConditionalRecordRegex(spc, model)) return; // suppress descriptor for invalid regex
+
+        // MLFH006: warn on recognized converter types lacking parameterless constructor (non-suppressing)
+        ReportMissingParameterlessConstructor(spc, model);
+
+        // MLFH007: warn on excessive field width (non-suppressing)
+        ReportExcessiveFieldWidth(spc, model, maxFieldWidth);
+
+        // MLFH008: warn on gaps in FieldOrder sequence (non-suppressing)
+        ReportFieldOrderGaps(spc, model);
 
         DescriptorEmitter.Emit(spc, model);
     }
@@ -212,6 +262,99 @@ public sealed class FileHelpersGenerator : IIncrementalGenerator
         }
     }
 #pragma warning restore MA0009
+
+    /// <summary>
+    /// Phase 57 DX-01: Reports MLFH006 for every field where a recognized converter type
+    /// (ConverterBase subtype or ISpanConverter implementor) lacks a public parameterless constructor.
+    /// Non-suppressing: descriptor emission continues.
+    /// </summary>
+    private static void ReportMissingParameterlessConstructor(SourceProductionContext spc, RecordModel model)
+    {
+        foreach (var field in model.Fields)
+        {
+            if (field.MissingParameterlessCtorTypeName is null) continue;
+            spc.ReportDiagnostic(Diagnostic.Create(
+                DiagnosticDescriptors.MLFH006MissingParameterlessCtor,
+                Location.None,
+                field.Name,
+                model.TypeName,
+                field.MissingParameterlessCtorTypeName));
+        }
+    }
+
+    /// <summary>
+    /// Phase 57 DX-01: Reports MLFH007 for fields with [FieldFixedLength] exceeding the
+    /// configured threshold. Non-suppressing.
+    /// </summary>
+    private static void ReportExcessiveFieldWidth(SourceProductionContext spc, RecordModel model, int threshold)
+    {
+        foreach (var field in model.Fields)
+        {
+            if (field.FixedLength <= 0) continue; // skip unset sentinel and non-fixed fields
+            if (field.FixedLength > threshold)
+            {
+                spc.ReportDiagnostic(Diagnostic.Create(
+                    DiagnosticDescriptors.MLFH007ExcessiveFieldWidth,
+                    Location.None,
+                    field.Name,
+                    model.TypeName,
+                    field.FixedLength,
+                    threshold));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Phase 57 DX-01: Reports MLFH008 when [FieldOrder] values have gaps in the sequence.
+    /// Only fires when at least one field has an explicit [FieldOrder] annotation.
+    /// Non-suppressing.
+    /// </summary>
+    private static void ReportFieldOrderGaps(SourceProductionContext spc, RecordModel model)
+    {
+        if (model.Fields.Length < 2) return;
+
+        // Check if any field has an explicit FieldOrder (differs from declaration index)
+        bool hasExplicitOrder = false;
+        foreach (var field in model.Fields)
+        {
+            if (field.Order != field.DeclarationIndex)
+            {
+                hasExplicitOrder = true;
+                break;
+            }
+        }
+        if (!hasExplicitOrder) return; // implicit 0,1,2,3 ordering has no gaps
+
+        // Sweep through sorted fields looking for gaps
+        for (int i = 1; i < model.Fields.Length; i++)
+        {
+            if (model.Fields[i].Order - model.Fields[i - 1].Order > 1)
+            {
+                spc.ReportDiagnostic(Diagnostic.Create(
+                    DiagnosticDescriptors.MLFH008FieldOrderGaps,
+                    Location.None,
+                    model.TypeName,
+                    model.Fields[i - 1].Order,
+                    model.Fields[i].Order));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Phase 57 DX-01: Reports MLFH009 when a record type has no public fields or properties.
+    /// Non-suppressing.
+    /// </summary>
+    private static void ReportNoPublicFields(SourceProductionContext spc, RecordModel model)
+    {
+        if (model.Fields.Length == 0)
+        {
+            spc.ReportDiagnostic(Diagnostic.Create(
+                DiagnosticDescriptors.MLFH009NoPublicFields,
+                Location.None,
+                model.TypeName,
+                model.TypeKind));
+        }
+    }
 
     /// <summary>
     /// Checks whether the single type argument of a FileHelperRegistry&lt;T&gt; or

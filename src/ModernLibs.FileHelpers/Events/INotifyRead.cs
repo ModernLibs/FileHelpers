@@ -25,11 +25,8 @@ namespace ModernLibs.FileHelpers;
 /// </para>
 ///
 /// <para>
-/// <strong>Limitation:</strong> <see cref="BeforeRead"/> is not called during read operations
-/// because the record instance does not exist yet before parsing. Only <see cref="AfterRead"/>
-/// is invoked for read operations. Both methods are available for scenarios where the record
-/// instance creates itself (e.g., factory patterns). For write operations, both
-/// <see cref="INotifyWrite{T}.BeforeWrite"/> and <see cref="INotifyWrite{T}.AfterWrite"/> are fully supported.
+/// For write operations, both <see cref="INotifyWrite{T}.BeforeWrite"/> and
+/// <see cref="INotifyWrite{T}.AfterWrite"/> are fully supported.
 /// </para>
 /// </summary>
 /// <typeparam name="T">The record type implementing this interface.</typeparam>
@@ -47,9 +44,9 @@ public interface INotifyRead<T>
     /// Modifying <see cref="BeforeReadEventArgs{T}.RecordLine"/> changes the content that will be parsed.
     /// </para>
     /// <para>
-    /// <strong>Note:</strong> This method is called during write operations (when the record instance exists),
-    /// but NOT during read operations because the record doesn't exist before parsing. For read-time
-    /// notification, use engine-level <see cref="FileHelperEngine{T}.BeforeReadRecord"/> events.
+    /// <strong>Note:</strong> The record instance passed to this method is a default instance
+    /// (<c>default(T)</c> for structs, <c>new T()</c> for classes) created before parsing.
+    /// Field values are not yet populated.
     /// </para>
     /// </remarks>
     void BeforeRead(BeforeReadEventArgs<T> e);

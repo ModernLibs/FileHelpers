@@ -341,4 +341,282 @@ public sealed class DelimitedFieldEnumeratorMutationTests
         Assert.True(DelimitedFieldEnumerator.HasUnclosedQuote("\"hello"));
         Assert.False(DelimitedFieldEnumerator.HasUnclosedQuote("\"\""));
     }
+
+    // --- Mutation-sensitive tests targeting surviving mutants ---
+
+    [Fact]
+    public void MoveNext_SingleCharDelimiter_DelimiterAtStartOfRemaining()
+    {
+        // Targets: afterClose.IndexOf(delimiter[0]) == 0 path (line 196-201)
+        // Mutation: changing delimIdx == 0 to delimIdx != 0 would break this
+        var enumerator = new DelimitedFieldEnumerator("\"a\",,b".AsSpan(), ",");
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("a", enumerator.Current);
+        Assert.True(enumerator.MoveNext());
+        Assert.True(enumerator.Current.IsEmpty);
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("b", enumerator.Current);
+        Assert.False(enumerator.MoveNext());
+    }
+
+    [Fact]
+    public void MoveNext_QuotedField_NoDelimiterAfterClose_SetsAtEnd()
+    {
+        // Targets: delimIdx < 0 path after closing quote (line 203-206)
+        // Mutation: changing delimIdx < 0 to delimIdx >= 0 would break this
+        var enumerator = new DelimitedFieldEnumerator("\"a\"b".AsSpan(), ",");
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("a", enumerator.Current);
+        Assert.False(enumerator.MoveNext()); // atEnd should be true
+    }
+
+    [Fact]
+    public void MoveNext_QuotedField_DelimiterNotAtStart_SkipsContent()
+    {
+        // Targets: delimIdx > 0 path (line 208-211) — lenient skip of content between close and delimiter
+        // Mutation: changing delimIdx + delimiter.Length would produce wrong remaining
+        var enumerator = new DelimitedFieldEnumerator("\"a\"XYZ,b".AsSpan(), ",");
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("a", enumerator.Current);
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("b", enumerator.Current);
+        Assert.False(enumerator.MoveNext());
+    }
+
+    [Fact]
+    public void MoveNext_QuotedField_EscapePath_DelimiterAtStart()
+    {
+        // Targets: escape path delimIdx == 0 (line 273-275)
+        var enumerator = new DelimitedFieldEnumerator("\"a\"\"b\",c".AsSpan(), ",");
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("a\"b", enumerator.Current);
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("c", enumerator.Current);
+        Assert.False(enumerator.MoveNext());
+    }
+
+    [Fact]
+    public void MoveNext_QuotedField_EscapePath_NoDelimiterAfterClose()
+    {
+        // Targets: escape path delimIdx < 0 (line 277-280)
+        var enumerator = new DelimitedFieldEnumerator("\"a\"\"b\"c".AsSpan(), ",");
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("a\"b", enumerator.Current);
+        Assert.False(enumerator.MoveNext()); // atEnd should be true
+    }
+
+    [Fact]
+    public void MoveNext_QuotedField_EscapePath_DelimiterNotAtStart()
+    {
+        // Targets: escape path delimIdx > 0 (line 282-284)
+        var enumerator = new DelimitedFieldEnumerator("\"a\"\"b\"XYZ,c".AsSpan(), ",");
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("a\"b", enumerator.Current);
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("c", enumerator.Current);
+        Assert.False(enumerator.MoveNext());
+    }
+
+    [Fact]
+    public void MoveNext_QuotedField_EscapePath_NoCloseQuote_LenientCopiesRest()
+    {
+        // Targets: escape path q < 0 branch (line 234-241)
+        var enumerator = new DelimitedFieldEnumerator("\"a\"\"b".AsSpan(), ",");
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("a\"b", enumerator.Current);
+        Assert.False(enumerator.MoveNext());
+    }
+
+    [Fact]
+    public void MoveNext_QuotedField_EscapePath_EmptyAfterClose_SetsAtEnd()
+    {
+        // Targets: escape path !remaining.IsEmpty == false (line 287-291)
+        var enumerator = new DelimitedFieldEnumerator("\"a\"\"b\"".AsSpan(), ",");
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("a\"b", enumerator.Current);
+        Assert.False(enumerator.MoveNext());
+    }
+
+    [Fact]
+    public void MoveNext_PerFieldDelimiter_IndexWithinBounds_UsesOverride()
+    {
+        // Targets: _fieldIndex < _fieldDelimiters.Length (line 74)
+        var line = "a;b,c".AsSpan();
+        var fieldDelimiters = new string?[] { ";", "," };
+        var enumerator = new DelimitedFieldEnumerator(line, ",", fieldDelimiters);
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("a", enumerator.Current);
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("b", enumerator.Current);
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("c", enumerator.Current);
+        Assert.False(enumerator.MoveNext());
+    }
+
+    [Fact]
+    public void MoveNext_PerFieldDelimiter_IndexBeyondBounds_UsesDefault()
+    {
+        // Targets: _fieldIndex >= _fieldDelimiters.Length falls to default (line 82)
+        var line = "a;b,c,d".AsSpan();
+        var fieldDelimiters = new string?[] { ";" };
+        var enumerator = new DelimitedFieldEnumerator(line, ",", fieldDelimiters);
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("a", enumerator.Current);
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("b", enumerator.Current);
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("c", enumerator.Current);
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("d", enumerator.Current);
+        Assert.False(enumerator.MoveNext());
+    }
+
+    [Fact]
+    public void MoveNext_PerFieldDelimiter_NullEntry_FallsToDefault()
+    {
+        // Targets: _fieldDelimiters[_fieldIndex] is not null check (line 74)
+        var line = "a,b".AsSpan();
+        var fieldDelimiters = new string?[] { null };
+        var enumerator = new DelimitedFieldEnumerator(line, ",", fieldDelimiters);
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("a", enumerator.Current);
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("b", enumerator.Current);
+        Assert.False(enumerator.MoveNext());
+    }
+
+    [Fact]
+    public void MoveNext_PerFieldDelimiter_EmptyStringEntry_FallsToDefault()
+    {
+        // Targets: !string.IsNullOrEmpty(del) check (line 77)
+        var line = "a,b".AsSpan();
+        var fieldDelimiters = new string?[] { "" };
+        var enumerator = new DelimitedFieldEnumerator(line, ",", fieldDelimiters);
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("a", enumerator.Current);
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("b", enumerator.Current);
+        Assert.False(enumerator.MoveNext());
+    }
+
+    [Fact]
+    public void MoveNext_NoQuoteStart_FastPath_DelimiterNotFound()
+    {
+        // Targets: span[0] != '"' fast path with delimIdx < 0 (line 123-128)
+        var enumerator = new DelimitedFieldEnumerator("hello".AsSpan(), ",");
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("hello", enumerator.Current);
+        Assert.False(enumerator.MoveNext());
+    }
+
+    [Fact]
+    public void MoveNext_NoQuoteStart_FastPath_DelimiterFound()
+    {
+        // Targets: span[0] != '"' fast path with delimIdx >= 0 (line 129-133)
+        var enumerator = new DelimitedFieldEnumerator("a,b".AsSpan(), ",");
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("a", enumerator.Current);
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("b", enumerator.Current);
+        Assert.False(enumerator.MoveNext());
+    }
+
+    [Fact]
+    public void MoveNext_QuotedField_NoEscape_DelimiterAtStart()
+    {
+        // Targets: no-escape path delimIdx == 0 (line 196-201)
+        var enumerator = new DelimitedFieldEnumerator("\"hello\",world".AsSpan(), ",");
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("hello", enumerator.Current);
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("world", enumerator.Current);
+        Assert.False(enumerator.MoveNext());
+    }
+
+    [Fact]
+    public void MoveNext_QuotedField_NoEscape_DelimiterNotAtStart_Lenient()
+    {
+        // Targets: no-escape path delimIdx > 0 (line 208-211)
+        var enumerator = new DelimitedFieldEnumerator("\"hello\"XYZ,world".AsSpan(), ",");
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("hello", enumerator.Current);
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("world", enumerator.Current);
+        Assert.False(enumerator.MoveNext());
+    }
+
+    [Fact]
+    public void GetEnumerator_ForeachSupport_IteratesAllFields()
+    {
+        // Targets: GetEnumerator returns self, foreach uses MoveNext/Current
+        var enumerator = new DelimitedFieldEnumerator("a,b,c".AsSpan(), ",");
+        var fields = new System.Collections.Generic.List<string>();
+        foreach (var field in enumerator)
+            fields.Add(field.ToString());
+        Assert.Equal(3, fields.Count);
+        Assert.Equal("a", fields[0]);
+        Assert.Equal("b", fields[1]);
+        Assert.Equal("c", fields[2]);
+    }
+
+    [Fact]
+    public void MoveNext_EmptyQuotedField_FollowedByDelimiter()
+    {
+        // Targets: empty quoted "" with delimiter at position 0
+        var enumerator = new DelimitedFieldEnumerator("\"\",b".AsSpan(), ",");
+        Assert.True(enumerator.MoveNext());
+        Assert.True(enumerator.Current.IsEmpty);
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("b", enumerator.Current);
+        Assert.False(enumerator.MoveNext());
+    }
+
+    [Fact]
+    public void MoveNext_QuotedFieldWithComma_FollowedByEmptyField()
+    {
+        // Targets: quoted field with delimiter inside, followed by empty field
+        var enumerator = new DelimitedFieldEnumerator("\"a,b\",,\"c\"".AsSpan(), ",");
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("a,b", enumerator.Current);
+        Assert.True(enumerator.MoveNext());
+        Assert.True(enumerator.Current.IsEmpty);
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("c", enumerator.Current);
+        Assert.False(enumerator.MoveNext());
+    }
+
+    [Fact]
+    public void MoveNext_MultiCharDelimiter_FoundAtNonZeroPosition()
+    {
+        // Targets: multi-char delimiter scalar search path
+        var enumerator = new DelimitedFieldEnumerator("a|||b|||c".AsSpan(), "|||");
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("a", enumerator.Current);
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("b", enumerator.Current);
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("c", enumerator.Current);
+        Assert.False(enumerator.MoveNext());
+    }
+
+    [Fact]
+    public void MoveNext_QuotedField_UnclosedQuoteWithDelimiter_LenientSetsAtEnd()
+    {
+        // Targets: unclosed quote path with no closing quote found (firstQuote < 0)
+        var enumerator = new DelimitedFieldEnumerator("\"hello,world".AsSpan(), ",");
+        Assert.True(enumerator.MoveNext());
+        Assert.Equal("hello,world", enumerator.Current);
+        Assert.False(enumerator.MoveNext());
+    }
+
+    [Fact]
+    public void MoveNext_AfterEnd_MultipleCalls_ReturnFalse()
+    {
+        // Targets: _atEnd guard (line 102-103) — mutation of _atEnd would break this
+        var enumerator = new DelimitedFieldEnumerator("a".AsSpan(), ",");
+        Assert.True(enumerator.MoveNext());
+        Assert.False(enumerator.MoveNext());
+        Assert.False(enumerator.MoveNext());
+        Assert.False(enumerator.MoveNext());
+    }
 }

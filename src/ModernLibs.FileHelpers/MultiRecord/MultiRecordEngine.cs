@@ -71,7 +71,7 @@ public sealed class MultiRecordEngine
 
             if (recordType is null)
             {
-                var selectorException = CreateSelectorMissException(lineNumber, currentLine);
+                var selectorException = CreateSelectorMissException(lineNumber, currentLine, _recordTypes);
                 switch (ErrorManager.ErrorMode)
                 {
                     case ErrorMode.ThrowException:
@@ -124,14 +124,18 @@ public sealed class MultiRecordEngine
             }
 
             if (recordType is null)
-                throw new ArgumentException($"Record type {record.GetType().Name} is not part of this multi-record engine.", nameof(records));
+            {
+                var availableTypes = string.Join(", ", _recordTypes.Select(t => t.GetType().Name));
+                throw new ArgumentException($"Record type {record.GetType().Name} is not part of this multi-record engine. Available types: {availableTypes}.", nameof(records));
+            }
 
             writer.WriteLine(recordType.Format(record));
         }
     }
 
-    private static FormatException CreateSelectorMissException(int lineNumber, string line)
+    private static FormatException CreateSelectorMissException(int lineNumber, string line, IMultiRecordType[] recordTypes)
     {
-        return new FormatException($"No multi-record selector matched line {lineNumber}: '{line}'.");
+        var types = string.Join(", ", recordTypes.Select(t => t.GetType().Name));
+        return new FormatException($"No multi-record selector matched line {lineNumber}: '{line}'. Available record types: {types}.");
     }
 }

@@ -45,4 +45,14 @@ public interface IRecordDescriptor<T>
     /// Phase 14 MLIN-02: Includes LineCountPerLogicalRecord for multi-line support.
     /// </summary>
     RecordOptions Options { get; }
+
+    /// <summary>
+    /// Creates a default instance of <typeparamref name="T"/> for use with
+    /// <see cref="INotifyRead{T}.BeforeRead"/> before parsing occurs.
+    /// For struct types, returns <c>default(T)</c>. For class types, returns <c>new T()</c>
+    /// (parameterless constructor required — already enforced by the source generator
+    /// for the Parse method).
+    /// </summary>
+    T CreateDefaultInstance();
+
 }

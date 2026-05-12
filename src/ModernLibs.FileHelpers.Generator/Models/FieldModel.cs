@@ -42,5 +42,6 @@ internal sealed record FieldModel(
     bool IsInNewLine = false,                                           // Phase 14 MLIN-01: from [FieldInNewLine]
     string? FieldName = null,                                           // Phase 38 HDR-03: from [FieldName("ColumnName")]
     string? Caption = null,                                             // Phase 50 GAP-02: from [FieldCaption("Display Name")]
-    string? CultureName = null)                                         // Phase 51 GAP-04: from [FieldConverter(CultureName = "fr-FR")]
+    string? CultureName = null,                                         // Phase 51 GAP-04: from [FieldConverter(CultureName = "fr-FR")]
+    string? MissingParameterlessCtorTypeName = null)                     // Phase 57 DX-01: recognized converter type lacks public parameterless ctor — raises MLFH006
     : IEquatable<FieldModel>;

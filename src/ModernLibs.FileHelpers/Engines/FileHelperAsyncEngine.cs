@@ -45,8 +45,10 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
 {
     private readonly IRecordDescriptor<T> _descriptor;
     private readonly RecordConditionMatcher? _conditionMatcher;
-    private readonly bool _implementsNotifyRead;    // INTF-05
     private readonly bool _implementsNotifyWrite;   // INTF-06
+
+    // LIMIT-02: Compile-time detection of INotifyRead<T>
+    private static readonly bool s_hasNotifyRead = typeof(INotifyRead<T>).IsAssignableFrom(typeof(T));
 
     // ---- Reader state -------------------------------------------------------
     private TextReader? _reader;
@@ -98,8 +100,7 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
         // is emitted by the source generator for class types only). Struct types return null here.
         _recyclable = _descriptor as IRecyclableDescriptor<T>;
 
-        // INTF-05, INTF-06: Detect interface implementation once at construction
-        _implementsNotifyRead = typeof(INotifyRead<T>).IsAssignableFrom(typeof(T));
+        // INTF-06: Detect interface implementation once at construction
         _implementsNotifyWrite = typeof(INotifyWrite<T>).IsAssignableFrom(typeof(T));
 
         // CREC-11: Initialize matcher once per engine instance
@@ -288,10 +289,24 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
             }
 
             string activeLine = line;
-            if (BeforeReadRecord is not null)
+            if (BeforeReadRecord is not null || s_hasNotifyRead)
             {
                 var beforeArgs = new BeforeReadEventArgs<T>(this, activeLine, lineNumber);
-                BeforeReadRecord.Invoke(this, beforeArgs);
+
+                if (BeforeReadRecord is not null)
+                {
+                    BeforeReadRecord.Invoke(this, beforeArgs);
+                }
+
+                if (s_hasNotifyRead)
+                {
+                    var notifyRecord = _descriptor.CreateDefaultInstance();
+                    if (notifyRecord is INotifyRead<T> notifyRead)
+                    {
+                        notifyRead.BeforeRead(beforeArgs);
+                    }
+                }
+
                 if (beforeArgs.StopReading)
                 {
                     _earlyStop = true;
@@ -342,7 +357,7 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
             }
 
             // INTF-05, INTF-07: AfterRead event and interface notification
-            if (AfterReadRecord is not null || _implementsNotifyRead)
+            if (AfterReadRecord is not null || s_hasNotifyRead)
             {
                 var afterArgs = new AfterReadEventArgs<T>(this, record, activeLine, lineNumber);
 
@@ -353,7 +368,7 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
                         continue;
                 }
 
-                if (_implementsNotifyRead && record is INotifyRead<T> notifyRead)
+                if (s_hasNotifyRead && record is INotifyRead<T> notifyRead)
                 {
                     notifyRead.AfterRead(afterArgs);
                     if (afterArgs.SkipThisRecord)
@@ -426,17 +441,8 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
     /// ENGI-11: Returns an <see cref="IAsyncEnumerable{T}"/> that streams records from
     /// <paramref name="filePath"/> via <see cref="PipelineLineReader"/>.
     /// Honors <see cref="IgnoreFirstAttribute"/>, <see cref="IgnoreEmptyLinesAttribute"/>,
-    /// and <see cref="IgnoreCommentedLinesAttribute"/> filters.
+    /// <see cref="IgnoreCommentedLinesAttribute"/>, and <see cref="IgnoreLastAttribute"/>.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <strong>Known limitation:</strong> <see cref="IgnoreLastAttribute"/> is <em>not</em> honored
-    /// by this method. Trailing lines that would be skipped by <c>[IgnoreLast(N)]</c> will be
-    /// parsed as data records instead. Use <see cref="BeginReadFile"/>/<see cref="ReadNext()"/>
-    /// (the blocking pull model) when <c>IgnoreLast</c> semantics are required — it implements a
-    /// ring-buffer that correctly defers the final N lines until EOF is confirmed.
-    /// </para>
-    /// </remarks>
     /// <param name="filePath">Path to the file to read. Must not be null.</param>
     /// <param name="cancellationToken">
     /// Cancellation token. The <c>[EnumeratorCancellation]</c> attribute ensures callers using
@@ -459,6 +465,15 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
         var lineBuffer = new StringBuilder();
         int multilineStartLine = 0;
         bool isBuffering = false;
+
+        // LIMIT-01: tail buffer for IgnoreLast in async streaming
+        Queue<T>? tailBuffer = null;
+        Queue<int>? tailLineNumbers = null;
+        if (opts.IgnoreLast > 0)
+        {
+            tailBuffer = new Queue<T>(opts.IgnoreLast + 1);
+            tailLineNumbers = new Queue<int>(opts.IgnoreLast + 1);
+        }
 
         using var stream = File.OpenRead(filePath);
         await using var lineReader = new PipelineLineReader(stream, Encoding);
@@ -511,6 +526,38 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
 
                         cancellationToken.ThrowIfCancellationRequested();
 
+                        // LIMIT-02: BeforeRead event and interface notification
+                        if (BeforeReadRecord is not null || s_hasNotifyRead)
+                        {
+                            var beforeReadArgs = new BeforeReadEventArgs<T>(this, assembled, multilineStartLine);
+
+                            if (BeforeReadRecord is not null)
+                            {
+                                BeforeReadRecord.Invoke(this, beforeReadArgs);
+                            }
+
+                            if (s_hasNotifyRead)
+                            {
+                                var notifyRecord = _descriptor.CreateDefaultInstance();
+                                if (notifyRecord is INotifyRead<T> notifyReadBefore)
+                                {
+                                    notifyReadBefore.BeforeRead(beforeReadArgs);
+                                }
+                            }
+
+                            if (beforeReadArgs.StopReading)
+                            {
+                                lineBuffer.Clear();
+                                yield break;
+                            }
+                            if (beforeReadArgs.SkipThisRecord)
+                            {
+                                lineBuffer.Clear();
+                                continue;
+                            }
+                            // RecordLineChanged not applicable for multiline (assembled line is fixed)
+                        }
+
                         // Phase 18: Parse multiline record - error handling outside try-catch for yield compatibility
                         var parseResult = TryParseRecord(assembled, opts.Delimiter, _descriptor.Fields.Length, multilineStartLine, out var parsed);
                         if (!parseResult.Success)
@@ -525,7 +572,7 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
                         lineBuffer.Clear();
 
                         // INTF-05, INTF-07: AfterRead interface notification
-                        if (_implementsNotifyRead && parsed is INotifyRead<T> notifyRead)
+                        if (s_hasNotifyRead && parsed is INotifyRead<T> notifyRead)
                         {
                             var afterArgs = new AfterReadEventArgs<T>(this, parsed, assembled, multilineStartLine);
                             notifyRead.AfterRead(afterArgs);
@@ -533,7 +580,27 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
                                 continue;
                         }
 
-                        yield return parsed!;
+                        // LIMIT-01: tail buffer logic
+                        if (tailBuffer is not null)
+                        {
+                            tailBuffer.Enqueue(parsed!);
+                            tailLineNumbers!.Enqueue(multilineStartLine);
+                            if (tailBuffer.Count > opts.IgnoreLast)
+                            {
+                                var toYield = tailBuffer.Dequeue();
+                                LineNumber = tailLineNumbers.Dequeue();
+                                TotalRecords++;
+                                LastRecord = toYield;
+                                yield return toYield;
+                            }
+                        }
+                        else
+                        {
+                            TotalRecords++;
+                            LineNumber = multilineStartLine;
+                            LastRecord = parsed;
+                            yield return parsed!;
+                        }
                     }
                     continue;  // Still buffering or just processed
                 }
@@ -551,8 +618,38 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
 
             cancellationToken.ThrowIfCancellationRequested();
 
+            // LIMIT-02: BeforeRead event and interface notification
+            string lineStr = line.Span.ToString();
+            if (BeforeReadRecord is not null || s_hasNotifyRead)
+            {
+                var beforeReadArgs = new BeforeReadEventArgs<T>(this, lineStr, lineNumber);
+
+                if (BeforeReadRecord is not null)
+                {
+                    BeforeReadRecord.Invoke(this, beforeReadArgs);
+                }
+
+                if (s_hasNotifyRead)
+                {
+                    var notifyRecord = _descriptor.CreateDefaultInstance();
+                    if (notifyRecord is INotifyRead<T> notifyReadBefore)
+                    {
+                        notifyReadBefore.BeforeRead(beforeReadArgs);
+                    }
+                }
+
+                if (beforeReadArgs.StopReading)
+                    yield break;
+                if (beforeReadArgs.SkipThisRecord)
+                    continue;
+                if (beforeReadArgs.RecordLineChanged)
+                {
+                    lineStr = beforeReadArgs.RecordLine;
+                }
+            }
+
             // Phase 18: Parse single-line record - error handling outside try-catch for yield compatibility
-            var singleParseResult = TryParseRecord(line.Span.ToString(), opts.Delimiter, _descriptor.Fields.Length, lineNumber, out var singleParsed);
+            var singleParseResult = TryParseRecord(lineStr, opts.Delimiter, _descriptor.Fields.Length, lineNumber, out var singleParsed);
             if (!singleParseResult.Success)
             {
                 if (singleParseResult.ShouldContinue)
@@ -561,15 +658,35 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
             }
 
             // INTF-05, INTF-07: AfterRead interface notification for async enumerable
-            if (_implementsNotifyRead && singleParsed is INotifyRead<T> notifyReadSingle)
+            if (s_hasNotifyRead && singleParsed is INotifyRead<T> notifyReadSingle)
             {
-                var afterArgs = new AfterReadEventArgs<T>(this, singleParsed!, line.Span.ToString(), lineNumber);
+                var afterArgs = new AfterReadEventArgs<T>(this, singleParsed!, lineStr, lineNumber);
                 notifyReadSingle.AfterRead(afterArgs);
                 if (afterArgs.SkipThisRecord)
                     continue;
             }
 
-            yield return singleParsed!;
+            // LIMIT-01: tail buffer logic
+            if (tailBuffer is not null)
+            {
+                tailBuffer.Enqueue(singleParsed!);
+                tailLineNumbers!.Enqueue(lineNumber);
+                if (tailBuffer.Count > opts.IgnoreLast)
+                {
+                    var toYield = tailBuffer.Dequeue();
+                    LineNumber = tailLineNumbers.Dequeue();
+                    TotalRecords++;
+                    LastRecord = toYield;
+                    yield return toYield;
+                }
+            }
+            else
+            {
+                TotalRecords++;
+                LineNumber = lineNumber;
+                LastRecord = singleParsed;
+                yield return singleParsed!;
+            }
         }
 
         // Phase 18 MULT-04: Handle any remaining buffered multiline content at EOF
@@ -579,8 +696,42 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
             var finalParseResult = TryParseRecord(finalLine, opts.Delimiter, _descriptor.Fields.Length, multilineStartLine, out var finalParsed);
             if (finalParseResult.Success)
             {
-                yield return finalParsed!;
+                if (tailBuffer is not null)
+                {
+                    tailBuffer.Enqueue(finalParsed!);
+                    tailLineNumbers!.Enqueue(multilineStartLine);
+                    if (tailBuffer.Count > opts.IgnoreLast)
+                    {
+                        var toYield = tailBuffer.Dequeue();
+                        LineNumber = tailLineNumbers.Dequeue();
+                        TotalRecords++;
+                        LastRecord = toYield;
+                        yield return toYield;
+                    }
+                }
+                else
+                {
+                    TotalRecords++;
+                    LineNumber = multilineStartLine;
+                    LastRecord = finalParsed;
+                    yield return finalParsed!;
+                }
             }
+        }
+
+        // LIMIT-01: capture footer text from remaining tail buffer entries
+        if (tailBuffer is not null && tailBuffer.Count > 0)
+        {
+            var footerLines = new string[tailBuffer.Count];
+            int i = 0;
+            while (tailBuffer.Count > 0)
+            {
+                var rec = tailBuffer.Dequeue();
+                using var buf = new RentedBufferWriter(256);
+                _descriptor.Format(rec, buf);
+                footerLines[i++] = buf.WrittenSpan.ToString();
+            }
+            FooterText = string.Join(NewLineForWrite, footerLines);
         }
     }
 
@@ -974,7 +1125,7 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
         }
 
         if (count != expectedFieldCount)
-            throw new FormatException($"Expected {expectedFieldCount} fields but found {count}.");
+            throw new FormatException($"Expected {expectedFieldCount} fields but found {count} in line: '{line}'. Check that all delimiters are present and no fields contain unescaped delimiter characters.");
     }
 
     private static bool IsDelimiterAt(string line, string delimiter, int index)
@@ -1046,9 +1197,11 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
         }
     }
 
-    private static FormatException CreateParseContextException(int lineNumber, string line, Exception inner)
+    private static FormatException CreateParseContextException(int lineNumber, string line, Exception inner, int columnIndex = -1, string? fieldName = null)
     {
-        return new FormatException($"Error parsing line {lineNumber}: '{line}'. {inner.Message}", inner);
+        var columnInfo = columnIndex >= 0 ? $", column {columnIndex + 1}" : "";
+        var fieldInfo = fieldName != null ? $", field '{fieldName}'" : "";
+        return new FormatException($"Error parsing line {lineNumber}{columnInfo}{fieldInfo}: '{line}'. {inner.Message}", inner);
     }
 
     private readonly record struct BufferedLine(string Text, int LineNumber);

@@ -123,6 +123,24 @@ internal static class DescriptorEmitter
         EmitOptionsProperty(sb, model);
         sb.AppendLine();
 
+        // LIMIT-02: Emit CreateDefaultInstance for INotifyRead<T>.BeforeRead support.
+        // Structs: return default; Classes: return new T(); (parameterless ctor required)
+        if (!isRefStruct)
+        {
+            sb.AppendLine($"    public {fqType} CreateDefaultInstance()");
+            sb.AppendLine("    {");
+            if (isReferenceType)
+            {
+                sb.AppendLine($"        return new {fqType}();");
+            }
+            else
+            {
+                sb.AppendLine($"        return default;");
+            }
+            sb.AppendLine("    }");
+            sb.AppendLine();
+        }
+
         // Static _fields array — fields are already sorted by Order in the extractor (SGEN-11).
         // T-03-09: empty Fields array (Length == 0) emits valid `[]` syntax — no runtime exception.
         sb.AppendLine("    private static readonly global::ModernLibs.FileHelpers.FieldDescriptor[] _fields =");
@@ -219,7 +237,7 @@ internal static class DescriptorEmitter
         }
         sb.AppendLine($"        const int __expectedLines = {expectedLineCount}; // 1 + {expectedLineCount - 1} FieldInNewLine fields");
         sb.AppendLine("        if (lineCount != __expectedLines)");
-        sb.AppendLine("            throw new global::System.FormatException($\"Expected {__expectedLines} lines but received {lineCount}.\");");
+        sb.AppendLine("            throw new global::System.FormatException($\"Expected {__expectedLines} lines for the record but received {lineCount}. Check that all multi-line fields are present.\");");
         sb.AppendLine("        var line = lines;");
         sb.AppendLine();
 
@@ -453,7 +471,7 @@ internal static class DescriptorEmitter
         }
         sb.AppendLine($"        const int __expectedLines = {expectedLineCount}; // 1 + {expectedLineCount - 1} FieldInNewLine fields");
         sb.AppendLine("        if (lineCount != __expectedLines)");
-        sb.AppendLine("            throw new global::System.FormatException($\"Expected {__expectedLines} lines but received {lineCount}.\");");
+        sb.AppendLine("            throw new global::System.FormatException($\"Expected {__expectedLines} lines for the record but received {lineCount}. Check that all multi-line fields are present.\");");
         sb.AppendLine("        var line = lines;");
         sb.AppendLine();
 
@@ -1706,12 +1724,12 @@ internal static class DescriptorEmitter
 
     private static string GetStringOverflowGuard(FieldModel field, int n, int w) =>
         field.OverflowMode == 1
-            ? $" if (__s{n}.Length > {w}) throw new global::System.InvalidOperationException(\"Field '{EscapeString(field.Name)}' exceeds fixed length {w}.\");"
+            ? $" if (__s{n}.Length > {w}) throw new global::System.InvalidOperationException($\"Field '{EscapeString(field.Name)}' exceeds fixed length {w} (actual: {{__s{n}.Length}} characters).\");"
             : string.Empty;
 
     private static string GetFormattedOverflowGuard(FieldModel field, int n, int w) =>
         field.OverflowMode == 1
-            ? $" if (!__ok{n} || __cw{n} > {w}) throw new global::System.InvalidOperationException(\"Field '{EscapeString(field.Name)}' exceeds fixed length {w}.\");"
+            ? $" if (!__ok{n} || __cw{n} > {w}) throw new global::System.InvalidOperationException($\"Field '{EscapeString(field.Name)}' exceeds fixed length {w} (actual: {{__cw{n}}} characters).\");"
             : string.Empty;
 
     /// <summary>
@@ -2178,7 +2196,7 @@ internal static class DescriptorEmitter
             // Check: IsEmpty || IsWhiteSpace - covers empty string, null-equivalent, whitespace
             sb.AppendLine($"        if (__f{i}.IsEmpty || __f{i}.IsWhiteSpace())");
             sb.AppendLine("        {");
-            sb.AppendLine($"            throw new global::System.FormatException($\"Field '{field.Name}' cannot be empty or whitespace.\");");
+            sb.AppendLine($"            throw new global::System.FormatException($\"Field '{field.Name}' cannot be empty or whitespace. Found: '{{__f{i}}}'.\");");
             sb.AppendLine("        }");
         }
     }

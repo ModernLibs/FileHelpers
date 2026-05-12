@@ -32,10 +32,10 @@ public sealed class ErrorManager
         ArgumentNullException.ThrowIfNull(encoding);
 
         using var writer = new StreamWriter(filePath, append: false, encoding);
-        writer.WriteLine("Line\t|\tRecord\t|\tException");
+        writer.WriteLine("Line\t|\tColumn\t|\tField\t|\tRecord\t|\tRawValue\t|\tException");
         writer.WriteLine(new string('-', 80));
         foreach (var err in _errors)
-            writer.WriteLine($"{err.LineNumber}\t|\t{err.RecordString}\t|\t{err.ExceptionInfo?.Message}");
+            writer.WriteLine($"{err.LineNumber}\t|\t{err.ColumnIndex}\t|\t{err.FieldName ?? ""}\t|\t{err.RecordString}\t|\t{err.RawFieldValue ?? ""}\t|\t{err.ExceptionInfo?.Message}");
     }
 
     /// <summary>Internal write path for engines running in SaveAndContinue mode.</summary>

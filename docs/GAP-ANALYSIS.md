@@ -304,6 +304,8 @@ Static one-call helpers for routine tasks:
 
 These are features that **could be added without breaking AOT** and would improve the drop-in replacement story. Each is evaluated for use case, effort, and recommendation.
 
+**Status Update (v1.6-v1.7):** Items 4.2, 4.4, 4.5, 4.6, 4.7, 4.9, and 4.10 have been implemented. See [Section 4a](#4a-implemented-reconsider-candidates) for details.
+
 ### 4.1 `DelimitedFileEngine<T>` / `FixedFileEngine<T>` — Runtime Options
 
 **3.x API:**
@@ -488,6 +490,32 @@ asyncEngine.WriteNext("value1", "value2", 42);  // Write by field values
 
 ---
 
+## 4a. Implemented Reconsider Candidates
+
+These gaps were identified in earlier versions and have since been implemented:
+
+| Item | Feature | Implemented In | Status |
+|------|---------|----------------|--------|
+| 4.2 | `IFileHelperEngine<T>` / `IFileHelperAsyncEngine<T>` interfaces | v1.6 (Phase 49) | ✅ Implemented |
+| 4.4 | `FieldCaption` attribute | v1.6 (Phase 50) | ✅ Implemented |
+| 4.5 | `IgnoreInheritedClass` attribute | v1.6 (Phase 50) | ✅ Implemented |
+| 4.6 | `CultureConverter` / per-field culture via `CultureName` | v1.6 (Phase 51) | ✅ Implemented |
+| 4.7 | `CommonSelector` presets | v1.6 (Phase 52) | ✅ Implemented |
+| 4.9 | `ReadRemaining()` on async engine | v1.6 (Phase 53) | ✅ Implemented |
+| 4.10 | `BeginAppendFile()` on async engine | v1.6 (Phase 53) | ✅ Implemented |
+
+### Remaining Reconsider Candidates
+
+| Item | Feature | Recommendation |
+|------|---------|----------------|
+| 4.1 | `DelimitedFileEngine<T>` runtime options | ⚠️ Maybe — moderate effort |
+| 4.3 | `FieldArrayLength` attribute | ⚠️ Maybe — niche feature |
+| 4.8 | `RecordAction.DetailCascade` | ❌ No — custom selector suffices |
+| 4.11 | `LastRecordValue` / `LastRecordValues` | ❌ No — redundant, leaks internal state |
+| 4.12 | By-values `WriteNext` overload | ❌ No — bypasses type safety |
+
+---
+
 ## 5. Opt-In Improvements — What We Offer Beyond 3.x
 
 These are features that **do not exist in FileHelpers 3.x** and represent our value proposition for migrating.
@@ -602,7 +630,6 @@ These are behaviors that differ from 3.x and are documented as limitations:
 | `INotifyRead<T>.BeforeRead` not called during reads | Record doesn't exist before parsing | Only `AfterRead` fires for interface callbacks |
 | Default encoding is UTF-8 (not system ANSI) | Legacy encoded files may garble | Set `engine.Encoding = Encoding.GetEncoding(1252)` |
 | Multi-record requires closed-set configuration | No runtime type discovery | Use `MultiRecordType.For<T>(selector)` explicitly |
-| No `BeginAppendFile` on async engine | Cannot append asynchronously | Use sync `AppendToFile` or open file manually |
 
 ---
 
@@ -635,13 +662,16 @@ Use this matrix to determine if migration is right for your project:
 
 ## 8. Summary
 
-### What we match (85%+ of core API)
+### What we match (90%+ of core API)
 - All core engines (sync, async, master-detail, multi-record)
-- All record and field attributes (except `FieldArrayLength`, `FieldCaption`, `IgnoreInheritedClass`)
+- All record and field attributes (except `FieldArrayLength`)
 - All built-in converters (plus `DateOnly`, `TimeOnly`, `StringConverter`)
 - Full event model (with enhancements)
 - Error handling (`ErrorMode`, `ErrorManager`)
 - Master-detail and multi-record processing
+- Engine interfaces for DI/testing
+- Culture-aware parsing with per-field `CultureInfo`
+- CommonSelector presets for master-detail classification
 
 ### What we intentionally removed (AOT-incompatible)
 - Dynamic class building (`ClassBuilder`, `CsvEngine`)
@@ -658,13 +688,6 @@ Use this matrix to determine if migration is right for your project:
 - Excel NPOI storage
 
 ### What we should reconsider (gaps)
-- `IFileHelperEngine<T>` / `IFileHelperAsyncEngine<T>` interfaces — **low effort, high value**
-- `FieldCaption` attribute — **trivial effort**
-- `IgnoreInheritedClass` attribute — **low effort**
-- `CommonSelector` presets — **trivial effort**
-- `ReadRemaining()` on async engine — **trivial effort**
-- `BeginAppendFile()` on async engine — **low effort**
-- `CultureConverter` / per-field culture — **moderate effort, high value for intl data**
 - `DelimitedFileEngine<T>` runtime options — **moderate effort**
 - `FieldArrayLength` — **moderate effort, niche**
 

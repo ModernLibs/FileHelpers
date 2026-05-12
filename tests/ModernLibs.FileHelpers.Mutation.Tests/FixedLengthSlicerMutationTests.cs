@@ -139,4 +139,105 @@ public sealed class FixedLengthSlicerMutationTests
         // Assert
         Assert.Equal("DEFG", result);
     }
+
+    // --- Mutation-sensitive tests targeting surviving mutants ---
+
+    [Fact]
+    public void Slice_OffsetZero_WidthExactlyLineLength_ReturnsFullLine()
+    {
+        // Targets: offset=0, width=line.Length — clamping boundary
+        var slicer = new FixedLengthSlicer("hello".AsSpan());
+        Assert.Equal("hello", slicer.Slice(0, 5));
+    }
+
+    [Fact]
+    public void Slice_OffsetOne_WidthFour_ClampsToAvailable()
+    {
+        // Targets: offset + width > line.Length clamping
+        var slicer = new FixedLengthSlicer("hello".AsSpan());
+        Assert.Equal("ello", slicer.Slice(1, 4));
+    }
+
+    [Fact]
+    public void Slice_OffsetOne_WidthFive_ClampsToFour()
+    {
+        // Targets: clamping calculation: min(width, line.Length - offset)
+        var slicer = new FixedLengthSlicer("hello".AsSpan());
+        Assert.Equal("ello", slicer.Slice(1, 5));
+    }
+
+    [Fact]
+    public void Slice_OffsetTwo_WidthTen_ClampsToThree()
+    {
+        // Targets: width much larger than available
+        var slicer = new FixedLengthSlicer("hello".AsSpan());
+        Assert.Equal("llo", slicer.Slice(2, 10));
+    }
+
+    [Fact]
+    public void Slice_OffsetZero_WidthOne_ReturnsSingleChar()
+    {
+        // Targets: minimal width extraction
+        var slicer = new FixedLengthSlicer("hello".AsSpan());
+        Assert.Equal("h", slicer.Slice(0, 1));
+    }
+
+    [Fact]
+    public void Slice_OffsetFour_WidthOne_ReturnsLastChar()
+    {
+        // Targets: last character extraction
+        var slicer = new FixedLengthSlicer("hello".AsSpan());
+        Assert.Equal("o", slicer.Slice(4, 1));
+    }
+
+    [Fact]
+    public void Slice_LargeOffsetNegative_WidthPositive_ReturnsEmpty()
+    {
+        // Targets: negative offset guard
+        var slicer = new FixedLengthSlicer("hello".AsSpan());
+        Assert.True(slicer.Slice(-100, 5).IsEmpty);
+    }
+
+    [Fact]
+    public void Slice_OffsetZero_WidthNegativeOne_ReturnsEmpty()
+    {
+        // Targets: negative width guard
+        var slicer = new FixedLengthSlicer("hello".AsSpan());
+        Assert.True(slicer.Slice(0, -1).IsEmpty);
+    }
+
+    [Fact]
+    public void Slice_SingleCharLine_OffsetZero_WidthOne_ReturnsChar()
+    {
+        // Targets: minimal line, exact extraction
+        var slicer = new FixedLengthSlicer("X".AsSpan());
+        Assert.Equal("X", slicer.Slice(0, 1));
+    }
+
+    [Fact]
+    public void Slice_SingleCharLine_OffsetOne_ReturnsEmpty()
+    {
+        // Targets: offset exactly at line.Length
+        var slicer = new FixedLengthSlicer("X".AsSpan());
+        Assert.True(slicer.Slice(1, 1).IsEmpty);
+    }
+
+    [Fact]
+    public void Slice_EmptyLine_AnyOffset_ReturnsEmpty()
+    {
+        // Targets: empty line handling
+        var slicer = new FixedLengthSlicer("".AsSpan());
+        Assert.True(slicer.Slice(0, 1).IsEmpty);
+        Assert.True(slicer.Slice(1, 1).IsEmpty);
+        Assert.True(slicer.Slice(-1, 1).IsEmpty);
+    }
+
+    [Fact]
+    public void Slice_UnicodeChars_PreservesCharacters()
+    {
+        // Targets: Unicode handling — mutation of slice bounds would corrupt multi-byte chars
+        var slicer = new FixedLengthSlicer("名前年齢".AsSpan());
+        Assert.Equal("名前", slicer.Slice(0, 2));
+        Assert.Equal("年齢", slicer.Slice(2, 2));
+    }
 }

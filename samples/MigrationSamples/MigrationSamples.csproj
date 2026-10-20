@@ -4,10 +4,17 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
+    <!-- Sample code favours readability (public fields, culture-default string APIs); analyzer findings stay warnings. -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="../../src/ModernLibs.FileHelpers/ModernLibs.FileHelpers.csproj" />
+    <!-- The NuGet package ships the source generator as an analyzer; a project reference must attach it explicitly.
+         This project is not a friend assembly, so it also proves generated code binds only to public API. -->
+    <ProjectReference Include="../../src/ModernLibs.FileHelpers.Generator/ModernLibs.FileHelpers.Generator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

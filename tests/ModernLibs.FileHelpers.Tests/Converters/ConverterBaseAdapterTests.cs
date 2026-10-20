@@ -9,9 +9,8 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.Converters;
 
 /// <summary>
-/// Tests for CONV-10 (ConverterBase bridge adapter).
+/// Tests for the ConverterBase bridge adapter.
 /// </summary>
-[Category("Phase06")]
 [Category("Converters")]
 public sealed class ConverterBaseAdapterTests
 {

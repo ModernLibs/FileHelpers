@@ -6,7 +6,7 @@
 namespace ModernLibs.FileHelpers;
 
 /// <summary>
-/// INTF-03, INTF-04: Interface for record types that want to receive write notifications.
+/// Interface for record types that want to receive write notifications.
 /// When a record type T implements this interface, the engine will call BeforeWrite/AfterWrite
 /// methods for each record, alongside the engine-level BeforeWriteRecord/AfterWriteRecord events.
 ///
@@ -27,7 +27,7 @@ namespace ModernLibs.FileHelpers;
 public interface INotifyWrite<T>
 {
     /// <summary>
-    /// INTF-03: Called before a record is formatted and written. Allows skipping the record
+    /// Called before a record is formatted and written. Allows skipping the record
     /// or performing pre-write validation.
     /// </summary>
     /// <param name="e">Event args containing the record, record number, and control flags.</param>
@@ -38,7 +38,7 @@ public interface INotifyWrite<T>
     void BeforeWrite(BeforeWriteEventArgs<T> e);
 
     /// <summary>
-    /// INTF-04: Called after a record is formatted into a line. Allows modification of the
+    /// Called after a record is formatted into a line. Allows modification of the
     /// formatted output before it is written.
     /// </summary>
     /// <param name="e">Event args containing the record, formatted line, and record number.</param>

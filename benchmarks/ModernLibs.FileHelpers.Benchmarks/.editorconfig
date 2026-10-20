@@ -1,0 +1,18 @@
+# Analyzer settings for the BenchmarkDotNet project only (inherits the repository .editorconfig).
+
+[*.cs]
+# CA1707 (no underscores in member names): benchmark methods are named <Operation>_<Library or
+# variant>, for example ReadAllRows_Sylvan or ReadSpan_Callback_ProcessAndDiscard. BenchmarkDotNet
+# prints the method name as the row label of every report, the underscore keeps the operation and the
+# library apart in that column, and existing reports (docs/benchmarks/) and --filter patterns use
+# these names.
+dotnet_diagnostic.CA1707.severity = none
+
+# MA0048 (file name must match type name): each benchmark file declares the record types it reads
+# next to the benchmark class, so a benchmark is self-contained in one file.
+dotnet_diagnostic.MA0048.severity = none
+
+# CA1051 (no visible instance fields): the FileHelpers 3.x record classes used for the comparison
+# benchmarks map public fields, the record shape 3.x documents and that users migrate from.
+[Benchmarks/{DelimitedComparisonBenchmarks,FixedWidthComparisonBenchmarks}.cs]
+dotnet_diagnostic.CA1051.severity = none

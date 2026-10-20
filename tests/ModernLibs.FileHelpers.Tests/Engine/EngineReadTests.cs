@@ -15,14 +15,12 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.Engine;
 
 /// <summary>
-/// GREEN acceptance tests for <see cref="FileHelperEngine{T}"/> read operations
-/// (ENGI-01, ENGI-02, ENGI-03).
+/// Acceptance tests for <see cref="FileHelperEngine{T}"/> read operations.
 /// </summary>
-[Category("Phase07")]
 [Category("Engine")]
 public sealed class EngineReadTests
 {
-    /// <summary>ENGI-03: ReadString parses a delimited record from an in-memory string.</summary>
+    /// <summary>ReadString parses a delimited record from an in-memory string.</summary>
     [Test]
     [DisplayName("ReadString parses two CsvOrder records with header skipped and correct field mapping")]
     public async Task ReadString_DelimitedRecord_ParsesCorrectly()
@@ -45,7 +43,7 @@ public sealed class EngineReadTests
         await Assert.That(records[1].Amount).IsEqualTo(200.00m);
     }
 
-    /// <summary>ENGI-03 + D-11: ReadString with maxRecords stops after N valid records.</summary>
+    /// <summary>ReadString with maxRecords stops after N valid records.</summary>
     [Test]
     [DisplayName("ReadString with maxRecords=2 stops early and returns only first two records")]
     public async Task ReadString_WithMaxRecords_StopsEarly()
@@ -63,7 +61,7 @@ public sealed class EngineReadTests
         await Assert.That(records[1].OrderId).IsEqualTo(2);
     }
 
-    /// <summary>D-08 + D-10: [IgnoreFirst] skips header lines and populates HeaderText.</summary>
+    /// <summary>[IgnoreFirst] skips header lines and populates HeaderText.</summary>
     [Test]
     [DisplayName("ReadString with [IgnoreFirst] skips header line and captures it in HeaderText")]
     public async Task ReadString_WithIgnoreFirst_SkipsHeader()
@@ -80,7 +78,7 @@ public sealed class EngineReadTests
         await Assert.That(engine.HeaderText).IsEqualTo("HEADER_LINE");
     }
 
-    /// <summary>D-08 + D-10: [IgnoreLast] strips footer lines and populates FooterText.</summary>
+    /// <summary>[IgnoreLast] strips footer lines and populates FooterText.</summary>
     [Test]
     [DisplayName("ReadString with [IgnoreLast] strips footer line and captures it in FooterText")]
     public async Task ReadString_WithIgnoreLast_CapturesFooter()
@@ -99,7 +97,7 @@ public sealed class EngineReadTests
         await Assert.That(engine.FooterText).IsEqualTo("FOOTER_LINE");
     }
 
-    /// <summary>D-08: [IgnoreEmptyLines] causes blank input lines to be skipped.</summary>
+    /// <summary>[IgnoreEmptyLines] causes blank input lines to be skipped.</summary>
     [Test]
     [DisplayName("ReadString with [IgnoreEmptyLines] skips empty lines in input")]
     public async Task ReadString_WithIgnoreEmptyLines_SkipsEmpty()
@@ -118,7 +116,7 @@ public sealed class EngineReadTests
         await Assert.That(records[2].Id).IsEqualTo(3);
     }
 
-    /// <summary>D-08: [IgnoreCommentedLines('#')] skips comment lines during parse.</summary>
+    /// <summary>[IgnoreCommentedLines('#')] skips comment lines during parse.</summary>
     [Test]
     [DisplayName("ReadString with [IgnoreCommentedLines('#')] skips lines starting with #")]
     public async Task ReadString_WithCommentMarker_SkipsCommented()
@@ -137,7 +135,7 @@ public sealed class EngineReadTests
         await Assert.That(records[2].Value).IsEqualTo("gamma");
     }
 
-    /// <summary>ENGI-01: ReadFile(path) reads all records from disk into a T[] array.</summary>
+    /// <summary>ReadFile(path) reads all records from disk into a T[] array.</summary>
     [Test]
     [DisplayName("ReadFile reads delimited records from disk file into array")]
     public async Task ReadFile_DelimitedRecord_ReturnsArray()
@@ -166,7 +164,7 @@ public sealed class EngineReadTests
         }
     }
 
-    /// <summary>ENGI-01: ReadFile(path) works for a [FixedLengthRecord] type.</summary>
+    /// <summary>ReadFile(path) works for a [FixedLengthRecord] type.</summary>
     [Test]
     [DisplayName("ReadFile reads fixed-length records from disk with correct field widths")]
     public async Task ReadFile_FixedLength_ReturnsArray()
@@ -201,7 +199,7 @@ public sealed class EngineReadTests
         }
     }
 
-    /// <summary>ENGI-02: ReadStream(TextReader) parses records from a live reader.</summary>
+    /// <summary>ReadStream(TextReader) parses records from a live reader.</summary>
     [Test]
     [DisplayName("ReadStream parses records from TextReader with header skipped")]
     public async Task ReadStream_FromTextReader_ParsesCorrectly()
@@ -221,7 +219,7 @@ public sealed class EngineReadTests
         await Assert.That(records[0].Amount).IsEqualTo(999.99m);
     }
 
-    /// <summary>ENGI-03: ReadString parses a fixed-length record from an in-memory string.</summary>
+    /// <summary>ReadString parses a fixed-length record from an in-memory string.</summary>
     [Test]
     [DisplayName("ReadString parses fixed-length records with correct field alignment")]
     public async Task ReadString_FixedLengthRecord_ParsesCorrectly()

@@ -18,12 +18,22 @@ internal sealed record RecordModel(
     int IgnoreLast = 0,
     bool IgnoreEmptyLines = false,
     char CommentMarker = '\0',
+    bool CommentAnyPlace = true,                                     // [IgnoreCommentedLines(marker, anyPlace)], 3.x default true
     int Condition = 0,
     string ConditionPattern = "",
     int MultilineMode = 3,
-    int QuoteUnescapeMode = 0,
-    int TrimMode = 0,
-    bool HasHeader = false,
-    bool IsRefStruct = false,
-    bool ImplementsNotifyRead = false)
+    bool ImplementsNotifyRead = false,
+    string FullyQualifiedName = "",                                  // global::Ns.Outer.Inner (keyword-escaped)
+    string HintName = "",                                            // Unique, sanitized hint name
+    LocationInfo? Location = null,                                   // Record attribute location
+    EquatableArray<DiagnosticInfo> Diagnostics = default,            // diagnostics found during extraction
+    bool UseConstructor = false,                                     // Construct through a constructor
+    EquatableArray<ConstructorArgModel> ConstructorArgs = default,   // Arguments in PARAMETER order
+    bool IgnoreEmptySpaces = false,                                  // [IgnoreEmptyLines(true)]: whitespace-only lines are empty
+    string? Failure = null,                                          // Unexpected extraction failure (MLFH020)
+    EquatableArray<RequiredMemberModel> RequiredInits = default,     // Extra required-member initializers for Parse
+    EquatableArray<string> DefaultRequired = default,                // Required members CreateDefaultInstance sets to default
+    bool DefaultUninitialized = false,                               // CreateDefaultInstance runs no constructor
+    bool HasUnresolvedTypes = false,                                 // A field or converter type has a compiler error
+    bool IsReferenceable = true)                                     // Generated code can use the type as a type argument
     ;

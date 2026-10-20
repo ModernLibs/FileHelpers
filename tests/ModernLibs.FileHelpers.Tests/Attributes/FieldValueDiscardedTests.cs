@@ -17,16 +17,14 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.Attributes;
 
 /// <summary>
-/// TDD tests for [FieldValueDiscarded] attribute (FAVL-07, FAVL-10).
-/// These tests define the expected behavior before implementation (RED phase).
+/// Tests for the [FieldValueDiscarded] attribute.
 /// </summary>
-[Category("Phase13")]
 [Category("Validation")]
 public sealed class FieldValueDiscardedTests
 {
     #region Delimited Record Tests
 
-    /// <summary>FAVL-07: Delimited record with discarded middle field - field advances, value not assigned.</summary>
+    /// <summary>Delimited record with discarded middle field - field advances, value not assigned.</summary>
     [Test]
     [DisplayName("Parse_FieldValueDiscarded_MiddleField_AdvancesButNotAssigned")]
     public async Task Parse_FieldValueDiscarded_MiddleField_AdvancesButNotAssigned()
@@ -43,7 +41,7 @@ public sealed class FieldValueDiscardedTests
         await Assert.That(record.Value).IsEqualTo(100);
     }
 
-    /// <summary>FAVL-07: Discarded field at end of record - parser handles correctly.</summary>
+    /// <summary>Discarded field at end of record - parser handles correctly.</summary>
     [Test]
     [DisplayName("Parse_FieldValueDiscarded_EndField_ParsesCorrectly")]
     public async Task Parse_FieldValueDiscarded_EndField_ParsesCorrectly()
@@ -59,7 +57,7 @@ public sealed class FieldValueDiscardedTests
         await Assert.That(record.Discarded).IsNull();  // Not assigned
     }
 
-    /// <summary>FAVL-07: Multiple discarded fields interspersed with active fields.</summary>
+    /// <summary>Multiple discarded fields interspersed with active fields.</summary>
     [Test]
     [DisplayName("Parse_FieldValueDiscarded_MultipleDiscarded_ParsesCorrectly")]
     public async Task Parse_FieldValueDiscarded_MultipleDiscarded_ParsesCorrectly()
@@ -78,7 +76,7 @@ public sealed class FieldValueDiscardedTests
         await Assert.That(record.Id3).IsEqualTo(3);
     }
 
-    /// <summary>FAVL-07: Record member retains default value when field is discarded.</summary>
+    /// <summary>Record member retains default value when field is discarded.</summary>
     [Test]
     [DisplayName("Parse_FieldValueDiscarded_RetainsDefaultValue")]
     public async Task Parse_FieldValueDiscarded_RetainsDefaultValue()
@@ -99,7 +97,7 @@ public sealed class FieldValueDiscardedTests
 
     #region Fixed-Length Record Tests
 
-    /// <summary>FAVL-10: Fixed-length record with discarded field - offset advances, value not assigned.</summary>
+    /// <summary>Fixed-length record with discarded field - offset advances, value not assigned.</summary>
     [Test]
     [DisplayName("Parse_FixedLength_FieldValueDiscarded_AdvancesOffsetButNotAssigned")]
     public async Task Parse_FixedLength_FieldValueDiscarded_AdvancesOffsetButNotAssigned()
@@ -116,7 +114,7 @@ public sealed class FieldValueDiscardedTests
         await Assert.That(record.Value).IsEqualTo(200);
     }
 
-    /// <summary>FAVL-10: Fixed-length with discarded at beginning - subsequent fields at correct offsets.</summary>
+    /// <summary>Fixed-length with discarded at beginning - subsequent fields at correct offsets.</summary>
     [Test]
     [DisplayName("Parse_FixedLength_FieldValueDiscarded_Beginning_CorrectOffsets")]
     public async Task Parse_FixedLength_FieldValueDiscarded_Beginning_CorrectOffsets()
@@ -132,7 +130,7 @@ public sealed class FieldValueDiscardedTests
         await Assert.That(record.Id).IsEqualTo(1);  // Should correctly read "00001" after "SKIP"
     }
 
-    /// <summary>FAVL-10: Fixed-length with multiple discarded fields - all offsets correct.</summary>
+    /// <summary>Fixed-length with multiple discarded fields - all offsets correct.</summary>
     [Test]
     [DisplayName("Parse_FixedLength_MultipleDiscarded_AllOffsetsCorrect")]
     public async Task Parse_FixedLength_MultipleDiscarded_AllOffsetsCorrect()
@@ -156,9 +154,9 @@ public sealed class FieldValueDiscardedTests
 
     #region Write/Format Tests
 
-    /// <summary>FAVL-07: Write operation skips discarded fields.</summary>
+    /// <summary>A discarded field keeps its column on write (FileHelpers 3.x writes its value).</summary>
     [Test]
-    [DisplayName("Write_FieldValueDiscarded_SkipsDiscardedFields")]
+    [DisplayName("Write_FieldValueDiscarded_KeepsColumn")]
     public async Task Write_FieldValueDiscarded_SkipsDiscardedFields()
     {
         // Arrange: record with discarded middle field
@@ -170,13 +168,13 @@ public sealed class FieldValueDiscardedTests
         desc.Format(record, writer);
         var output = new string(writer.WrittenSpan);
 
-        // Assert: output should be "1,100" not "1,,100" (discarded field not written)
-        await Assert.That(output).IsEqualTo("1,100");
+        // Assert: the (null) discarded field still occupies its column so the line reads back
+        await Assert.That(output).IsEqualTo("1,,100");
     }
 
-    /// <summary>FAVL-07: Write with multiple discarded fields - all skipped.</summary>
+    /// <summary>Multiple discarded fields all keep their columns on write.</summary>
     [Test]
-    [DisplayName("Write_FieldValueDiscarded_Multiple_AllSkipped")]
+    [DisplayName("Write_FieldValueDiscarded_Multiple_KeepColumns")]
     public async Task Write_FieldValueDiscarded_Multiple_AllSkipped()
     {
         // Arrange
@@ -188,11 +186,11 @@ public sealed class FieldValueDiscardedTests
         desc.Format(record, writer);
         var output = new string(writer.WrittenSpan);
 
-        // Assert: output should be "1,2,3"
-        await Assert.That(output).IsEqualTo("1,2,3");
+        // Assert: one empty column per discarded field
+        await Assert.That(output).IsEqualTo("1,,2,,3");
     }
 
-    /// <summary>FAVL-10: Write fixed-length record - discarded fields produce no output.</summary>
+    /// <summary>Write fixed-length record - discarded fields produce no output.</summary>
     [Test]
     [DisplayName("Write_FixedLength_FieldValueDiscarded_NoOutputForDiscarded")]
     public async Task Write_FixedLength_FieldValueDiscarded_NoOutputForDiscarded()

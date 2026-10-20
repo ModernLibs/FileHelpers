@@ -8,7 +8,7 @@ namespace ModernLibs.FileHelpers.Tests.Generator.Fixtures;
 /// <summary>
 /// Integration fixture: record class with init-only properties.
 /// Annotated with [DelimitedRecord] so the build-time generator emits a [ModuleInitializer]
-/// descriptor. Used by ModuleInitializerTests (Phase 4 additions) to verify SGEN-05.
+/// descriptor. Used by ModuleInitializerTests for the record class shape.
 /// </summary>
 [DelimitedRecord(",")]
 internal sealed record class RecordClassFixture

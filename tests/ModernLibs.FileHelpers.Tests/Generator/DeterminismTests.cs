@@ -9,7 +9,7 @@ using TUnit.Core;
 
 namespace ModernLibs.FileHelpers.Tests.Generator;
 
-/// <summary>Verifies SGEN-11: same input always produces byte-identical output.</summary>
+/// <summary>Verifies that the same input always produces byte-identical output.</summary>
 [Category("Generator")]
 public sealed class DeterminismTests
 {
@@ -27,9 +27,9 @@ public sealed class DeterminismTests
             options: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
     }
 
-    /// <summary>SGEN-11: Two generator runs on identical input produce byte-identical output.</summary>
+    /// <summary>Two generator runs on identical input produce byte-identical output.</summary>
     [Test]
-    [DisplayName("Generator produces byte-identical output for identical input across two runs (SGEN-11)")]
+    [DisplayName("Generator produces byte-identical output for identical input across two runs")]
     public async Task Generator_SameInput_ProducesByteIdenticalOutput()
     {
         // Arrange: Create compilation with DelimitedRecord type

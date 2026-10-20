@@ -3,17 +3,13 @@
     <TargetFramework>net10.0</TargetFramework>
     <OutputType>Exe</OutputType>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
-    <!-- MLFH004: IntegrationFixtures.PipedRecord uses [FieldConverter(typeof(object))] to
-         smoke-test the Type overload of FieldConverter. The fixture is never parsed at
-         runtime, so the default(T) fall-through warning is noise in this project. The
-         diagnostic still fires (and is warn-as-error) in production consumers. -->
-    <NoWarn>$(NoWarn);MLFH004;NU1900;CS0219</NoWarn>
+    <NoWarn>$(NoWarn);NU1900;CS0219</NoWarn>
     <NuGetAudit>false</NuGetAudit>
 
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="TUnit" />
-    <!-- Generator output and caching tests (Phase 3).
+    <!-- Generator output and caching tests.
          Using Microsoft.CodeAnalysis.CSharp directly (via generator ProjectReference) rather than
          SourceGenerators.Testing — that package pulls in Roslyn 3.8.0 which conflicts with 4.14.0
          and loses AsSourceGenerator/TrackedOutputSteps/IncrementalStepRunReason resolution. -->

@@ -5,21 +5,22 @@
     <PublishAot>true</PublishAot>
     <IsTrimmable>true</IsTrimmable>
     <IsAotCompatible>true</IsAotCompatible>
-    <Version>4.0.0</Version>
+    <Version>4.8.0</Version>
     <PackageId>ModernLibs.FileHelpers</PackageId>
     <Authors>ModernLibs Contributors</Authors>
     <Copyright>Copyright © ModernLibs Contributors 2026</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageTags>FileHelpers;CSV;FixedLength;Delimited;AOT;Source Generator;net10;Performance;SIMD;ZeroAllocation;Span;Pipelines;Parallel</PackageTags>
+    <PackageTags>FileHelpers;CSV;TSV;Delimited;FixedLength;FixedWidth;FlatFile;Parser;AOT;NativeAOT;Trimming;SourceGenerator;net10</PackageTags>
     <RepositoryUrl>https://github.com/ModernLibs/FileHelpers</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageProjectUrl>https://github.com/ModernLibs/FileHelpers</PackageProjectUrl>
-    <PackageDescription>Modern, AOT-ready rewrite of FileHelpers for .NET 10. High-performance delimited and fixed-width parsing with SIMD acceleration, parallel reading, zero per-record allocations, and source-generated descriptors. API compatible with FileHelpers 3.x — migration is a single using change.</PackageDescription>
+    <PackageDescription>Modern, AOT-ready rewrite of FileHelpers 3.x for .NET 10. Reads and writes delimited (CSV, TSV, ...) and fixed-length files. Record descriptors are created at compile time by a bundled source generator, so there is no runtime reflection and the library is trimming- and Native AOT-compatible. Reading record structs causes no per-record allocations by the engine (string field values still allocate their text). FileHelpers 3.x-style API (record attributes, engines, error modes); the migration guide lists the differences.</PackageDescription>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>icon.png</PackageIcon>
-    <PackageReleaseNotes>ModernLibs.FileHelpers 4.0.0 — AOT-compatible delimited and fixed-width parsing. Features: Source-generated record descriptors (zero reflection), SIMD-accelerated delimiter detection (AVX2/NEON/Vector&lt;T&gt;), Parallel batch reading engine, Async streaming with IAsyncEnumerable&lt;T&gt; and System.IO.Pipelines, Zero per-record allocations for record struct types, SpanRecord ref struct support for callback-based parsing, RecordPool&lt;T&gt; for class-type object pooling, Multi-record and master-detail engines with CommonSelector presets, Culture-aware parsing with per-field CultureInfo, Engine interfaces (IFileHelperEngine&lt;T&gt;) for DI/testing, Enhanced diagnostics (MLFH001-MLFH009) with actionable guidance, Full FileHelpers 3.x migration compatibility for supported surface. Migration: Change 'using FileHelpers' to 'using ModernLibs.FileHelpers'</PackageReleaseNotes>
+    <PackageReleaseNotes>First NuGet release of ModernLibs.FileHelpers. Changes: https://github.com/ModernLibs/FileHelpers/blob/main/CHANGELOG.md - Migrating from FileHelpers 3.x: https://github.com/ModernLibs/FileHelpers/blob/main/docs/MIGRATION.md</PackageReleaseNotes>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- RS0026: several async overloads each take an optional CancellationToken (idiomatic .NET shape). -->
+    <NoWarn>$(NoWarn);RS0026</NoWarn>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
@@ -36,11 +37,22 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="all" />
+    <!-- Every public API change must be recorded in PublicAPI.Unshipped.txt (RS0016/RS0017). -->
+    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Parsing infrastructure is internal; test, fuzz and benchmark projects exercise it directly. -->
+    <InternalsVisibleTo Include="ModernLibs.FileHelpers.Tests" />
+    <InternalsVisibleTo Include="ModernLibs.FileHelpers.Mutation.Tests" />
+    <InternalsVisibleTo Include="ModernLibs.FileHelpers.Fuzz.Tests" />
+    <InternalsVisibleTo Include="ModernLibs.FileHelpers.Benchmarks" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
     <None Include="..\..\assets\icon.png" Pack="true" PackagePath="\" />
     <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
+    <!-- Makes the FileHelpersMaxFieldWidth property (MLFH007 threshold) visible to the generator -->
+    <None Include="buildTransitive\ModernLibs.FileHelpers.props" Pack="true" PackagePath="buildTransitive\;build\" />
     <!-- Embed the source generator as an analyzer in the package -->
     <None Include="..\ModernLibs.FileHelpers.Generator\bin\$(Configuration)\netstandard2.0\ModernLibs.FileHelpers.Generator.dll"
           Pack="true"

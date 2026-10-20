@@ -13,21 +13,20 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.Parity.QuickStart;
 
 /// <summary>
-/// TEST-03, TEST-04: QuickStart Fixed-Length Read/Write tests.
+/// QuickStart Fixed-Length Read/Write tests.
 /// Based on original FileHelpers QuickStart examples from https://www.filehelpers.net/quickstart/
 /// </summary>
-[Category("Phase19")]
 [Category("Parity")]
 [Category("QuickStart")]
 public sealed class QuickStartFixedTests
 {
-    #region TEST-03: Read Fixed File
+    #region Read Fixed File
 
     /// <summary>
-    /// TEST-03: Read fixed-length file - matches original FileHelpers behavior.
+    /// Read fixed-length file - matches original FileHelpers behavior.
     /// </summary>
     [Test]
-    [DisplayName("TEST-03: Read fixed-length file - matches original FileHelpers.ReadFile behavior")]
+    [DisplayName("Read fixed-length file - matches original FileHelpers.ReadFile behavior")]
     public async Task ReadFixed_MatchesOriginalBehavior()
     {
         // Arrange: Fixed-width data (Name=20, Age=3, Country=10 = 33 chars per line)
@@ -54,10 +53,10 @@ public sealed class QuickStartFixedTests
     }
 
     /// <summary>
-    /// TEST-03: Read fixed-length from file path works like original FileHelpers.
+    /// Read fixed-length from file path works like original FileHelpers.
     /// </summary>
     [Test]
-    [DisplayName("TEST-03: ReadFile fixed-length - matches original FileHelpers behavior")]
+    [DisplayName("ReadFile fixed-length - matches original FileHelpers behavior")]
     public async Task ReadFixed_FromFile_MatchesOriginalBehavior()
     {
         // Arrange: Write test file with fixed-width data
@@ -84,10 +83,10 @@ public sealed class QuickStartFixedTests
     }
 
     /// <summary>
-    /// TEST-03: ReadStream from TextReader for fixed-length matches original FileHelpers.
+    /// ReadStream from TextReader for fixed-length matches original FileHelpers.
     /// </summary>
     [Test]
-    [DisplayName("TEST-03: ReadStream fixed-length - matches original FileHelpers behavior")]
+    [DisplayName("ReadStream fixed-length - matches original FileHelpers behavior")]
     public async Task ReadFixed_FromStream_MatchesOriginalBehavior()
     {
         // Arrange
@@ -105,13 +104,13 @@ public sealed class QuickStartFixedTests
 
     #endregion
 
-    #region TEST-04: Write Fixed File
+    #region Write Fixed File
 
     /// <summary>
-    /// TEST-04: Write fixed-length file - matches original FileHelpers behavior.
+    /// Write fixed-length file - matches original FileHelpers behavior.
     /// </summary>
     [Test]
-    [DisplayName("TEST-04: Write fixed-length file - matches original FileHelpers.WriteFile behavior")]
+    [DisplayName("Write fixed-length file - matches original FileHelpers.WriteFile behavior")]
     public async Task WriteFixed_MatchesOriginalBehavior()
     {
         // Arrange: Create records with various field lengths
@@ -142,10 +141,10 @@ public sealed class QuickStartFixedTests
     }
 
     /// <summary>
-    /// TEST-04: Write fixed-length with left/right alignment matches original FileHelpers.
+    /// Write fixed-length with left/right alignment matches original FileHelpers.
     /// </summary>
     [Test]
-    [DisplayName("TEST-04: Write fixed-length with alignment - matches original FileHelpers behavior")]
+    [DisplayName("Write fixed-length with alignment - matches original FileHelpers behavior")]
     public async Task WriteFixed_WithAlignment_MatchesOriginalBehavior()
     {
         // Arrange
@@ -166,10 +165,10 @@ public sealed class QuickStartFixedTests
     }
 
     /// <summary>
-    /// TEST-04: Write fixed-length to file path works like original FileHelpers.
+    /// Write fixed-length to file path works like original FileHelpers.
     /// </summary>
     [Test]
-    [DisplayName("TEST-04: WriteFile fixed-length - matches original FileHelpers behavior")]
+    [DisplayName("WriteFile fixed-length - matches original FileHelpers behavior")]
     public async Task WriteFixed_ToFile_MatchesOriginalBehavior()
     {
         // Arrange
@@ -197,10 +196,10 @@ public sealed class QuickStartFixedTests
     }
 
     /// <summary>
-    /// TEST-04: WriteStream to TextWriter for fixed-length matches original FileHelpers.
+    /// WriteStream to TextWriter for fixed-length matches original FileHelpers.
     /// </summary>
     [Test]
-    [DisplayName("TEST-04: WriteStream fixed-length - matches original FileHelpers behavior")]
+    [DisplayName("WriteStream fixed-length - matches original FileHelpers behavior")]
     public async Task WriteFixed_ToStream_MatchesOriginalBehavior()
     {
         // Arrange
@@ -225,10 +224,10 @@ public sealed class QuickStartFixedTests
     #region Round-Trip Tests (Read -> Write -> Read)
 
     /// <summary>
-    /// TEST-03/04: Round-trip verification for fixed-length records.
+    /// Round-trip verification for fixed-length records.
     /// </summary>
     [Test]
-    [DisplayName("TEST-03/04: Fixed-length round-trip read-write-read produces equivalent records")]
+    [DisplayName("Fixed-length round-trip read-write-read produces equivalent records")]
     public async Task FixedRoundTrip_ProducesEquivalentRecords()
     {
         // Arrange: Original fixed-width input

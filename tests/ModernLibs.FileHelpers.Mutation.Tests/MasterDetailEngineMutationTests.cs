@@ -25,7 +25,7 @@ internal sealed class DetailRec
 /// <summary>
 /// xUnit mutation-target tests for <see cref="MasterDetailEngine{TMaster,TDetail}"/>.
 /// Covers classification, multi-line buffering, error modes, I/O parity,
-/// write path, and empty input (MUT-05).
+/// write path, and empty input.
 /// </summary>
 public sealed class MasterDetailEngineMutationTests
 {
@@ -62,9 +62,10 @@ public sealed class MasterDetailEngineMutationTests
         // The unclosed quote triggers buffering; combined line is then parsed.
         // The multi-line content in the third field causes a parse error (not an int),
         // but the buffering path is exercised for mutation coverage.
-        var ex = Assert.Throws<FormatException>(() => engine.ReadString("M|A\nD|A|\"hello\nworld\""));
+        var ex = Assert.Throws<ConvertException>(() => engine.ReadString("M|A\nD|A|\"hello\nworld\""));
 
-        // Assert: FormatException confirms the buffering + parse path was exercised
+        // Assert: ConvertException (a failed conversion is never silently defaulted for the int field) confirms the
+        // buffering + parse path was exercised
         Assert.NotNull(ex);
     }
 
@@ -215,7 +216,7 @@ public sealed class MasterDetailEngineMutationTests
     }
 
     [Fact]
-    public void ReadString_DetailBeforeMaster_ThrowsFormatException()
+    public void ReadString_DetailBeforeMaster_ThrowsBadUsageException()
     {
         // Arrange: detail appears before any master
         var engine = new MasterDetailEngine<MasterRec, DetailRec>(line =>
@@ -224,7 +225,7 @@ public sealed class MasterDetailEngineMutationTests
             RecordAction.Skip);
 
         // Act & Assert: detail without preceding master throws
-        Assert.Throws<FormatException>(() => engine.ReadString("D|X|5"));
+        Assert.Throws<BadUsageException>(() => engine.ReadString("D|X|5"));
     }
 
     [Fact]

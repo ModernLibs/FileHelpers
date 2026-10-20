@@ -6,31 +6,35 @@ on:
   pull_request:
     branches: [main]
 
-# Least-privilege CI token (T-1-08: Elevation of Privilege mitigation)
+# Least-privilege token: CI only reads the repository.
 permissions:
   contents: read
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
 
 jobs:
   build-and-test:
     name: Build and Test
-    # D-02: Linux-only for now; multi-platform matrix added in Phase 10
+    # Linux only for now.
     runs-on: ubuntu-latest
 
     steps:
-      # Supply chain: pinned major tag versions (T-1-09: Tampering mitigation)
+      # Supply chain: every action is pinned to a full commit SHA (tags are mutable); the trailing
+      # comment names the release the SHA belongs to.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          # global.json pins exact patch (10.0.105); '10.x' lets setup-dotnet resolve via global.json
-          dotnet-version: '10.x'
+          # global.json pins the SDK (latestPatch roll-forward)
+          global-json-file: global.json
 
       # Cache NuGet packages — keyed on Directory.Packages.props + all .csproj files
-      # This avoids re-downloading packages on every run when versions haven't changed
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.nuget/packages
           key: ${{ runner.os }}-nuget-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
@@ -43,32 +47,43 @@ jobs:
       - name: Build
         run: dotnet build --no-restore --configuration Release
 
-      # SDK 10 + MTP 2.2.1: 'dotnet test' cannot route through the VSTest MSBuild
-      # target for MTP 2.x projects (MTP throws a preemptive error on SDK >= 10).
-      # Run test binaries directly instead. --ignore-exit-code 8 makes MTP return
-      # 0 when zero tests are discovered (Phase 1 has no tests yet; Phase 2+ adds them).
+      # Projects outside the solution must keep compiling.
+      - name: Build samples and fuzz project
+        run: |
+          dotnet build samples/MigrationSamples --configuration Release
+          dotnet build tests/ModernLibs.FileHelpers.Fuzz.Tests --configuration Release
+
+      # SDK 10 + Microsoft.Testing.Platform: run the test binaries directly. MTP exits with code 8
+      # when no test ran, which fails the job.
       - name: Test (TUnit)
-        run: >-
-          ./tests/ModernLibs.FileHelpers.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Tests
-          --ignore-exit-code 8
+        run: ./tests/ModernLibs.FileHelpers.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Tests
 
-      # xUnit v3 uses its own runner (not MTP --ignore-exit-code); exits 0 for zero tests
+      # The xUnit v3 runner exits 0 when no test ran, so require a non-zero total.
       - name: Test (xUnit mutation)
-        run: >-
-          ./tests/ModernLibs.FileHelpers.Mutation.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Mutation.Tests
+        run: |
+          set -o pipefail
+          ./tests/ModernLibs.FileHelpers.Mutation.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Mutation.Tests | tee mutation-tests.log
+          grep -Eq 'Total: [1-9][0-9]*' mutation-tests.log || { echo "::error::No mutation tests ran."; exit 1; }
 
-      # Mutation testing via Stryker.NET — runs after unit tests pass
+      # The migration sample runs end to end (exit code 0).
+      - name: Run migration sample
+        run: dotnet run --project samples/MigrationSamples --configuration Release --no-build
+
+      # Mutation testing via Stryker.NET — runs after unit tests pass.
+      # Informational only for now: with Stryker.NET 5.0 and the xUnit v3 project every mutant is
+      # reported as survived (score 0 %, coverage capture fails), so the break threshold cannot gate CI.
       - name: Install Stryker.NET
-        run: dotnet tool install -g dotnet-stryker
+        run: dotnet tool install -g dotnet-stryker --version 5.0.0
 
       - name: Mutation Test (Stryker.NET)
+        continue-on-error: true
         run: dotnet stryker --config-file stryker-config.json
         env:
           DOTNET_ROOT: ${{ runner.tool_cache }}/dotnet
 
       - name: Upload Mutation Report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mutation-report
           path: StrykerOutput/

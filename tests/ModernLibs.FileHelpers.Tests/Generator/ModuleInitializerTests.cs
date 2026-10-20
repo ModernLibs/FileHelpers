@@ -8,16 +8,16 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.Generator;
 
 /// <summary>
-/// Integration test for SGEN-03: verifies the generated [ModuleInitializer] registers the
+/// Integration test: verifies the generated [ModuleInitializer] registers the
 /// descriptor in FileHelperRegistry&lt;T&gt; before any user code runs.
 /// Requires SimpleDelimitedRecord to be compiled with the generator active (done at build time).
 /// </summary>
 [Category("Generator")]
 public sealed class ModuleInitializerTests
 {
-    /// <summary>SGEN-03: FileHelperRegistry&lt;SimpleDelimitedRecord&gt;.Descriptor is non-null after module load.</summary>
+    /// <summary>FileHelperRegistry&lt;SimpleDelimitedRecord&gt;.Descriptor is non-null after module load.</summary>
     [Test]
-    [DisplayName("FileHelperRegistry<SimpleDelimitedRecord>.Descriptor is non-null after module init (SGEN-03)")]
+    [DisplayName("FileHelperRegistry<SimpleDelimitedRecord>.Descriptor is non-null after module init")]
     public async Task Registry_AfterModuleInit_DescriptorIsNonNull()
     {
         // The generator processed SimpleDelimitedRecord at compile time.
@@ -44,9 +44,9 @@ public sealed class ModuleInitializerTests
         await Assert.That(field2Name).IsEqualTo(nameof(SimpleDelimitedRecord.Price));
     }
 
-    /// <summary>SGEN-05: FileHelperRegistry&lt;RecordClassFixture&gt;.Descriptor is non-null after module load.</summary>
+    /// <summary>FileHelperRegistry&lt;RecordClassFixture&gt;.Descriptor is non-null after module load.</summary>
     [Test]
-    [DisplayName("FileHelperRegistry<RecordClassFixture>.Descriptor is non-null after module init (SGEN-05)")]
+    [DisplayName("FileHelperRegistry<RecordClassFixture>.Descriptor is non-null after module init")]
     public async Task Registry_AfterModuleInit_RecordClassDescriptorIsNonNull()
     {
         // RecordClassFixture has [DelimitedRecord] and was compiled with the generator active.
@@ -67,9 +67,9 @@ public sealed class ModuleInitializerTests
         await Assert.That(field1Name).IsEqualTo(nameof(RecordClassFixture.Age));
     }
 
-    /// <summary>SGEN-06: FileHelperRegistry&lt;ReadonlyRecordStructFixture&gt;.Descriptor is non-null after module load.</summary>
+    /// <summary>FileHelperRegistry&lt;ReadonlyRecordStructFixture&gt;.Descriptor is non-null after module load.</summary>
     [Test]
-    [DisplayName("FileHelperRegistry<ReadonlyRecordStructFixture>.Descriptor is non-null after module init (SGEN-06)")]
+    [DisplayName("FileHelperRegistry<ReadonlyRecordStructFixture>.Descriptor is non-null after module init")]
     public async Task Registry_AfterModuleInit_ReadonlyRecordStructDescriptorIsNonNull()
     {
         // ReadonlyRecordStructFixture has [DelimitedRecord] and was compiled with the generator active.

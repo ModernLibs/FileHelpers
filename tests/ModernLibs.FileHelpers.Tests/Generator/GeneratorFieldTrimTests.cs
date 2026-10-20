@@ -11,14 +11,13 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.Generator;
 
 /// <summary>
-/// GREEN tests for generator-emitted [FieldTrim] handling (D-05).
+/// Tests for generator-emitted [FieldTrim] handling.
 /// Exercises the runtime Parse path on fixtures annotated with each TrimMode variant.
 /// </summary>
-[Category("Phase07")]
 [Category("Generator")]
 public sealed class GeneratorFieldTrimTests
 {
-    /// <summary>D-05: TrimMode.Both trims leading AND trailing whitespace after field slicing.</summary>
+    /// <summary>TrimMode.Both trims leading AND trailing whitespace after field slicing.</summary>
     [Test]
     [DisplayName("Parse applies FieldTrim(Both) trimming leading and trailing whitespace")]
     public async Task Parse_FieldTrimBoth_TrimsWhitespace()
@@ -34,7 +33,7 @@ public sealed class GeneratorFieldTrimTests
         await Assert.That(record.Name).IsEqualTo("Alice");
     }
 
-    /// <summary>D-05: TrimMode.Left trims only leading whitespace.</summary>
+    /// <summary>TrimMode.Left trims only leading whitespace.</summary>
     [Test]
     [DisplayName("Parse applies FieldTrim(Left) trimming only leading whitespace")]
     public async Task Parse_FieldTrimStart_TrimsLeading()
@@ -49,7 +48,7 @@ public sealed class GeneratorFieldTrimTests
         await Assert.That(record.Name).IsEqualTo("Bob");
     }
 
-    /// <summary>D-05: TrimMode.Right trims only trailing whitespace.</summary>
+    /// <summary>TrimMode.Right trims only trailing whitespace.</summary>
     [Test]
     [DisplayName("Parse applies FieldTrim(Right) trimming only trailing whitespace")]
     public async Task Parse_FieldTrimEnd_TrimsTrailing()
@@ -64,7 +63,7 @@ public sealed class GeneratorFieldTrimTests
         await Assert.That(record.Name).IsEqualTo("Carol");
     }
 
-    /// <summary>D-05: TrimMode.Both trims edges only — internal spaces are preserved.</summary>
+    /// <summary>TrimMode.Both trims edges only — internal spaces are preserved.</summary>
     [Test]
     [DisplayName("Parse FieldTrim(Both) preserves internal spaces within field")]
     public async Task Parse_FieldTrim_PreservesInternalSpaces()

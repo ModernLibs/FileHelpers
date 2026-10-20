@@ -28,17 +28,16 @@ internal sealed class RecycleNumericRecord
 
 /// <summary>
 /// Acceptance tests for <c>RecycleRecords</c> mode on <see cref="FileHelperAsyncEngine{T}"/>.
-/// Covers ENGI-15 (RecycleRecords property — instance reuse for class types).
+/// Covers the RecycleRecords property (instance reuse for class types).
 /// </summary>
-[Category("Phase08")]
 [Category("RecycleRecords")]
 public sealed class RecycleRecordsTests
 {
     // -------------------------------------------------------------------------
-    // ENGI-15 — RecycleRecords
+    // RecycleRecords
     // -------------------------------------------------------------------------
 
-    /// <summary>ENGI-15: RecycleRecords=true; parse 3 class records; all ReadNext calls return same object reference.</summary>
+    /// <summary>RecycleRecords=true; parse 3 class records; all ReadNext calls return same object reference.</summary>
     [Test]
     [DisplayName("RecycleRecords=true reuses same class instance across all three ReadNext calls")]
     public async Task RecycleRecords_ClassType_SameInstanceReused()
@@ -63,7 +62,7 @@ public sealed class RecycleRecordsTests
         await Assert.That(ReferenceEquals(r2, r3)).IsTrue();
     }
 
-    /// <summary>ENGI-15: RecycleRecords=true allocates significantly fewer bytes per ReadNext() call than RecycleRecords=false (no new record object per call).</summary>
+    /// <summary>RecycleRecords=true allocates significantly fewer bytes per ReadNext() call than RecycleRecords=false (no new record object per call).</summary>
     [Test]
     [DisplayName("RecycleRecords=true allocates less per call than RecycleRecords=false after warmup")]
     public async Task RecycleRecords_AllocationDelta_NearZeroAfterWarmup()
@@ -115,7 +114,7 @@ public sealed class RecycleRecordsTests
         await Assert.That(recycledPerCall).IsLessThan(baselinePerCall);
     }
 
-    /// <summary>ENGI-15: RecycleRecords=true on a struct record type (PositionalOrder); ReadNext succeeds without exception.</summary>
+    /// <summary>RecycleRecords=true on a struct record type (PositionalOrder); ReadNext succeeds without exception.</summary>
     [Test]
     [DisplayName("RecycleRecords=true with struct type succeeds without exception (no-op for value types)")]
     public async Task RecycleRecords_StructType_FallsThrough_NoException()
@@ -137,7 +136,7 @@ public sealed class RecycleRecordsTests
         await Assert.That(r2.OrderId).IsEqualTo(2);
     }
 
-    /// <summary>ENGI-15: RecycleRecords=false (default); parse 3 class records; each is a distinct object reference.</summary>
+    /// <summary>RecycleRecords=false (default); parse 3 class records; each is a distinct object reference.</summary>
     [Test]
     [DisplayName("RecycleRecords=false (default) creates new instance for each ReadNext call")]
     public async Task RecycleRecords_False_AllocatesNewInstancePerRecord()

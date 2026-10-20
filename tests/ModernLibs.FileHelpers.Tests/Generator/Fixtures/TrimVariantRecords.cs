@@ -8,8 +8,8 @@ using ModernLibs.FileHelpers;
 namespace ModernLibs.FileHelpers.Tests.Generator.Fixtures;
 
 /// <summary>
-/// Phase 7 Wave 2 fixture: [FieldTrim(TrimMode.Left)] on a single string field.
-/// Exercises D-05 trim emission for leading-only whitespace.
+/// Fixture: [FieldTrim(TrimMode.Left)] on a single string field.
+/// Exercises trim emission for leading-only whitespace.
 /// </summary>
 [DelimitedRecord(",")]
 internal sealed class LeftTrimmedRecord
@@ -20,8 +20,8 @@ internal sealed class LeftTrimmedRecord
 }
 
 /// <summary>
-/// Phase 7 Wave 2 fixture: [FieldTrim(TrimMode.Right)] on a single string field.
-/// Exercises D-05 trim emission for trailing-only whitespace.
+/// Fixture: [FieldTrim(TrimMode.Right)] on a single string field.
+/// Exercises trim emission for trailing-only whitespace.
 /// </summary>
 [DelimitedRecord(",")]
 internal sealed class RightTrimmedRecord

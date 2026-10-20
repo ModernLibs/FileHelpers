@@ -19,7 +19,6 @@ namespace ModernLibs.FileHelpers.Tests.Engine;
 /// Tests verifying interface-based usage patterns for <see cref="IFileHelperAsyncEngine{T}"/>.
 /// Confirms FileHelperAsyncEngine{T} can be used through its interface for DI and mocking scenarios.
 /// </summary>
-[Category("Phase49")]
 [Category("Engine")]
 [Category("Interfaces")]
 public sealed class IFileHelperAsyncEngineTests

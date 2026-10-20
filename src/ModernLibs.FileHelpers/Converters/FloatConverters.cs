@@ -5,8 +5,11 @@ using System.Globalization;
 namespace ModernLibs.FileHelpers.Converters;
 
 /// <summary>
-/// Converts <see cref="decimal"/> fields using InvariantCulture by default.
-/// Accepts an optional <see cref="IFormatProvider"/> in the constructor for locale overrides.
+/// Converts <see cref="decimal"/> fields with the FileHelpers 3.x <c>DecimalConverter</c> rules: blanks before
+/// and after a leading sign are removed, then the text is parsed with
+/// <c>NumberStyles.Number | NumberStyles.AllowExponent</c> (no currency symbols, no parentheses).
+/// Invariant culture unless a decimal separator or culture is configured; formatting uses the same
+/// separator so written values read back. Zero allocations.
 /// </summary>
 public sealed class DecimalConverter : ISpanConverter<decimal>
 {
@@ -15,13 +18,29 @@ public sealed class DecimalConverter : ISpanConverter<decimal>
 
     private readonly IFormatProvider _culture;
 
-    /// <summary>Initialises a <see cref="DecimalConverter"/> with the specified culture (default: <see cref="CultureInfo.InvariantCulture"/>).</summary>
-    public DecimalConverter(IFormatProvider? culture = null)
+    /// <summary>Initialises a <see cref="DecimalConverter"/> that uses <see cref="CultureInfo.InvariantCulture"/>.</summary>
+    public DecimalConverter()
+        : this((IFormatProvider?)null)
+    {
+    }
+
+    /// <summary>Initialises a <see cref="DecimalConverter"/> with the specified culture (<see langword="null"/> means <see cref="CultureInfo.InvariantCulture"/>).</summary>
+    /// <param name="culture">The culture or number format to parse and format with.</param>
+    public DecimalConverter(IFormatProvider? culture)
         => _culture = culture ?? CultureInfo.InvariantCulture;
+
+    /// <summary>
+    /// Initializes a converter from the 3.x <c>decimalSepOrCultureName</c> argument
+    /// (<c>[FieldConverter(ConverterKind.Decimal, ",")]</c>): <c>"."</c> or <c>","</c> selects the decimal
+    /// separator (the other one becomes the group separator); any other value is a culture name.
+    /// </summary>
+    /// <exception cref="BadUsageException">The value is neither a separator nor a known culture name.</exception>
+    public DecimalConverter(string decimalSeparatorOrCultureName)
+        => _culture = NumberConversion.ResolveSeparator(decimalSeparatorOrCultureName);
 
     /// <inheritdoc/>
     public bool TryParse(ReadOnlySpan<char> span, out decimal value)
-        => decimal.TryParse(span, NumberStyles.Any, _culture, out value);
+        => NumberConversion.TryParse(span, NumberConversion.Styles, _culture, out value);
 
     /// <inheritdoc/>
     public bool TryFormat(decimal value, Span<char> destination, out int charsWritten)
@@ -29,8 +48,11 @@ public sealed class DecimalConverter : ISpanConverter<decimal>
 }
 
 /// <summary>
-/// Converts <see cref="double"/> fields using InvariantCulture by default.
-/// Accepts an optional <see cref="IFormatProvider"/> in the constructor for locale overrides.
+/// Converts <see cref="double"/> fields with the FileHelpers 3.x <c>DoubleConverter</c> rules: blanks before
+/// and after a leading sign are removed, then the text is parsed with
+/// <c>NumberStyles.Number | NumberStyles.AllowExponent</c> (no currency symbols, no parentheses).
+/// Invariant culture unless a decimal separator or culture is configured; formatting uses the same
+/// separator so written values read back. Zero allocations.
 /// </summary>
 public sealed class DoubleConverter : ISpanConverter<double>
 {
@@ -39,13 +61,29 @@ public sealed class DoubleConverter : ISpanConverter<double>
 
     private readonly IFormatProvider _culture;
 
-    /// <summary>Initialises a <see cref="DoubleConverter"/> with the specified culture (default: <see cref="CultureInfo.InvariantCulture"/>).</summary>
-    public DoubleConverter(IFormatProvider? culture = null)
+    /// <summary>Initialises a <see cref="DoubleConverter"/> that uses <see cref="CultureInfo.InvariantCulture"/>.</summary>
+    public DoubleConverter()
+        : this((IFormatProvider?)null)
+    {
+    }
+
+    /// <summary>Initialises a <see cref="DoubleConverter"/> with the specified culture (<see langword="null"/> means <see cref="CultureInfo.InvariantCulture"/>).</summary>
+    /// <param name="culture">The culture or number format to parse and format with.</param>
+    public DoubleConverter(IFormatProvider? culture)
         => _culture = culture ?? CultureInfo.InvariantCulture;
+
+    /// <summary>
+    /// Initializes a converter from the 3.x <c>decimalSepOrCultureName</c> argument
+    /// (<c>[FieldConverter(ConverterKind.Double, ",")]</c>): <c>"."</c> or <c>","</c> selects the decimal
+    /// separator (the other one becomes the group separator); any other value is a culture name.
+    /// </summary>
+    /// <exception cref="BadUsageException">The value is neither a separator nor a known culture name.</exception>
+    public DoubleConverter(string decimalSeparatorOrCultureName)
+        => _culture = NumberConversion.ResolveSeparator(decimalSeparatorOrCultureName);
 
     /// <inheritdoc/>
     public bool TryParse(ReadOnlySpan<char> span, out double value)
-        => double.TryParse(span, NumberStyles.Any, _culture, out value);
+        => NumberConversion.TryParse(span, NumberConversion.Styles, _culture, out value);
 
     /// <inheritdoc/>
     public bool TryFormat(double value, Span<char> destination, out int charsWritten)
@@ -53,8 +91,11 @@ public sealed class DoubleConverter : ISpanConverter<double>
 }
 
 /// <summary>
-/// Converts <see cref="float"/> fields using InvariantCulture by default.
-/// Accepts an optional <see cref="IFormatProvider"/> in the constructor for locale overrides.
+/// Converts <see cref="float"/> fields with the FileHelpers 3.x <c>SingleConverter</c> rules: blanks before
+/// and after a leading sign are removed, then the text is parsed with
+/// <c>NumberStyles.Number | NumberStyles.AllowExponent</c> (no currency symbols, no parentheses).
+/// Invariant culture unless a decimal separator or culture is configured; formatting uses the same
+/// separator so written values read back. Zero allocations.
 /// </summary>
 public sealed class SingleConverter : ISpanConverter<float>
 {
@@ -63,13 +104,29 @@ public sealed class SingleConverter : ISpanConverter<float>
 
     private readonly IFormatProvider _culture;
 
-    /// <summary>Initialises a <see cref="SingleConverter"/> with the specified culture (default: <see cref="CultureInfo.InvariantCulture"/>).</summary>
-    public SingleConverter(IFormatProvider? culture = null)
+    /// <summary>Initialises a <see cref="SingleConverter"/> that uses <see cref="CultureInfo.InvariantCulture"/>.</summary>
+    public SingleConverter()
+        : this((IFormatProvider?)null)
+    {
+    }
+
+    /// <summary>Initialises a <see cref="SingleConverter"/> with the specified culture (<see langword="null"/> means <see cref="CultureInfo.InvariantCulture"/>).</summary>
+    /// <param name="culture">The culture or number format to parse and format with.</param>
+    public SingleConverter(IFormatProvider? culture)
         => _culture = culture ?? CultureInfo.InvariantCulture;
+
+    /// <summary>
+    /// Initializes a converter from the 3.x <c>decimalSepOrCultureName</c> argument
+    /// (<c>[FieldConverter(ConverterKind.Single, ",")]</c>): <c>"."</c> or <c>","</c> selects the decimal
+    /// separator (the other one becomes the group separator); any other value is a culture name.
+    /// </summary>
+    /// <exception cref="BadUsageException">The value is neither a separator nor a known culture name.</exception>
+    public SingleConverter(string decimalSeparatorOrCultureName)
+        => _culture = NumberConversion.ResolveSeparator(decimalSeparatorOrCultureName);
 
     /// <inheritdoc/>
     public bool TryParse(ReadOnlySpan<char> span, out float value)
-        => float.TryParse(span, NumberStyles.Any, _culture, out value);
+        => NumberConversion.TryParse(span, NumberConversion.Styles, _culture, out value);
 
     /// <inheritdoc/>
     public bool TryFormat(float value, Span<char> destination, out int charsWritten)
@@ -77,45 +134,41 @@ public sealed class SingleConverter : ISpanConverter<float>
 }
 
 /// <summary>
-/// Converts <see cref="double"/> fields that may include a trailing <c>%</c> character.
-/// On parse: strips the trailing <c>%</c> (if present) then parses as double (InvariantCulture).
-/// On format: writes the double value followed by <c>%</c>.
+/// Converts <see cref="double"/> fields with the behaviour of the FileHelpers 3.5.2
+/// <c>PercentDoubleConverter</c>, which parses and formats exactly like <see cref="DoubleConverter"/>:
+/// <c>"50"</c> reads as <c>50</c>, and <c>0.5</c> is written as <c>"0.5"</c>.
 /// </summary>
+/// <remarks>
+/// FileHelpers 3.x documented that <c>"50%"</c> reads as <c>0.5</c>, but its parser rejects any value that
+/// contains <c>%</c>. This converter keeps the 3.5.2 behaviour so files read and written by 3.x are handled
+/// the same way: a value with <c>%</c> fails to convert and the engine raises <see cref="ConvertException"/>.
+/// </remarks>
 public sealed class PercentDoubleConverter : ISpanConverter<double>
 {
-    /// <summary>Shared singleton instance.</summary>
+    /// <summary>Shared singleton instance (invariant culture).</summary>
     public static readonly PercentDoubleConverter Instance = new();
+
+    private readonly IFormatProvider _culture = CultureInfo.InvariantCulture;
 
     private PercentDoubleConverter() { }
 
+    /// <summary>Initializes a converter using <paramref name="culture"/> (<see langword="null"/> means invariant).</summary>
+    public PercentDoubleConverter(IFormatProvider? culture) => _culture = culture ?? CultureInfo.InvariantCulture;
+
+    /// <summary>
+    /// Initializes a converter from the 3.x <c>decimalSepOrCultureName</c> argument
+    /// (<c>[FieldConverter(ConverterKind.PercentDouble, ",")]</c>): <c>"."</c> or <c>","</c> selects the
+    /// decimal separator (the other one becomes the group separator); any other value is a culture name.
+    /// </summary>
+    /// <exception cref="BadUsageException">The value is neither a separator nor a known culture name.</exception>
+    public PercentDoubleConverter(string decimalSeparatorOrCultureName)
+        => _culture = NumberConversion.ResolveSeparator(decimalSeparatorOrCultureName);
+
     /// <inheritdoc/>
     public bool TryParse(ReadOnlySpan<char> span, out double value)
-    {
-        ReadOnlySpan<char> trimmed = span.TrimEnd();
-        if (!trimmed.IsEmpty && trimmed[trimmed.Length - 1] == '%')
-            trimmed = trimmed[..^1];
-        return double.TryParse(trimmed, NumberStyles.Any, CultureInfo.InvariantCulture, out value);
-    }
+        => NumberConversion.TryParse(span, NumberConversion.Styles, _culture, out value);
 
     /// <inheritdoc/>
     public bool TryFormat(double value, Span<char> destination, out int charsWritten)
-    {
-        Span<char> tmp = stackalloc char[24];
-        if (!value.TryFormat(tmp, out int cw, default, CultureInfo.InvariantCulture))
-        {
-            charsWritten = 0;
-            return false;
-        }
-
-        if (cw + 1 > destination.Length)
-        {
-            charsWritten = 0;
-            return false;
-        }
-
-        tmp[..cw].CopyTo(destination);
-        destination[cw] = '%';
-        charsWritten = cw + 1;
-        return true;
-    }
+        => value.TryFormat(destination, out charsWritten, default, _culture);
 }

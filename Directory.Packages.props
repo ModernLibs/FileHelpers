@@ -3,18 +3,22 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
-    <!-- Source generator host (Phase 3).
+    <!-- Source generator host.
          Version pinned to 4.14.0: SDK ships Roslyn 5.0.0.0; analyzers targeting 5.3.0 are rejected
          with CS9057 ("references newer compiler version"). Roslyn 4.x analyzers load in any 4.x or 5.x
          compiler (backward-compatible). 4.14.0 includes ForAttributeWithMetadataName and all required APIs. -->
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
 
-    <!-- Static analysis — three-layer stack (D-07) -->
+    <!-- Static analysis: Roslynator, Meziantou.Analyzer, .NET SDK analyzers -->
     <PackageVersion Include="Roslynator.Analyzers" Version="4.15.0" />
     <PackageVersion Include="Meziantou.Analyzer" Version="3.0.46" />
     <PackageVersion Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.201" />
 
-    <!-- Generator testing (Phase 3) -->
+    <!-- Public API baseline (library only): PublicAPI.Shipped.txt / PublicAPI.Unshipped.txt.
+         4.14.0 for the same reason as Microsoft.CodeAnalysis.CSharp above (SDK compiler is Roslyn 5.0). -->
+    <PackageVersion Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" Version="4.14.0" />
+
+    <!-- Generator testing -->
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp.SourceGenerators.Testing" Version="1.1.3" />
 
     <!-- Test framework — TUnit (primary) + xUnit v3 (Stryker target) -->
@@ -22,6 +26,9 @@
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.4" />
+
+    <!-- Fuzzing (tests/ModernLibs.FileHelpers.Fuzz.Tests) -->
+    <PackageVersion Include="SharpFuzz" Version="2.2.0" />
 
     <!-- Benchmarks -->
     <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />

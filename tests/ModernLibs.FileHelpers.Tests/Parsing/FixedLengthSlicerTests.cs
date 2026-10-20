@@ -6,9 +6,8 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.Parsing;
 
 /// <summary>
-/// Tests for FixedLengthSlicer (PIPE-03).
+/// Tests for FixedLengthSlicer.
 /// </summary>
-[Category("Phase05")]
 [Category("Parsing")]
 public sealed class FixedLengthSlicerTests
 {

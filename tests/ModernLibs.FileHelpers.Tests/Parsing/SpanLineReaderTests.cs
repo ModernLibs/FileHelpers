@@ -7,11 +7,10 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.Parsing;
 
 /// <summary>
-/// Unit tests for SpanLineReader (PIPE-01).
+/// Unit tests for SpanLineReader.
 /// Covers LF, CRLF, CR line endings, trailing newline, empty input, and LineNumber tracking.
 /// Span-based and ref struct work is done synchronously; only string/bool results are awaited.
 /// </summary>
-[Category("Phase05")]
 [Category("Parsing")]
 public sealed class SpanLineReaderTests
 {

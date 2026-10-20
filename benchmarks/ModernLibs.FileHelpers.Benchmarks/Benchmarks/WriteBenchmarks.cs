@@ -3,6 +3,7 @@
 // MA0051: Benchmark methods are intentionally concise.
 #pragma warning disable MA0051
 
+using System.Globalization;
 using BenchmarkDotNet.Attributes;
 using ModernLibs.FileHelpers.Benchmarks.Data;
 
@@ -28,6 +29,16 @@ public class WriteBenchmarks
         _engine = new FileHelperEngine<PackageAsset>();
         _records = _engine.ReadFile(sourceFile);
         _outputPath = Path.Combine(dataDir, "output_write.csv");
+
+        // Correctness guard: every writer must write the records back exactly as the generator wrote the
+        // file, header line included (FileHelpers writes back the header it skipped on read).
+        var lines = DataCheck.DataLines(sourceFile, hasHeader: true);
+        DataCheck.PackageAssets("FileHelpers read", lines, _records.Length, i => PackageAssetColumns.Of(_records[i]));
+        var fileLines = DataCheck.DataLines(sourceFile, hasHeader: false);
+        DataCheck.WrittenPackageAssets("FileHelpers WriteString", fileLines, WriteString_FileHelpers());
+        WriteFile_FileHelpers();
+        DataCheck.WrittenPackageAssets("FileHelpers WriteFile", fileLines, File.ReadAllText(_outputPath));
+        DataCheck.WrittenPackageAssets("CsvHelper", fileLines, WriteString_CsvHelper());
     }
 
     [Benchmark(Baseline = true)]
@@ -40,7 +51,9 @@ public class WriteBenchmarks
     public string WriteString_CsvHelper()
     {
         using var writer = new System.IO.StringWriter();
-        using var csv = new CsvHelper.CsvWriter(writer, System.Globalization.CultureInfo.InvariantCulture);
+        using var csv = new CsvHelper.CsvWriter(writer, CultureInfo.InvariantCulture);
+        // Dates in the "s" format FileHelpers writes (CsvHelper's default is the culture's general format).
+        csv.Context.TypeConverterOptionsCache.GetOptions<DateTime>().Formats = [DatasetGenerator.DateFormat];
         csv.WriteRecords(_records);
         return writer.ToString();
     }

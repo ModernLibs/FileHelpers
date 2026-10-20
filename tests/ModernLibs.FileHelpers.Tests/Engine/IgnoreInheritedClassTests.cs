@@ -15,9 +15,8 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.Engine;
 
 /// <summary>
-/// Tests verifying IgnoreInheritedClass attribute functionality (GAP-03).
+/// Tests verifying IgnoreInheritedClass attribute functionality.
 /// </summary>
-[Category("Phase50")]
 [Category("Engine")]
 [Category("IgnoreInheritedClass")]
 public sealed class IgnoreInheritedClassTests

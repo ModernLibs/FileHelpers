@@ -12,6 +12,10 @@ on:
 permissions:
   contents: read
 
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+
 jobs:
   fuzz:
     name: Fuzz Testing
@@ -20,15 +24,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: '10.x'
+          global-json-file: global.json
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.nuget/packages
           key: ${{ runner.os }}-nuget-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
@@ -36,32 +40,41 @@ jobs:
             ${{ runner.os }}-nuget-
 
       - name: Restore
-        run: dotnet restore
+        run: |
+          dotnet restore
+          dotnet restore tests/ModernLibs.FileHelpers.Fuzz.Tests/
 
-      - name: Build fuzz test project
-        run: dotnet build tests/ModernLibs.FileHelpers.Fuzz.Tests/ --configuration Release --no-restore
+      - name: Build fuzz and test projects
+        run: |
+          dotnet build tests/ModernLibs.FileHelpers.Fuzz.Tests/ --configuration Release --no-restore
+          dotnet build tests/ModernLibs.FileHelpers.Tests/ --configuration Release --no-restore
 
       - name: Run fuzz targets against seed corpus
         run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(tests/ModernLibs.FileHelpers.Fuzz.Tests/FuzzCorpus/*.txt)
+          if [ ${#files[@]} -eq 0 ]; then echo "::error::Seed corpus is empty."; exit 1; fi
           for target in delimited spanline fixedlength converters; do
             echo "Running fuzz target: $target"
-            for file in tests/ModernLibs.FileHelpers.Fuzz.Tests/FuzzCorpus/*.txt; do
+            for file in "${files[@]}"; do
               dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests/ -c Release --no-build -- "$target" < "$file"
             done
           done
 
+      # Category "Fuzz" of the TUnit suite (property-style random inputs). MTP exits with code 8 when
+      # no test matches the filter, which fails the job.
       - name: Run TUnit fuzz tests
         run: >-
           ./tests/ModernLibs.FileHelpers.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Tests
           --disable-logo
           --output Detailed
-        env:
-          DOTNET_ROOT: ${{ runner.tool_cache }}/dotnet
+          --treenode-filter "/*/*/*/*[Category=Fuzz]"
 
       # Weekly extended run — save corpus artifacts
       - name: Save corpus artifacts (weekly)
         if: github.event_name == 'schedule'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fuzz-corpus
           path: tests/ModernLibs.FileHelpers.Fuzz.Tests/FuzzCorpus/

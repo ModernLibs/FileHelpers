@@ -9,7 +9,6 @@ using ModernLibs.FileHelpers.Converters;
 
 namespace ModernLibs.FileHelpers.Tests.Fuzz;
 
-[Category("Phase54")]
 [Category("Fuzz")]
 public sealed class FuzzRunner
 {
@@ -26,40 +25,6 @@ public sealed class FuzzRunner
     {
         var bytes = File.ReadAllBytes(filePath);
         return new MemoryStream(bytes);
-    }
-
-    [Test]
-    [DisplayName("Fuzz: DelimitedFieldEnumerator against seed corpus")]
-    public async Task FuzzDelimitedFieldEnumerator_AgainstCorpus_NoExceptions()
-    {
-        // Arrange: load seed corpus files
-        var files = GetCorpusFiles();
-
-        // Act: run fuzz target logic against each file
-        foreach (var file in files)
-        {
-            using var stream = CreateStreamForFile(file);
-            using var reader = new StreamReader(stream, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: false, bufferSize: 1024, leaveOpen: true);
-            var input = reader.ReadToEnd();
-
-            if (input.Length == 0)
-                continue;
-
-            // Assert: no exceptions thrown
-            await Assert.That(() =>
-            {
-                _ = DelimitedFieldEnumerator.HasUnclosedQuote(input);
-                var lineReader = new SpanLineReader(input);
-                while (lineReader.TryReadLine(out var line))
-                {
-                    if (line.IsEmpty)
-                        continue;
-                    var enumerator = new DelimitedFieldEnumerator(line, ",");
-                    while (enumerator.MoveNext())
-                        _ = enumerator.Current;
-                }
-            }).ThrowsNothing();
-        }
     }
 
     [Test]
@@ -195,22 +160,6 @@ public sealed class FuzzRunner
             using var reader = new StreamReader(stream, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: false, bufferSize: 1024, leaveOpen: true);
             var input = reader.ReadToEnd();
             var trimmedInput = input.Trim();
-
-            // DelimitedFieldEnumerator target
-            if (input.Length > 0)
-            {
-                await Assert.That(() =>
-                {
-                    _ = DelimitedFieldEnumerator.HasUnclosedQuote(input);
-                    var lineReader = new SpanLineReader(input);
-                    while (lineReader.TryReadLine(out var line))
-                    {
-                        if (line.IsEmpty) continue;
-                        var enumerator = new DelimitedFieldEnumerator(line, ",");
-                        while (enumerator.MoveNext()) _ = enumerator.Current;
-                    }
-                }).ThrowsNothing();
-            }
 
             // SpanLineReader target
             if (input.Length > 0)

@@ -10,10 +10,9 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.Generator;
 
 /// <summary>
-/// TDD RED tests for generator per-field delimiter emission (FDEL-03).
+/// Tests for generator per-field delimiter emission.
 /// These tests verify that the generator emits correct code for mixed-delimiter records.
 /// </summary>
-[Category("Phase17")]
 [Category("Generator")]
 public sealed class PerFieldDelimiterTests
 {
@@ -32,7 +31,7 @@ public sealed class PerFieldDelimiterTests
     }
 
     /// <summary>
-    /// FDEL-03: Generator emits FieldDescriptor with per-field delimiter metadata.
+    /// Generator emits FieldDescriptor with per-field delimiter metadata.
     /// </summary>
     [Test]
     [DisplayName("Generator emits FieldDescriptor constructor with delimiter argument for per-field override")]
@@ -67,7 +66,7 @@ public sealed class PerFieldDelimiterTests
     }
 
     /// <summary>
-    /// FDEL-03: Single field with [FieldDelimiter] overrides record-level delimiter in emitted code.
+    /// Single field with [FieldDelimiter] overrides record-level delimiter in emitted code.
     /// </summary>
     [Test]
     [DisplayName("Generator uses semicolon delimiter for field with [FieldDelimiter] on comma-delimited record")]
@@ -102,7 +101,7 @@ public sealed class PerFieldDelimiterTests
     }
 
     /// <summary>
-    /// FDEL-03: Mixed delimiters emit correct IndexOf calls per field.
+    /// Mixed delimiters emit correct IndexOf calls per field.
     /// </summary>
     [Test]
     [DisplayName("Generator emits correct IndexOf calls for mixed comma-semicolon delimiters")]
@@ -138,7 +137,7 @@ public sealed class PerFieldDelimiterTests
     }
 
     /// <summary>
-    /// FDEL-03: Fields without [FieldDelimiter] use record-level delimiter.
+    /// Fields without [FieldDelimiter] use record-level delimiter.
     /// </summary>
     [Test]
     [DisplayName("Fields without [FieldDelimiter] attribute use record-level comma delimiter")]
@@ -174,7 +173,7 @@ public sealed class PerFieldDelimiterTests
     }
 
     /// <summary>
-    /// FDEL-03: All fields with different delimiters emit correctly.
+    /// All fields with different delimiters emit correctly.
     /// </summary>
     [Test]
     [DisplayName("Generator handles all fields having unique delimiters")]
@@ -212,7 +211,7 @@ public sealed class PerFieldDelimiterTests
     }
 
     /// <summary>
-    /// FDEL-03: Multi-character per-field delimiter emits correctly.
+    /// Multi-character per-field delimiter emits correctly.
     /// </summary>
     [Test]
     [DisplayName("Generator handles multi-character per-field delimiters")]

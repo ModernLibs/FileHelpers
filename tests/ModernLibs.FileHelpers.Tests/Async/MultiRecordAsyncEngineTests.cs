@@ -24,7 +24,6 @@ internal sealed class MultiAsyncDetail
     [FieldOrder(3)] public decimal Amount { get; set; }
 }
 
-[Category("Phase31")]
 [Category("Async")]
 [Category("MultiRecord")]
 public sealed class MultiRecordAsyncEngineTests
@@ -86,25 +85,23 @@ public sealed class MultiRecordAsyncEngineTests
     }
 
     [Test]
-    [DisplayName("MultiRecordAsyncEngine throws on selector miss with ErrorMode.ThrowException")]
-    public async Task ReadAsync_UnknownLine_ThrowException_Throws()
+    [DisplayName("MultiRecordAsyncEngine skips a selector miss with ErrorMode.ThrowException (3.x)")]
+    public async Task ReadAsync_UnknownLine_ThrowException_Skips()
     {
         // Arrange: narrow selector that won't match
         var engine = new MultiRecordAsyncEngine(
             MultiRecordType.For<MultiAsyncHeader>(line => line.StartsWith("H|", StringComparison.Ordinal)));
         engine.ErrorMode = ErrorMode.ThrowException;
-
-        // Act & Assert: unmatched line throws FormatException
         var content = "X|unknown";
         using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(content));
 
-        await Assert.That(async () =>
-        {
-            await foreach (var _ in engine.ReadAsync(stream))
-            {
-                // consume
-            }
-        }).Throws<FormatException>();
+        // Act: enumerate
+        var records = new List<object>();
+        await foreach (var record in engine.ReadAsync(stream))
+            records.Add(record);
+
+        // Assert: the unmatched line is skipped, nothing thrown
+        await Assert.That(records.Count).IsEqualTo(0);
     }
 
     [Test]
@@ -130,8 +127,8 @@ public sealed class MultiRecordAsyncEngineTests
     }
 
     [Test]
-    [DisplayName("MultiRecordAsyncEngine collects errors with ErrorMode.SaveAndContinue")]
-    public async Task ReadAsync_UnknownLine_SaveAndContinue_CollectsErrors()
+    [DisplayName("MultiRecordAsyncEngine skips a selector miss without recording an error (3.x)")]
+    public async Task ReadAsync_UnknownLine_SaveAndContinue_SkipsWithoutError()
     {
         // Arrange
         var engine = new MultiRecordAsyncEngine(
@@ -147,8 +144,7 @@ public sealed class MultiRecordAsyncEngineTests
 
         // Assert
         await Assert.That(records.Count).IsEqualTo(2);
-        await Assert.That(engine.ErrorManager.Errors.Count).IsEqualTo(1);
-        await Assert.That(engine.ErrorManager.Errors[0].LineNumber).IsEqualTo(2);
+        await Assert.That(engine.ErrorManager.Errors.Count).IsEqualTo(0);
     }
 
     [Test]

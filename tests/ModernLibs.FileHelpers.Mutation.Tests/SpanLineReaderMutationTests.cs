@@ -8,7 +8,7 @@ namespace ModernLibs.FileHelpers.Mutation.Tests;
 /// <summary>
 /// xUnit mutation-target tests for <see cref="SpanLineReader"/>.
 /// Covers all parse paths: empty lines, trailing newline, multi-line,
-/// large buffers, LF/CRLF/CR handling, and line numbering (MUT-03).
+/// large buffers, LF/CRLF/CR handling, and line numbering.
 /// </summary>
 public sealed class SpanLineReaderMutationTests
 {

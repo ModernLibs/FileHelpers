@@ -1,12 +1,12 @@
 # Migration Samples
 
-This directory contains side-by-side examples showing the differences between FileHelpers 3.x and ModernLibs.FileHelpers 4.x.
+Side-by-side examples of FileHelpers 3.x and ModernLibs.FileHelpers 4.x code.
 
 ## Files
 
-- **OriginalFileHelpersApp.cs** - Documentation-only file showing typical FileHelpers 3.x patterns (commented out - not compiled)
-- **ModernLibsApp.cs** - Working application demonstrating ModernLibs.FileHelpers equivalents
-- **MigrationSamples.csproj** - Project file to compile and run ModernLibsApp
+- **OriginalFileHelpersApp.cs** - FileHelpers 3.x version (commented out, not compiled)
+- **ModernLibsApp.cs** - the same program written for ModernLibs.FileHelpers, plus two 4.x-only examples
+- **MigrationSamples.csproj** - project file that compiles and runs ModernLibsApp
 
 ## Running the Sample
 
@@ -15,43 +15,34 @@ cd samples/MigrationSamples
 dotnet run
 ```
 
-## Key Differences
+## Differences shown in this sample
 
 | Aspect | FileHelpers 3.x | ModernLibs.FileHelpers 4.x |
 |--------|-----------------|---------------------------|
 | Namespace | `using FileHelpers;` | `using ModernLibs.FileHelpers;` |
-| INotify interfaces | `INotifyRead`, `INotifyWrite` (non-generic) | `INotifyRead<T>`, `INotifyWrite<T>` (generic) |
-| Performance | Reflection-based | Source-generated, AOT-compatible |
-| Allocations | Heap allocations per record | Zero allocations for struct types |
+| INotify interfaces | `INotifyRead`, `INotifyWrite` (non-generic; the record uses its own fields) | `INotifyRead<T>`, `INotifyWrite<T>` (generic; `e.Record` is typed) |
+| Record descriptors | Built with reflection at run time | Generated at compile time (trimming- and Native AOT-compatible) |
 
-## Verification
+Examples 1 to 6 exist in both files. Examples 7 (`IAsyncEnumerable` streaming) and 8 (generic
+`INotifyRead<T>` validation) use 4.x APIs.
 
-Both implementations produce identical output for:
-- CSV reading with headers
-- CSV writing with headers
-- Fixed-length file handling
-- Error handling with SaveAndContinue mode
-- Streaming with BeginReadFile/ReadNext
-- Event handling
-- IAsyncEnumerable streaming
-- Interface-based validation
+The full list of API differences is in [docs/MIGRATION.md](../../docs/MIGRATION.md).
 
 ## Migration Checklist
 
 When migrating your own code:
 
-1. ✅ Update `using FileHelpers;` to `using ModernLibs.FileHelpers;`
-2. ✅ If implementing `INotifyRead`/`INotifyWrite`, change to generic versions
-3. ✅ Verify record classes have `[DelimitedRecord]` or `[FixedLengthRecord]`
-4. ✅ Test with sample data before deploying
-5. ✅ Consider using `record struct` for zero-allocation parsing
+1. Update `using FileHelpers;` to `using ModernLibs.FileHelpers;`
+2. If implementing `INotifyRead`/`INotifyWrite`, change to the generic versions
+3. Check that every record type has `[DelimitedRecord]` or `[FixedLengthRecord]` (the build reports
+   [MLFH001](../../docs/diagnostics.md#mlfh001) otherwise)
+4. Go through [docs/MIGRATION.md](../../docs/MIGRATION.md) for the APIs your code uses
+5. Test with sample data before deploying
 
 ## Expected Output
 
 ```
 === ModernLibs.FileHelpers 4.x Examples ===
-
-Note: This code is 95%+ compatible with FileHelpers 3.x
 
 1. Reading CSV with header:
    Header: CustomerId,Name,Email,Balance

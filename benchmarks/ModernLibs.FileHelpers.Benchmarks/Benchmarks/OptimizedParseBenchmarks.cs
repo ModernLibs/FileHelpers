@@ -8,7 +8,9 @@ using ModernLibs.FileHelpers.Benchmarks.Data;
 
 namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks;
 
+// Same layout as PackageAsset: header line skipped, ISO 8601 "s" dates.
 [DelimitedRecord(",")]
+[IgnoreFirst]
 public sealed class BenchmarkAsset
 {
     [FieldOrder(1)] public int Id { get; set; }
@@ -25,8 +27,8 @@ public sealed class BenchmarkAsset
     [FieldOrder(12)] public string MinClientVersion { get; set; } = "";
     [FieldOrder(13)] public int Type { get; set; }
     [FieldOrder(14)] public bool IsPrerelease { get; set; }
-    [FieldOrder(15)] public DateTime Published { get; set; }
-    [FieldOrder(16)] public DateTime LastUpdated { get; set; }
+    [FieldOrder(15), FieldConverter(ConverterKind.Date, DatasetGenerator.DateFormat)] public DateTime Published { get; set; }
+    [FieldOrder(16), FieldConverter(ConverterKind.Date, DatasetGenerator.DateFormat)] public DateTime LastUpdated { get; set; }
     [FieldOrder(17)] public long PackageSize { get; set; }
     [FieldOrder(18)] public int DependencyCount { get; set; }
     [FieldOrder(19)] public bool HasReadme { get; set; }
@@ -58,6 +60,29 @@ public class OptimizedParseBenchmarks
         _engine = new FileHelperEngine<BenchmarkAsset>();
         _content = File.ReadAllText(_filePath);
         _contentBuffer = _content.ToCharArray();
+
+        // Correctness guard: every benchmark must parse the data it measures.
+        var lines = DataCheck.DataLines(_filePath, hasHeader: true);
+        foreach (var (name, records) in new[] { ("ReadFile", ReadFile()), ("ReadString", ReadString()), ("ReadSpan", ReadSpan()), ("ReadSpan_CharArray", ReadSpan_CharArray()) })
+        {
+            DataCheck.PackageAssets(name, lines, records.Length, i =>
+            {
+                var r = records[i];
+                return DataCheck.PackageColumns(r.Id, r.Version, r.DownloadCount, r.MinClientVersion, r.IsPrerelease,
+                    r.Published, r.LastUpdated, r.PackageSize, r.RepositoryType, r.RequireLicenseAcceptance);
+            });
+        }
+
+        foreach (var (name, count) in new[]
+        {
+            ("ReadString_Callback", ReadString_Callback()), ("ReadSpan_Callback", ReadSpan_Callback()),
+            ("ReadSpan_Callback_ProcessAndDiscard", ReadSpan_Callback_ProcessAndDiscard()),
+            ("ReadFile_Callback", ReadFile_Callback()), ("ReadFile_Callback_ProcessAndDiscard", ReadFile_Callback_ProcessAndDiscard()),
+            ("ReadFileAsync_Callback", ReadFileAsync_Callback()), ("ReadFileAsync_Callback_ProcessAndDiscard", ReadFileAsync_Callback_ProcessAndDiscard()),
+        })
+        {
+            DataCheck.Equal(Rows, count, name + " record count");
+        }
     }
 
     // Baseline: ReadFile (string path, existing API)
@@ -68,15 +93,15 @@ public class OptimizedParseBenchmarks
     [Benchmark]
     public BenchmarkAsset[] ReadString() => _engine.ReadString(_content);
 
-    // ReadSpan with ReadOnlySpan<char> (OPT-06/07/08: span-based, pre-allocated int[], SIMD line scanning)
+    // ReadSpan with ReadOnlySpan<char> (span-based, pre-allocated int[], SIMD line scanning)
     [Benchmark]
     public BenchmarkAsset[] ReadSpan() => _engine.ReadSpan(_content.AsSpan());
 
-    // ReadSpan with char[] (OPT-06: caller already has char[] buffer)
+    // ReadSpan with char[] (the caller already has a char[] buffer)
     [Benchmark]
     public BenchmarkAsset[] ReadSpan_CharArray() => _engine.ReadSpan(_contentBuffer.AsSpan());
 
-    // OPT-11: Callback-based read — zero result array allocation
+    // Callback-based read — zero result array allocation
     [Benchmark]
     public int ReadString_Callback()
     {
@@ -85,7 +110,7 @@ public class OptimizedParseBenchmarks
         return count;
     }
 
-    // OPT-11: Callback-based span read — zero result array allocation
+    // Callback-based span read — zero result array allocation
     [Benchmark]
     public int ReadSpan_Callback()
     {
@@ -94,7 +119,7 @@ public class OptimizedParseBenchmarks
         return count;
     }
 
-    // OPT-11: Callback-based with processing (simulates real-world use)
+    // Callback-based with processing (simulates real-world use)
     [Benchmark]
     public int ReadSpan_Callback_ProcessAndDiscard()
     {
@@ -107,7 +132,7 @@ public class OptimizedParseBenchmarks
         return count;
     }
 
-    // OPT-12: ReadFile with callback — zero string + zero T[] allocation, streaming from disk
+    // ReadFile with callback — zero string + zero T[] allocation, streaming from disk
     [Benchmark]
     public int ReadFile_Callback()
     {
@@ -116,7 +141,7 @@ public class OptimizedParseBenchmarks
         return count;
     }
 
-    // OPT-12: ReadFile callback with processing (simulates real-world ETL)
+    // ReadFile callback with processing (simulates real-world ETL)
     [Benchmark]
     public int ReadFile_Callback_ProcessAndDiscard()
     {
@@ -129,7 +154,7 @@ public class OptimizedParseBenchmarks
         return count;
     }
 
-    // OPT-12: ReadFileAsync callback — async streaming from disk
+    // ReadFileAsync callback — async streaming from disk
     [Benchmark]
     public int ReadFileAsync_Callback()
     {
@@ -138,7 +163,7 @@ public class OptimizedParseBenchmarks
         return count;
     }
 
-    // OPT-12: ReadFileAsync callback with processing
+    // ReadFileAsync callback with processing
     [Benchmark]
     public int ReadFileAsync_Callback_ProcessAndDiscard()
     {

@@ -1,51 +1,45 @@
 # ModernLibs.FileHelpers.Mutation.Tests
 
-Mutation-test runner shell for the ModernLibs.FileHelpers specialist surface. The project hosts xUnit-runner-compatible cases that Stryker.NET mutates, so it is intentionally separate from the primary TUnit suite at `tests/ModernLibs.FileHelpers.Tests`.
+xUnit v3 test project used as the Stryker.NET mutation-testing target. It is separate from the primary TUnit
+suite at `tests/ModernLibs.FileHelpers.Tests` because Stryker.NET does not support Microsoft.Testing.Platform
+projects (the TUnit suite); this project uses the xUnit console runner instead.
 
-## Status (v1.3 mutation suite — Phase 30)
+## Contents
 
-This project contains **78** xUnit `[Fact]` mutation-target tests covering the core parsing and engine surface:
+81 xUnit tests:
 
-| Target | Test Count | Coverage Areas |
-|--------|------------|----------------|
-| `DelimitedFieldEnumerator` | 25 | Delimiter detection, quoted fields, escape sequences, per-field delimiters, lenient behavior |
-| `FixedLengthSlicer` | 10 | Offset/width slicing, boundary conditions, overflow clamping |
-| `SpanLineReader` | 14 | LF/CRLF/CR handling, line numbering, large buffers, empty input |
+| Target | Tests | Coverage areas |
+|--------|-------|----------------|
+| `FixedLengthSlicer` | 22 | Offset/width slicing, boundary conditions, overflow clamping |
+| `SpanLineReader` | 29 | LF/CRLF/CR handling, line numbering, large buffers, empty input |
 | `MultiRecordEngine` | 15 | Selector dispatch, error modes (Throw/Ignore/Save), multi-type parsing, I/O parity, write path |
-| `MasterDetailEngine` | 14 | Classification callback, multi-line buffering, error modes, I/O parity, write path, grouping |
+| `MasterDetailEngine` | 15 | Classification callback, multi-line buffering, error modes, I/O parity, write path, grouping |
 
-## Reproducible commands
+Quote handling (`QuoteBalanceScanner`, the generated splitter), the read core and the converters are covered
+by the TUnit suite, not by this project.
 
-### Run the mutation test suite
+## Commands
+
+Run the tests:
 
 ```bash
-dotnet test --project tests/ModernLibs.FileHelpers.Mutation.Tests/
+dotnet build -c Release tests/ModernLibs.FileHelpers.Mutation.Tests
+./tests/ModernLibs.FileHelpers.Mutation.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Mutation.Tests
 ```
 
-### Run Stryker.NET mutation analysis
+Run Stryker.NET:
 
 ```bash
 dotnet tool install -g dotnet-stryker
 dotnet stryker --config-file stryker-config.json
 ```
 
-Configuration is in `stryker-config.json` at the repo root with:
-- Target: `src/ModernLibs.FileHelpers/ModernLibs.FileHelpers.csproj`
-- Thresholds: high=80%, low=60%, break=50%
-- Baseline enabled with fallback to `main`
-- Reporters: progress, dots, html
+`stryker-config.json` (repository root) mutates the core parser files (read core, record session, logical
+line assembler, line readers and splitter, quote scanner, fixed-length slicer, `NumberConversion`) and the
+multi-record / master-detail engines. Thresholds: high 80 %, low 60 %, break 50 %.
 
-### Run via the testing platform
+## Known issue
 
-```bash
-./tests/ModernLibs.FileHelpers.Mutation.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Mutation.Tests
-```
-
-## CI Integration
-
-Mutation testing runs in CI after the unit test suite passes. The workflow:
-1. Installs `dotnet-stryker` global tool
-2. Runs `dotnet stryker --config-file stryker-config.json`
-3. Uploads the mutation report as a build artifact (30-day retention)
-
-See `.github/workflows/ci.yml` for the full pipeline.
+With Stryker.NET 5.0 every mutant is reported as survived (score 0 %, "test coverage capture failed"),
+even for `FixedLengthSlicer`, which these tests cover well. The CI step is therefore informational
+(`continue-on-error`) until the runner integration is fixed.

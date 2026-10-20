@@ -8,7 +8,7 @@ namespace ModernLibs.FileHelpers.Mutation.Tests;
 /// <summary>
 /// xUnit mutation-target tests for <see cref="FixedLengthSlicer"/>.
 /// Covers all parse paths: exact, shorter, longer, variable-length modes,
-/// negative offset, non-positive width, and overflow clamping (MUT-02).
+/// negative offset, non-positive width, and overflow clamping.
 /// </summary>
 public sealed class FixedLengthSlicerMutationTests
 {

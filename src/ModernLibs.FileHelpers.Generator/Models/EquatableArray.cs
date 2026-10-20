@@ -21,7 +21,8 @@ internal readonly struct EquatableArray<T> : IEquatable<EquatableArray<T>>
 
     public T this[int index] => _array[index];
 
-    public ImmutableArray<T>.Enumerator GetEnumerator() => _array.GetEnumerator();
+    // A default (uninitialised) array enumerates as empty instead of throwing NullReferenceException.
+    public ImmutableArray<T>.Enumerator GetEnumerator() => (_array.IsDefault ? ImmutableArray<T>.Empty : _array).GetEnumerator();
 
     public bool Equals(EquatableArray<T> other)
     {

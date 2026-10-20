@@ -24,9 +24,9 @@ public sealed class CachingTests
             ],
             options: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
 
-    /// <summary>SGEN-10: Second run on unchanged source reports Cached/Unchanged on all tracked steps.</summary>
+    /// <summary>Second run on unchanged source reports Cached/Unchanged on all tracked steps.</summary>
     [Test]
-    [DisplayName("Generator second run reports all steps as Cached or Unchanged (SGEN-10)")]
+    [DisplayName("Generator second run reports all steps as Cached or Unchanged")]
     public async Task Generator_SecondRun_AllStepsCached()
     {
         // Arrange: Create compilation with DelimitedRecord type

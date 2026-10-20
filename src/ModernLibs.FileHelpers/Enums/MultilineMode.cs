@@ -1,9 +1,13 @@
 namespace ModernLibs.FileHelpers;
 
 /// <summary>
-/// Indicates whether quoted fields can span multiple lines.
-/// Reserved for v2 multiline support (ADVP-01).
+/// Indicates whether quoted fields can span multiple lines
+/// (<see cref="DelimitedRecordAttribute.MultilineMode"/>).
 /// </summary>
+/// <remarks>
+/// With <see cref="AllowForRead"/> or <see cref="AllowForBoth"/>, a line that ends inside a quoted field is
+/// joined with the following lines (using their original terminators) until the quote closes.
+/// </remarks>
 public enum MultilineMode
 {
     /// <summary>Multiline fields are allowed both for reading and writing.</summary>

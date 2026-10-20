@@ -13,34 +13,15 @@ public sealed class DelimitedRecordAttribute : Attribute
     public string Separator { get; }
 
     /// <summary>
-    /// Indicates whether quoted fields may span multiple lines.
-    /// Defaults to <see cref="MultilineMode.NotAllow"/> for backward compatibility.
-    /// Phase 18 MULT-01: Multiline quoted field support.
+    /// Record-wide override of <see cref="FieldQuotedAttribute.QuoteMultiline"/>: when this property is set,
+    /// every <see cref="FieldQuotedAttribute"/> field of the record uses this mode. When it is not set, each
+    /// quoted field uses its own mode (FileHelpers 3.x default: <see cref="MultilineMode.AllowForBoth"/>).
     /// </summary>
+    /// <remarks>
+    /// Not part of FileHelpers 3.x. The getter returns <see cref="MultilineMode.NotAllow"/> when the property is
+    /// not set; the source generator only applies the value when it is set explicitly.
+    /// </remarks>
     public MultilineMode MultilineMode { get; set; } = MultilineMode.NotAllow;
-
-    /// <summary>
-    /// Specifies how quoted fields are unescaped during parsing.
-    /// Defaults to <see cref="QuoteUnescapeMode.None"/> for backward compatibility (quotes preserved).
-    /// Set to <see cref="QuoteUnescapeMode.Standard"/> for RFC 4180 unescaping.
-    /// Phase 36 QUOTE-02: Sep-inspired quote unescape modes.
-    /// </summary>
-    public QuoteUnescapeMode QuoteUnescapeMode { get; set; } = QuoteUnescapeMode.None;
-
-    /// <summary>
-    /// Specifies trimming mode for field values during parsing.
-    /// Defaults to <see cref="TrimMode.None"/> for backward compatibility.
-    /// Phase 36 QUOTE-03: Sep-inspired trim options.
-    /// </summary>
-    public TrimMode TrimMode { get; set; } = TrimMode.None;
-
-    /// <summary>
-    /// Indicates whether the first row is a header row containing column names.
-    /// When true, the engine parses the header and maps columns to fields by name.
-    /// Defaults to false for backward compatibility.
-    /// Phase 38 HDR-01: Sep-inspired header row support.
-    /// </summary>
-    public bool HasHeader { get; set; }
 
     /// <summary>Marks this type as a delimited record.</summary>
     /// <param name="delimiter">The separator string used to split fields (e.g., <c>","</c>, <c>"\t"</c>, <c>"|"</c>).</param>

@@ -24,7 +24,6 @@ internal sealed class MdAsyncDetail
     [FieldOrder(3)] public int Quantity { get; set; }
 }
 
-[Category("Phase31")]
 [Category("Async")]
 [Category("MasterDetail")]
 public sealed class MasterDetailAsyncEngineTests
@@ -188,8 +187,8 @@ public sealed class MasterDetailAsyncEngineTests
     }
 
     [Test]
-    [DisplayName("MasterDetailAsyncEngine throws FormatException when detail appears before master")]
-    public async Task ReadAsync_DetailBeforeMaster_ThrowsFormatException()
+    [DisplayName("MasterDetailAsyncEngine throws BadUsageException when detail appears before master")]
+    public async Task ReadAsync_DetailBeforeMaster_ThrowsBadUsageException()
     {
         // Arrange
         var engine = new MasterDetailAsyncEngine<MdAsyncMaster, MdAsyncDetail>(line =>
@@ -206,7 +205,7 @@ public sealed class MasterDetailAsyncEngineTests
             await foreach (var _ in engine.ReadAsync(stream))
             {
             }
-        }).Throws<FormatException>();
+        }).Throws<BadUsageException>();
     }
 
     [Test]
@@ -257,12 +256,12 @@ public sealed class MasterDetailAsyncEngineTests
         using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(content));
         var groups = new List<MasterDetails<MdAsyncMaster, MdAsyncDetail>>();
 
-        // The multiline content won't parse as int for Quantity, so we expect a FormatException
-        // But the buffering path is exercised
+        // The multiline content won't parse as int for Quantity, so we expect a ConvertException
+        // (conversion failures are never silently defaulted). The buffering path is exercised.
         await Assert.That(async () =>
         {
             await foreach (var group in engine.ReadAsync(stream))
                 groups.Add(group);
-        }).Throws<FormatException>();
+        }).Throws<ConvertException>();
     }
 }

@@ -3,6 +3,7 @@
 // MA0051: Benchmark methods are intentionally concise.
 #pragma warning disable MA0051
 
+using System.Globalization;
 using BenchmarkDotNet.Attributes;
 using ModernLibs.FileHelpers.Benchmarks.Data;
 using nietras.SeparatedValues;
@@ -27,45 +28,56 @@ public class SepComparisonBenchmarks
         _filePath = DatasetGenerator.EnsurePackageAssets(dataDir, Rows);
         _engine = new FileHelperEngine<PackageAsset>();
         _records = _engine.ReadFile(_filePath);
+
+        // Correctness guard: both readers must parse the file, and both writers must write it back exactly
+        // as the generator wrote it (header line, same date format), so the two sides do the same work.
+        var lines = DataCheck.DataLines(_filePath, hasHeader: true);
+        DataCheck.PackageAssets("FileHelpers", lines, _records.Length, i => PackageAssetColumns.Of(_records[i]));
+        var sep = ReadAllRows_Sep();
+        DataCheck.PackageAssets("Sep", lines, sep.Count, i => PackageAssetColumns.Of(sep[i]));
+        var fileLines = DataCheck.DataLines(_filePath, hasHeader: false);
+        DataCheck.WrittenPackageAssets("FileHelpers", fileLines, WriteString_FileHelpers());
+        DataCheck.WrittenPackageAssets("Sep", fileLines, WriteString_Sep());
     }
 
     [Benchmark(Baseline = true)]
     public PackageAsset[] ReadAllRows_FileHelpers() => _engine.ReadFile(_filePath);
 
     [Benchmark]
-    public List<PackageAssetRow> ReadAllRows_Sep()
+    public IReadOnlyList<PackageAssetRow> ReadAllRows_Sep()
     {
         var results = new List<PackageAssetRow>(Rows);
         using var reader = Sep.New(',').Reader().FromFile(_filePath);
+        // Columns are addressed by index, as in the Sylvan benchmarks (no per-row name lookup).
         foreach (var row in reader)
         {
             results.Add(new PackageAssetRow
             {
-                Id = row["Id"].Parse<int>(),
-                Version = row["Version"].ToString(),
-                Authors = row["Authors"].ToString(),
-                Description = row["Description"].ToString(),
-                Tags = row["Tags"].ToString(),
-                DownloadCount = row["DownloadCount"].Parse<int>(),
-                ProjectUrl = row["ProjectUrl"].ToString(),
-                LicenseUrl = row["LicenseUrl"].ToString(),
-                IconUrl = row["IconUrl"].ToString(),
-                Language = row["Language"].ToString(),
-                Framework = row["Framework"].ToString(),
-                MinClientVersion = row["MinClientVersion"].ToString(),
-                Type = row["Type"].Parse<int>(),
-                IsPrerelease = row["IsPrerelease"].Parse<bool>(),
-                Published = row["Published"].Parse<DateTime>(),
-                LastUpdated = row["LastUpdated"].Parse<DateTime>(),
-                PackageSize = row["PackageSize"].Parse<long>(),
-                DependencyCount = row["DependencyCount"].Parse<int>(),
-                HasReadme = row["HasReadme"].Parse<bool>(),
-                HasLicense = row["HasLicense"].Parse<bool>(),
-                HasIcon = row["HasIcon"].Parse<bool>(),
-                IsSigned = row["IsSigned"].Parse<bool>(),
-                RepositoryType = row["RepositoryType"].ToString(),
-                RepositoryUrl = row["RepositoryUrl"].ToString(),
-                RequireLicenseAcceptance = row["RequireLicenseAcceptance"].Parse<bool>(),
+                Id = row[0].Parse<int>(),
+                Version = row[1].ToString(),
+                Authors = row[2].ToString(),
+                Description = row[3].ToString(),
+                Tags = row[4].ToString(),
+                DownloadCount = row[5].Parse<int>(),
+                ProjectUrl = row[6].ToString(),
+                LicenseUrl = row[7].ToString(),
+                IconUrl = row[8].ToString(),
+                Language = row[9].ToString(),
+                Framework = row[10].ToString(),
+                MinClientVersion = row[11].ToString(),
+                Type = row[12].Parse<int>(),
+                IsPrerelease = row[13].Parse<bool>(),
+                Published = row[14].Parse<DateTime>(),
+                LastUpdated = row[15].Parse<DateTime>(),
+                PackageSize = row[16].Parse<long>(),
+                DependencyCount = row[17].Parse<int>(),
+                HasReadme = row[18].Parse<bool>(),
+                HasLicense = row[19].Parse<bool>(),
+                HasIcon = row[20].Parse<bool>(),
+                IsSigned = row[21].Parse<bool>(),
+                RepositoryType = row[22].ToString(),
+                RepositoryUrl = row[23].ToString(),
+                RequireLicenseAcceptance = row[24].Parse<bool>(),
             });
         }
         return results;
@@ -77,7 +89,10 @@ public class SepComparisonBenchmarks
     [Benchmark]
     public string WriteString_Sep()
     {
+        // Sep writes the header from the column names (FileHelpers writes back the header it read);
+        // dates are formatted in the same "s" format FileHelpers writes.
         using var writer = Sep.New(',').Writer().ToText();
+        Span<char> date = stackalloc char[32];
         foreach (var r in _records)
         {
             using var row = writer.NewRow();
@@ -95,8 +110,10 @@ public class SepComparisonBenchmarks
             row["MinClientVersion"].Set(r.MinClientVersion);
             row["Type"].Format(r.Type);
             row["IsPrerelease"].Set(r.IsPrerelease ? "True" : "False");
-            row["Published"].Format(r.Published);
-            row["LastUpdated"].Format(r.LastUpdated);
+            r.Published.TryFormat(date, out var n, DatasetGenerator.DateFormat, CultureInfo.InvariantCulture);
+            row["Published"].Set(date[..n]);
+            r.LastUpdated.TryFormat(date, out n, DatasetGenerator.DateFormat, CultureInfo.InvariantCulture);
+            row["LastUpdated"].Set(date[..n]);
             row["PackageSize"].Format(r.PackageSize);
             row["DependencyCount"].Format(r.DependencyCount);
             row["HasReadme"].Set(r.HasReadme ? "True" : "False");

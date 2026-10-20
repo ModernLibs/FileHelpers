@@ -6,7 +6,7 @@
 namespace ModernLibs.FileHelpers;
 
 /// <summary>
-/// INTF-01, INTF-02: Interface for record types that want to receive read notifications.
+/// Interface for record types that want to receive read notifications.
 /// When a record type T implements this interface, the engine will call BeforeRead/AfterRead
 /// methods for each record, alongside the engine-level BeforeReadRecord/AfterReadRecord events.
 ///
@@ -33,7 +33,7 @@ namespace ModernLibs.FileHelpers;
 public interface INotifyRead<T>
 {
     /// <summary>
-    /// INTF-01: Called before a line is parsed into a record. Allows modification of the raw line,
+    /// Called before a line is parsed into a record. Allows modification of the raw line,
     /// skipping the line, or stopping the read operation entirely.
     /// </summary>
     /// <param name="e">Event args containing the raw line, line number, and control flags.</param>
@@ -44,15 +44,19 @@ public interface INotifyRead<T>
     /// Modifying <see cref="BeforeReadEventArgs{T}.RecordLine"/> changes the content that will be parsed.
     /// </para>
     /// <para>
-    /// <strong>Note:</strong> The record instance passed to this method is a default instance
-    /// (<c>default(T)</c> for structs, <c>new T()</c> for classes) created before parsing.
-    /// Field values are not yet populated.
+    /// <strong>Note:</strong> The method runs before the field values are populated. For classes whose mapped
+    /// members all have regular setters (and no constructor binding), it runs on the instance that then
+    /// receives the parsed values — a new instance, or the recycled one with <c>RecycleRecords</c> — so state
+    /// set here is kept in the returned record (FileHelpers 3.x). For structs and constructor-built or
+    /// init-only records it runs on a separate default instance (<c>default(T)</c> or a new instance with
+    /// default constructor arguments) that is discarded; use <c>BeforeReadRecord</c> or
+    /// <see cref="AfterRead"/> there.
     /// </para>
     /// </remarks>
     void BeforeRead(BeforeReadEventArgs<T> e);
 
     /// <summary>
-    /// INTF-02: Called after a line is successfully parsed into a record. Allows filtering
+    /// Called after a line is successfully parsed into a record. Allows filtering
     /// the parsed record from the results.
     /// </summary>
     /// <param name="e">Event args containing the parsed record, raw line, and control flags.</param>

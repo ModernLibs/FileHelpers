@@ -13,10 +13,9 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.Converters;
 
 /// <summary>
-/// Tests for CONV-01 through CONV-08 (ISpanConverter&lt;T&gt; + all built-in converters).
+/// Tests for ISpanConverter&lt;T&gt; and all built-in converters.
 /// </summary>
 
-[Category("Phase06")]
 [Category("Converters")]
 public sealed class IntegerConverterTests
 {
@@ -186,7 +185,6 @@ public sealed class IntegerConverterTests
     }
 }
 
-[Category("Phase06")]
 [Category("Converters")]
 public sealed class FloatConverterTests
 {
@@ -260,16 +258,15 @@ public sealed class FloatConverterTests
     }
 }
 
-[Category("Phase06")]
 [Category("Converters")]
 public sealed class DateTimeConverterTests
 {
     [Test]
-    [DisplayName("DateTimeConverter round-trips with default G format (04/12/2026 14:30:00)")]
+    [DisplayName("DateTimeConverter round-trips with the 3.x default format ddMMyyyy (12042026)")]
     public async Task DateTimeConverter_RoundTrip_DefaultFormat()
     {
         // Arrange: Parse default format datetime
-        bool parseOk = DateTimeConverter.Instance.TryParse("04/12/2026 14:30:00", out DateTime v);
+        bool parseOk = DateTimeConverter.Instance.TryParse("12042026", out DateTime v);
         char[] buf = new char[25];
         bool fmtOk = DateTimeConverter.Instance.TryFormat(v, buf, out int cw);
 
@@ -278,9 +275,9 @@ public sealed class DateTimeConverterTests
 
         // Assert: Parse and format both succeeded with expected values
         await Assert.That(parseOk).IsTrue();
-        await Assert.That(v).IsEqualTo(new DateTime(2026, 4, 12, 14, 30, 0));
+        await Assert.That(v).IsEqualTo(new DateTime(2026, 4, 12));
         await Assert.That(fmtOk).IsTrue();
-        await Assert.That(formatted).IsEqualTo("04/12/2026 14:30:00");
+        await Assert.That(formatted).IsEqualTo("12042026");
     }
 
     [Test]
@@ -379,7 +376,6 @@ public sealed class DateTimeConverterTests
     }
 }
 
-[Category("Phase06")]
 [Category("Converters")]
 public sealed class BoolConverterTests
 {
@@ -404,11 +400,11 @@ public sealed class BoolConverterTests
     }
 
     [Test]
-    [DisplayName("BoolConverter.TryParse recognizes \"yes\" and \"1\" as true")]
-    public async Task BoolConverter_Parse_Yes_And_One()
+    [DisplayName("BoolConverter.TryParse recognizes \"y\" and \"1\" as true (3.x BooleanConverter)")]
+    public async Task BoolConverter_Parse_Y_And_One()
     {
-        // Arrange: Test "yes" parses to true
-        bool r1 = BoolConverter.Instance.TryParse("yes", out bool v1);
+        // Arrange: Test "y" parses to true
+        bool r1 = BoolConverter.Instance.TryParse("y", out bool v1);
 
         // Act: Test "1" parses to true
         bool r2 = BoolConverter.Instance.TryParse("1", out bool v2);
@@ -421,15 +417,15 @@ public sealed class BoolConverterTests
     }
 
     [Test]
-    [DisplayName("BoolConverter.TryParse recognizes FALSE, \"0\", and \"no\" as false")]
+    [DisplayName("BoolConverter.TryParse recognizes FALSE, \"0\", and \"n\" as false (3.x BooleanConverter)")]
     public async Task BoolConverter_Parse_False_CaseInsensitive()
     {
         // Arrange: Test "FALSE" parses to false
         bool r1 = BoolConverter.Instance.TryParse("FALSE", out bool v1);
         bool r2 = BoolConverter.Instance.TryParse("0", out bool v2);
 
-        // Act: Test "no" parses to false
-        bool r3 = BoolConverter.Instance.TryParse("no", out bool v3);
+        // Act: Test "n" parses to false
+        bool r3 = BoolConverter.Instance.TryParse("n", out bool v3);
 
         // Assert: All false variations recognized with correct output values
         await Assert.That(r1).IsTrue();
@@ -474,7 +470,6 @@ public sealed class BoolConverterTests
     }
 }
 
-[Category("Phase06")]
 [Category("Converters")]
 public sealed class MiscConverterTests
 {
@@ -498,15 +493,15 @@ public sealed class MiscConverterTests
     }
 
     [Test]
-    [DisplayName("CharConverter.TryParse returns false for multi-character input \"AB\"")]
-    public async Task CharConverter_MultiChar_ReturnsFalse()
+    [DisplayName("CharConverter.TryParse takes the first character of multi-character input \"AB\" (3.x CharConverter)")]
+    public async Task CharConverter_MultiChar_TakesFirstChar()
     {
-        // Arrange & Act: Attempt to parse multi-character input
+        // Arrange & Act: Parse multi-character input
         bool ok = CharConverter.Instance.TryParse("AB", out char v);
 
-        // Assert: Parse failed with default output value
-        await Assert.That(ok).IsFalse();
-        await Assert.That(v).IsEqualTo(default(char));
+        // Assert: 3.x takes the first character
+        await Assert.That(ok).IsTrue();
+        await Assert.That(v).IsEqualTo('A');
     }
 
     [Test]
@@ -561,36 +556,37 @@ public sealed class MiscConverterTests
     }
 
     [Test]
-    [DisplayName("PercentDoubleConverter parses \"3.14%\" and \"3.14\" both as 3.14")]
-    public async Task PercentDoubleConverter_Parse_WithPercent()
+    [DisplayName("PercentDoubleConverter parses \"3.14\" as 3.14 and rejects \"3.14%\" like FileHelpers 3.5.2")]
+    public async Task PercentDoubleConverter_Parse_RejectsPercent()
     {
-        // Arrange: Parse value with percent sign
-        bool r1 = PercentDoubleConverter.Instance.TryParse("3.14%", out double v1);
+        // Arrange: Parse value without percent sign
+        bool r1 = PercentDoubleConverter.Instance.TryParse("3.14", out double v1);
 
-        // Act: Parse value without percent sign
-        bool r2 = PercentDoubleConverter.Instance.TryParse("3.14", out double v2);
+        // Act: Parse values with percent sign (3.5.2 raises ConvertException for both)
+        bool r2 = PercentDoubleConverter.Instance.TryParse("3.14%", out _);
+        bool r3 = PercentDoubleConverter.Instance.TryParse(" 7 % ", out _);
 
-        // Assert: Both parse to same value 3.14
+        // Assert: Plain number keeps its value; any '%' fails to convert
         await Assert.That(r1).IsTrue();
         await Assert.That(v1).IsEqualTo(3.14);
-        await Assert.That(r2).IsTrue();
-        await Assert.That(v2).IsEqualTo(3.14);
+        await Assert.That(r2).IsFalse();
+        await Assert.That(r3).IsFalse();
     }
 
     [Test]
-    [DisplayName("PercentDoubleConverter.TryFormat appends % to formatted value")]
-    public async Task PercentDoubleConverter_Format_AppendsPercent()
+    [DisplayName("PercentDoubleConverter.TryFormat writes the plain number like FileHelpers 3.5.2")]
+    public async Task PercentDoubleConverter_Format_WritesPlainNumber()
     {
         // Arrange: Format value with percent converter
         char[] buf = new char[30];
-        bool ok = PercentDoubleConverter.Instance.TryFormat(3.14, buf, out int cw);
+        bool ok = PercentDoubleConverter.Instance.TryFormat(0.5, buf, out int cw);
 
         // Act: Create formatted string
         string formatted = new string(buf, 0, cw);
 
-        // Assert: Format includes percent sign
+        // Assert: No percent sign and no scaling
         await Assert.That(ok).IsTrue();
-        await Assert.That(formatted).IsEqualTo("3.14%");
+        await Assert.That(formatted).IsEqualTo("0.5");
     }
 
     [Test]

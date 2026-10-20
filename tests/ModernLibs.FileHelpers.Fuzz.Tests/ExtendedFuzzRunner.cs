@@ -93,12 +93,10 @@ public static class ExtendedFuzzRunner
             lineCount++;
             if (line.IsEmpty) continue;
 
-            // DelimitedFieldEnumerator
-            var enumerator = new DelimitedFieldEnumerator(line, ",");
-            while (enumerator.MoveNext())
-            {
-                _ = enumerator.Current;
-            }
+            // QuoteBalanceScanner
+            int scanField = 0;
+            _ = QuoteBalanceScanner.EndsInsideQuotes(line, startsInsideQuotes: false, ",", "\"\0\"", [" \t", null, " \t"], ref scanField);
+            _ = QuoteBalanceScanner.CountFields(line, ",", "\"\"'", [null, " \t"]);
 
             // FixedLengthSlicer
             var slicer = new FixedLengthSlicer(line);

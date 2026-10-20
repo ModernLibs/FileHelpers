@@ -1,14 +1,7 @@
-// MA0051: OpenReaderCore and ReadNext contain the full streaming pipeline; fragmenting them
-// into micro-methods would obscure the ring-buffer state-machine flow.
-#pragma warning disable MA0051
 // CA1000: Nested generics are intentional — FileHelperAsyncEngine<T> is the public entry type.
 #pragma warning disable CA1000
-// MA0004: Library code; ConfigureAwait(false) not used per project pattern (callers control context).
-#pragma warning disable MA0004
 // CA1710/MA0046: Delegate names and signatures intentionally match FileHelpers compatibility surface.
 #pragma warning disable CA1710, MA0046
-// CS0067: Event wiring is phased; declarations exist before full usage.
-#pragma warning disable CS0067
 
 using System.Collections;
 using System.Runtime.CompilerServices;
@@ -22,18 +15,14 @@ namespace ModernLibs.FileHelpers;
 /// FileHelpers 3.x-compatible API: implements the BeginRead*/ReadNext()/Close() pull model
 /// and the BeginWrite*/WriteNext()/Close() push model.
 ///
-/// <para>D-01: This engine streams line-by-line via <see cref="TextReader.ReadLine"/> — it does
-/// NOT buffer the entire file. Use this for large files where <see cref="FileHelperEngine{T}"/>
-/// batch materialisation is too memory-intensive.</para>
+/// <para>The engine streams the input through a pooled buffer — it does NOT materialise the whole file —
+/// and runs the same record pipeline as <see cref="FileHelperEngine{T}"/> (header/footer, multiline
+/// assembly before filters, field-count validation, <see cref="ErrorMode"/>, events, line numbers).</para>
 ///
-/// <para>D-02: <see cref="IEnumerable{T}"/> is implemented so callers can use
-/// <c>foreach</c> over an open <c>BeginRead*</c> session. The engine does NOT open the
-/// reader itself on <see cref="GetEnumerator"/> — <see cref="BeginReadFile"/>,
-/// <see cref="BeginReadStream"/>, or <see cref="BeginReadString"/> must be called first.</para>
-///
-/// <para>D-03: <see cref="RecycleRecords"/> is reserved for Plan 04 (<c>IRecyclableDescriptor&lt;T&gt;</c>
-/// generator extension). The field is present so the property compiles, but the recycling path
-/// is never activated in Plan 03 (<c>_recyclable</c> is always null).</para>
+/// <para><see cref="IEnumerable{T}"/> is implemented so callers can use <c>foreach</c> over an open
+/// <c>BeginRead*</c> session. The engine does NOT open the reader itself on <see cref="GetEnumerator"/> —
+/// <see cref="BeginReadFile"/>, <see cref="BeginReadStream"/>, or <see cref="BeginReadString"/> must be
+/// called first.</para>
 /// </summary>
 /// <typeparam name="T">
 /// A record type annotated with <see cref="DelimitedRecordAttribute"/> or
@@ -41,29 +30,20 @@ namespace ModernLibs.FileHelpers;
 /// <see cref="IRecordDescriptor{T}"/> registered in <see cref="FileHelperRegistry{T}"/>
 /// via a <c>[ModuleInitializer]</c> before the engine is constructed.
 /// </typeparam>
-public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
+public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecordReadHost<T>
 {
     private readonly IRecordDescriptor<T> _descriptor;
-    private readonly RecordConditionMatcher? _conditionMatcher;
-    private readonly bool _implementsNotifyWrite;   // INTF-06
-
-    // LIMIT-02: Compile-time detection of INotifyRead<T>
-    private static readonly bool s_hasNotifyRead = typeof(INotifyRead<T>).IsAssignableFrom(typeof(T));
+    private readonly RecordReadCore<T> _core;
+    private readonly bool _implementsNotifyWrite;   // T implements INotifyWrite<T>
 
     // ---- Reader state -------------------------------------------------------
     private TextReader? _reader;
     private bool _ownsReader;
-    private string? _currentLine;      // pre-fetched content line (null = EOF)
-    private int _currentLineNumber;    // physical line number for _currentLine
-    private Queue<BufferedLine>? _tailBuffer; // ring buffer for IgnoreLast
-    private bool _earlyStop;
-
-    // Phase 18 MULT-02: Multiline field assembly state for streaming mode
-    private readonly StringBuilder _multilineBuffer = new();
-    private int _multilineStartLineNumber;
-
-    /// <summary>Line terminator used when joining physical lines for multiline quoted fields (MULT-02).</summary>
-    private string _readMultilineJoin = "\r\n";
+    private TextReaderLineSource? _source;
+    private RecordReadSession<T>? _session;
+    private bool _endOfInput;
+    private bool _streamingRead; // a ReadAsync enumeration is running
+    private int _streamingReadId; // changed by Close(): ends the running ReadAsync enumeration
 
     // ---- Writer state -------------------------------------------------------
     private TextWriter? _writer;
@@ -71,12 +51,6 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
     private StringWriter? _stringWriter; // non-null only for BeginWriteString path
     private RentedBufferWriter? _writeBuf;
 
-    // ---- RecycleRecords (Plan 04) ------------------------------------------
-    // Cast at construction time — returns non-null only for class record types
-    // whose descriptor was generated with IRecyclableDescriptor<T> by the source generator.
-    // Struct descriptors do not implement IRecyclableDescriptor<T>; cast returns null.
-    private readonly IRecyclableDescriptor<T>? _recyclable;
-    private T? _recycled;
     private readonly ErrorManager _errorManager = new();
 
     // ---- Lifecycle ----------------------------------------------------------
@@ -86,7 +60,6 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
 
     /// <summary>
     /// Creates an engine instance backed by the source-generated descriptor for <typeparamref name="T"/>.
-    /// CREC-01, CREC-11: Initializes RecordConditionMatcher if ConditionalRecord is configured.
     /// </summary>
     /// <exception cref="InvalidOperationException">
     /// Thrown when no descriptor is registered for <typeparamref name="T"/> — typically because
@@ -96,19 +69,10 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
     public FileHelperAsyncEngine()
     {
         _descriptor = FileHelperRegistry<T>.Descriptor;
-        // Cast once at construction: non-null only for class record types (IRecyclableDescriptor<T>
-        // is emitted by the source generator for class types only). Struct types return null here.
-        _recyclable = _descriptor as IRecyclableDescriptor<T>;
+        _core = new RecordReadCore<T>(_descriptor);
 
-        // INTF-06: Detect interface implementation once at construction
+        // Detect the INotifyWrite<T> implementation once at construction.
         _implementsNotifyWrite = typeof(INotifyWrite<T>).IsAssignableFrom(typeof(T));
-
-        // CREC-11: Initialize matcher once per engine instance
-        var opts = _descriptor.Options;
-        if (opts.Condition != RecordCondition.None && !string.IsNullOrEmpty(opts.ConditionPattern))
-        {
-            _conditionMatcher = new RecordConditionMatcher(opts.Condition, opts.ConditionPattern);
-        }
     }
 
     // =========================================================================
@@ -116,12 +80,12 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
     // =========================================================================
 
     /// <summary>
-    /// 1-based line number of the most recently parsed line (counting through header,
-    /// empty, and comment lines so it reflects the original file position).
+    /// 1-based number of the last physical line of the most recently returned record (counting header,
+    /// empty and comment lines so it reflects the original file position).
     /// </summary>
     public int LineNumber { get; private set; }
 
-    /// <summary>Number of records yielded since the last <c>BeginRead*</c> or <c>BeginWrite*</c>.</summary>
+    /// <summary>Number of records returned since the last <c>BeginRead*</c>, or written since the last <c>BeginWrite*</c>.</summary>
     public int TotalRecords { get; private set; }
 
     /// <summary>
@@ -131,8 +95,8 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
     public string? HeaderText { get; set; }
 
     /// <summary>
-    /// Footer lines captured from the trailing <see cref="IgnoreLastAttribute"/> lines at EOF.
-    /// Setting this property emits it as the last line on <see cref="Close"/>.
+    /// Footer lines captured from the trailing <see cref="IgnoreLastAttribute"/> lines once the end of the
+    /// input is reached. Setting this property emits it as the last line on <see cref="Close"/>.
     /// </summary>
     public string? FooterText { get; set; }
 
@@ -140,308 +104,201 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
     public string NewLineForWrite { get; set; } = "\r\n";
 
     /// <summary>
-    /// Encoding used by <see cref="BeginReadFile"/> and <see cref="BeginWriteFile"/>.
-    /// Defaults to <see cref="Encoding.UTF8"/>.
+    /// Encoding used by <see cref="BeginReadFile"/>, <see cref="ReadAsync"/> and <see cref="BeginWriteFile"/>.
+    /// Defaults to <see cref="Encoding.UTF8"/>. A byte order mark in a file being read wins over it.
     /// </summary>
     public Encoding Encoding { get; set; } = Encoding.UTF8;
 
     /// <summary>
-    /// When <see langword="true"/>, <see cref="ReadNext()"/> reuses a single <typeparamref name="T"/>
-    /// instance per call (zero-alloc for class types). Requires <c>IRecyclableDescriptor&lt;T&gt;</c>
-    /// — wired in Plan 04. Has no effect in Plan 03 (<c>_recyclable</c> is always null).
+    /// When <see langword="true"/>, <see cref="ReadNext()"/>, <c>foreach</c> and <see cref="ReadAsync"/> reuse a
+    /// single <typeparamref name="T"/> instance (zero-alloc for class types). Array-returning reads
+    /// (<see cref="ReadNext(int)"/>, <see cref="ReadRemaining"/>) are never affected. Requires
+    /// <c>IRecyclableDescriptor&lt;T&gt;</c>; no effect for struct types.
     /// </summary>
     public bool RecycleRecords { get; set; }
 
     /// <summary>The last record returned by <see cref="ReadNext()"/>.</summary>
     public T? LastRecord { get; private set; }
 
-    /// <summary>ERRH-05: Shared error manager instance for this engine.</summary>
+    /// <summary>Shared error manager instance for this engine. Cleared when a read starts.</summary>
     public ErrorManager ErrorManager => _errorManager;
 
-    /// <summary>ERRH-05: Shortcut to <see cref="ErrorManager.ErrorMode"/>.</summary>
+    /// <summary>Shortcut to <see cref="ErrorManager.ErrorMode"/>.</summary>
     public ErrorMode ErrorMode
     {
         get => _errorManager.ErrorMode;
         set => _errorManager.ErrorMode = value;
     }
 
+    /// <summary>Raised before the text of each record is parsed; can replace the text, skip the record or stop reading.</summary>
     public event BeforeReadHandler<T>? BeforeReadRecord;
+
+    /// <summary>Raised after each record is parsed, before it is returned; can drop the record.</summary>
     public event AfterReadHandler<T>? AfterReadRecord;
+
+    /// <summary>Raised before each record is formatted; can leave the record out of the output.</summary>
     public event BeforeWriteHandler<T>? BeforeWriteRecord;
+
+    /// <summary>Raised after each record is formatted, before its text is written; can replace the text.</summary>
     public event AfterWriteHandler<T>? AfterWriteRecord;
+
+    /// <summary>Raised after each record a read returns (see <see cref="ProgressEventArgs"/>).</summary>
     public event ProgressChangeHandler? Progress;
 
+    BeforeReadHandler<T>? IRecordReadHost<T>.BeforeReadHandler => BeforeReadRecord;
+
+    AfterReadHandler<T>? IRecordReadHost<T>.AfterReadHandler => AfterReadRecord;
+
+    ProgressChangeHandler? IRecordReadHost<T>.ProgressHandler => Progress;
+
+    void IRecordReadHost<T>.OnHeaderText(string headerText) => HeaderText = headerText;
+
+    void IRecordReadHost<T>.OnFooterText(string footerText) => FooterText = footerText;
+
     // =========================================================================
-    // Blocking streaming read — ENGI-09
+    // Blocking streaming read
     // =========================================================================
 
     /// <summary>
-    /// ENGI-09: Opens <paramref name="filePath"/> for streaming with the current
+    /// Opens <paramref name="filePath"/> for streaming with the current
     /// <see cref="Encoding"/>. The engine owns the underlying <see cref="StreamReader"/>
     /// and disposes it on <see cref="Close"/>/<see cref="Dispose"/>.
     /// </summary>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="filePath"/> is null.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when a read session is already open.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when a read session is already open, a <see cref="ReadAsync"/> enumeration is running, or a write session is open.</exception>
     public void BeginReadFile(string filePath)
     {
         ArgumentNullException.ThrowIfNull(filePath);
         ThrowIfReaderOpen();
-        _readMultilineJoin = Parsing.MultilineLineJoin.DetectFromFileHead(filePath, Encoding);
-        _reader = new StreamReader(filePath, Encoding);
+        _reader = new StreamReader(filePath, Encoding, detectEncodingFromByteOrderMarks: true);
         _ownsReader = true;
         OpenReaderCore();
     }
 
     /// <summary>
-    /// ENGI-09: Uses <paramref name="reader"/> for streaming. The engine does NOT dispose
+    /// Uses <paramref name="reader"/> for streaming. The engine does NOT dispose
     /// the reader on <see cref="Close"/>/<see cref="Dispose"/> — the caller owns it.
     /// </summary>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="reader"/> is null.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when a read session is already open.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when a read session is already open, a <see cref="ReadAsync"/> enumeration is running, or a write session is open.</exception>
     public void BeginReadStream(TextReader reader)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ThrowIfReaderOpen();
-        _readMultilineJoin = NewLineForWrite;
         _reader = reader;
         _ownsReader = false;
         OpenReaderCore();
     }
 
     /// <summary>
-    /// ENGI-09: Wraps <paramref name="content"/> in a <see cref="StringReader"/> for streaming.
+    /// Wraps <paramref name="content"/> in a <see cref="StringReader"/> for streaming.
     /// The engine owns the underlying reader.
     /// </summary>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="content"/> is null.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when a read session is already open.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when a read session is already open, a <see cref="ReadAsync"/> enumeration is running, or a write session is open.</exception>
     public void BeginReadString(string content)
     {
         ArgumentNullException.ThrowIfNull(content);
         ThrowIfReaderOpen();
-        _readMultilineJoin = Parsing.MultilineLineJoin.Detect(content.AsSpan());
         _reader = new StringReader(content);
         _ownsReader = true;
         OpenReaderCore();
     }
 
     // =========================================================================
-    // Per-record pull — ENGI-10
+    // Per-record pull
     // =========================================================================
 
     /// <summary>
-    /// ENGI-10: Returns the next parsed record, or <see langword="null"/> at EOF.
-    /// Honors <see cref="IgnoreLastAttribute"/> ring-buffer, <see cref="IgnoreEmptyLinesAttribute"/>,
-    /// and <see cref="IgnoreCommentedLinesAttribute"/> filters.
+    /// Returns the next parsed record, or <c>default</c> at end of input (for struct records use
+    /// <see cref="ReadNext(int)"/>, <see cref="ReadRemaining"/> or <c>foreach</c>, which detect the end
+    /// of input without relying on <c>default</c>).
     /// </summary>
     /// <exception cref="InvalidOperationException">Thrown when no read session is open.</exception>
-    public T? ReadNext()
-    {
-        ThrowIfNoReader();
-        if (_earlyStop)
-            return default;
-        var opts = _descriptor.Options;
-
-        // Ring-buffer / filter loop — advances until a parseable line is dequeued.
-        while (_currentLine is not null)
-        {
-            string line = _currentLine;
-            int lineNumber = _currentLineNumber;
-
-            // Pre-fetch the next raw line before any filtering so the ring buffer always
-            // holds the most-recent N lines (where N = opts.IgnoreLast).
-            _currentLine = _reader!.ReadLine();
-            if (_currentLine is not null)
-                _currentLineNumber++;
-            else
-                _currentLineNumber = 0;
-
-            // IgnoreLast ring buffer: hold lines in the queue; only yield after the
-            // queue overflows (the oldest dequeued line is safe to parse).
-            if (opts.IgnoreLast > 0)
-            {
-                _tailBuffer!.Enqueue(new BufferedLine(line, lineNumber));
-                if (_tailBuffer.Count <= opts.IgnoreLast)
-                    continue; // buffer not yet full — don't yield this line yet
-                var dequeued = _tailBuffer.Dequeue();
-                line = dequeued.Text;
-                lineNumber = dequeued.LineNumber;
-            }
-
-            // Line-level filters
-            if (opts.IgnoreEmptyLines && line.Length == 0) continue;
-            if (opts.CommentMarker != '\0' && line.Length > 0 && line[0] == opts.CommentMarker) continue;
-
-            // CREC-10: ConditionalRecord filtering runs before parse attempt
-            if (_conditionMatcher is not null && !_conditionMatcher.ShouldInclude(line.AsSpan()))
-                continue;
-
-            // Phase 18 MULT-02: Multiline assembly for quoted fields
-            if (opts.MultilineMode == MultilineMode.AllowForRead)
-            {
-                var assemblyResult = AssembleMultilineLine(line, lineNumber);
-                if (!assemblyResult.IsComplete)
-                {
-                    // Need more lines - skip to next iteration
-                    continue;
-                }
-                line = assemblyResult.AssembledLine ?? line;
-                lineNumber = assemblyResult.AssembledLineNumber;
-            }
-
-            string activeLine = line;
-            if (BeforeReadRecord is not null || s_hasNotifyRead)
-            {
-                var beforeArgs = new BeforeReadEventArgs<T>(this, activeLine, lineNumber);
-
-                if (BeforeReadRecord is not null)
-                {
-                    BeforeReadRecord.Invoke(this, beforeArgs);
-                }
-
-                if (s_hasNotifyRead)
-                {
-                    var notifyRecord = _descriptor.CreateDefaultInstance();
-                    if (notifyRecord is INotifyRead<T> notifyRead)
-                    {
-                        notifyRead.BeforeRead(beforeArgs);
-                    }
-                }
-
-                if (beforeArgs.StopReading)
-                {
-                    _earlyStop = true;
-                    if (opts.IgnoreLast > 0 && _tailBuffer!.Count > 0)
-                    {
-                        FooterText = JoinBufferedLines(_tailBuffer);
-                        _tailBuffer.Clear();
-                    }
-                    return default;
-                }
-                if (beforeArgs.SkipThisRecord)
-                    continue;
-                if (beforeArgs.RecordLineChanged)
-                    activeLine = beforeArgs.RecordLine;
-            }
-
-            // Parse — Phase 14 MLIN-02: Multi-line record support
-            T record;
-            try
-            {
-                EnsureDelimitedFieldCount(activeLine, opts.Delimiter, _descriptor.Fields.Length, _descriptor.Fields);
-                // Phase 14 MLIN-02: Pass lineCount=1 for now (single-line records in streaming mode)
-                if (RecycleRecords && _recyclable is not null && _recycled is not null)
-                {
-                    _recyclable.ParseInto(activeLine.AsSpan(), lineCount: 1, _recycled);
-                    record = _recycled;
-                }
-                else
-                {
-                    record = _descriptor.Parse(activeLine.AsSpan(), lineCount: 1);
-                }
-            }
-            catch (Exception ex)
-            {
-                // Phase 18 MULT-04: Use multiline start line number for error reporting
-                int errorLineNumber = _multilineBuffer.Length > 0 ? _multilineStartLineNumber : lineNumber;
-                switch (_errorManager.ErrorMode)
-                {
-                    case ErrorMode.ThrowException:
-                        throw CreateParseContextException(errorLineNumber, activeLine, ex);
-                    case ErrorMode.IgnoreAndContinue:
-                        continue;
-                    case ErrorMode.SaveAndContinue:
-                        _errorManager.AddError(new ErrorInfo(errorLineNumber, activeLine, ex));
-                        continue;
-                }
-                break;
-            }
-
-            // INTF-05, INTF-07: AfterRead event and interface notification
-            if (AfterReadRecord is not null || s_hasNotifyRead)
-            {
-                var afterArgs = new AfterReadEventArgs<T>(this, record, activeLine, lineNumber);
-
-                if (AfterReadRecord is not null)
-                {
-                    AfterReadRecord.Invoke(this, afterArgs);
-                    if (afterArgs.SkipThisRecord)
-                        continue;
-                }
-
-                if (s_hasNotifyRead && record is INotifyRead<T> notifyRead)
-                {
-                    notifyRead.AfterRead(afterArgs);
-                    if (afterArgs.SkipThisRecord)
-                        continue;
-                }
-            }
-
-            LineNumber = lineNumber;
-            TotalRecords++;
-            LastRecord = record;
-            _recycled = record;
-            if (Progress is not null)
-                Progress.Invoke(this, new ProgressEventArgs(TotalRecords, -1, 0L, 0L));
-            return record;
-        }
-
-        // EOF: drain remaining tail buffer lines into FooterText.
-        if (opts.IgnoreLast > 0 && _tailBuffer!.Count > 0)
-        {
-            FooterText = JoinBufferedLines(_tailBuffer);
-            _tailBuffer.Clear();
-        }
-
-        return default;
-    }
+    public T? ReadNext() => TryReadNext(out var record, allowRecycle: true) ? record : default;
 
     /// <summary>
-    /// ENGI-10: Returns up to <paramref name="count"/> records from the open read session.
-    /// The returned array may be shorter than <paramref name="count"/> if EOF is reached.
+    /// Returns up to <paramref name="count"/> records from the open read session.
+    /// The returned array may be shorter than <paramref name="count"/> if the end of input is reached.
     /// </summary>
     /// <exception cref="InvalidOperationException">Thrown when no read session is open.</exception>
     public T[] ReadNext(int count)
     {
         ThrowIfNoReader();
-        var results = new List<T>(count);
-        for (int i = 0; i < count; i++)
-        {
-            var record = ReadNext();
-            if (record is null) break;
+        var results = new List<T>(Math.Max(0, count));
+        for (int i = 0; i < count && TryReadNext(out var record, allowRecycle: false); i++)
             results.Add(record);
-        }
         return results.ToArray();
     }
 
     /// <summary>
-    /// Reads all remaining records from the current position until EOF.
-    /// Useful after calling <see cref="ReadNext()"/> a few times and then
-    /// wanting to consume the rest in one call.
+    /// Reads all remaining records from the current position until the end of input.
     /// </summary>
     /// <returns>Array of all remaining parsed records.</returns>
     /// <exception cref="InvalidOperationException">Thrown when no read session is open.</exception>
     public T[] ReadRemaining()
     {
         ThrowIfNoReader();
-
         var results = new List<T>();
-        T? record;
-        while ((record = ReadNext()) is not null)
-        {
+        while (TryReadNext(out var record, allowRecycle: false))
             results.Add(record);
-        }
         return results.ToArray();
     }
 
+    /// <summary>
+    /// Pulls the next record of the open session. End of input is signalled by the return value, never by a
+    /// <c>null</c>/<c>default</c> record (struct records have no distinguishable default).
+    /// </summary>
+    internal bool TryReadNext(out T record, bool allowRecycle)
+    {
+        ThrowIfNoReader();
+        var session = _session!;
+        session.AllowRecycle = allowRecycle && RecycleRecords;
+
+        while (!session.Stopped && !_endOfInput)
+        {
+            // After an error thrown by the previous pull, the lines that followed the failing line come first.
+            if (session.HasPendingLines)
+            {
+                if (session.ResumePending())
+                {
+                    record = session.Current;
+                    LastRecord = record;
+                    SyncPosition(session);
+                    return true;
+                }
+
+                continue;
+            }
+
+            if (!_source!.TryReadLine(out var line, out var ending))
+            {
+                _endOfInput = true;
+                session.Complete();
+                break;
+            }
+
+            if (session.Push(line, ending))
+            {
+                record = session.Current;
+                LastRecord = record;
+                SyncPosition(session);
+                return true;
+            }
+        }
+
+        SyncPosition(session);
+        record = default!;
+        return false;
+    }
+
     // =========================================================================
-    // IAsyncEnumerable stub — ENGI-11 (Plan 04)
+    // IAsyncEnumerable
     // =========================================================================
 
     /// <summary>
-    /// ENGI-11: Returns an <see cref="IAsyncEnumerable{T}"/> that streams records from
-    /// <paramref name="filePath"/> via <see cref="PipelineLineReader"/>.
-    /// Honors <see cref="IgnoreFirstAttribute"/>, <see cref="IgnoreEmptyLinesAttribute"/>,
-    /// <see cref="IgnoreCommentedLinesAttribute"/>, and <see cref="IgnoreLastAttribute"/>.
+    /// Streams records from <paramref name="filePath"/> via <see cref="PipelineLineReader"/>,
+    /// with the same record semantics as the synchronous reads.
     /// </summary>
     /// <param name="filePath">Path to the file to read. Must not be null.</param>
     /// <param name="cancellationToken">
@@ -449,354 +306,81 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
     /// <c>.WithCancellation(ct)</c> have their token correctly merged with this parameter.
     /// </param>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="filePath"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when a <c>BeginRead*</c> or <c>BeginWrite*</c> session is open, or another <see cref="ReadAsync"/>
+    /// enumeration is running on this engine: they share <see cref="LineNumber"/>, <see cref="TotalRecords"/>,
+    /// <see cref="HeaderText"/>/<see cref="FooterText"/> and <see cref="ErrorManager"/>. Use a separate engine
+    /// instance for concurrent reads.
+    /// </exception>
     public async IAsyncEnumerable<T> ReadAsync(
         string filePath,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(filePath);
+        if (_reader is not null)
+            throw new InvalidOperationException("A BeginRead* session is open on this engine. Call Close() before ReadAsync, or use a separate engine instance.");
+        ThrowIfStreamingRead();
+        ThrowIfWriterOpenForRead();
 
-        var multilineJoin = Parsing.MultilineLineJoin.DetectFromFileHead(filePath, Encoding);
-
-        var opts = _descriptor.Options;
-        int ignoredFirst = 0;
-        int lineNumber = 0;
-
-        // Phase 18 MULT-06: Multiline support for async streaming
-        var lineBuffer = new StringBuilder();
-        int multilineStartLine = 0;
-        bool isBuffering = false;
-
-        // LIMIT-01: tail buffer for IgnoreLast in async streaming
-        Queue<T>? tailBuffer = null;
-        Queue<int>? tailLineNumbers = null;
-        if (opts.IgnoreLast > 0)
-        {
-            tailBuffer = new Queue<T>(opts.IgnoreLast + 1);
-            tailLineNumbers = new Queue<int>(opts.IgnoreLast + 1);
-        }
-
-        using var stream = File.OpenRead(filePath);
-        await using var lineReader = new PipelineLineReader(stream, Encoding);
-
-        await foreach (var line in lineReader.ReadLinesAsync(cancellationToken))
-        {
-            lineNumber++;
-
-            // IgnoreFirst: skip the first N lines (header rows)
-            if (ignoredFirst < opts.IgnoreFirst)
-            {
-                ignoredFirst++;
-                continue;
-            }
-
-            // Phase 18 MULT-06: Multiline assembly for async streaming
-            if (opts.MultilineMode == MultilineMode.AllowForRead)
-            {
-                if (!isBuffering)
-                {
-                    // Check if this line starts a multiline quoted field
-                    if (DelimitedFieldEnumerator.HasUnclosedQuote(line.Span))
-                    {
-                        lineBuffer.Clear();
-                        lineBuffer.Append(line.Span);
-                        multilineStartLine = lineNumber;
-                        isBuffering = true;
-                        continue;  // Need more lines
-                    }
-                }
-                else
-                {
-                    // Currently assembling multiline
-                    lineBuffer.Append(multilineJoin);
-                    lineBuffer.Append(line.Span);
-
-                    var assembled = lineBuffer.ToString();
-                    if (!DelimitedFieldEnumerator.HasUnclosedQuote(assembled.AsSpan()))
-                    {
-                        // Quote closed - process assembled line
-                        isBuffering = false;
-                        var assembledSpan = assembled.AsSpan();
-
-                        // Apply remaining filters and parse
-                        if (opts.IgnoreEmptyLines && assembledSpan.IsEmpty)
-                        {
-                            lineBuffer.Clear();
-                            continue;
-                        }
-
-                        cancellationToken.ThrowIfCancellationRequested();
-
-                        // LIMIT-02: BeforeRead event and interface notification
-                        if (BeforeReadRecord is not null || s_hasNotifyRead)
-                        {
-                            var beforeReadArgs = new BeforeReadEventArgs<T>(this, assembled, multilineStartLine);
-
-                            if (BeforeReadRecord is not null)
-                            {
-                                BeforeReadRecord.Invoke(this, beforeReadArgs);
-                            }
-
-                            if (s_hasNotifyRead)
-                            {
-                                var notifyRecord = _descriptor.CreateDefaultInstance();
-                                if (notifyRecord is INotifyRead<T> notifyReadBefore)
-                                {
-                                    notifyReadBefore.BeforeRead(beforeReadArgs);
-                                }
-                            }
-
-                            if (beforeReadArgs.StopReading)
-                            {
-                                lineBuffer.Clear();
-                                yield break;
-                            }
-                            if (beforeReadArgs.SkipThisRecord)
-                            {
-                                lineBuffer.Clear();
-                                continue;
-                            }
-                            // RecordLineChanged not applicable for multiline (assembled line is fixed)
-                        }
-
-                        // Phase 18: Parse multiline record - error handling outside try-catch for yield compatibility
-                        var parseResult = TryParseRecord(assembled, opts.Delimiter, _descriptor.Fields.Length, multilineStartLine, out var parsed);
-                        if (!parseResult.Success)
-                        {
-                            // Error handled in TryParseRecord
-                            lineBuffer.Clear();
-                            if (parseResult.ShouldContinue)
-                                continue;
-                            yield break;
-                        }
-
-                        lineBuffer.Clear();
-
-                        // INTF-05, INTF-07: AfterRead interface notification
-                        if (s_hasNotifyRead && parsed is INotifyRead<T> notifyRead)
-                        {
-                            var afterArgs = new AfterReadEventArgs<T>(this, parsed, assembled, multilineStartLine);
-                            notifyRead.AfterRead(afterArgs);
-                            if (afterArgs.SkipThisRecord)
-                                continue;
-                        }
-
-                        // LIMIT-01: tail buffer logic
-                        if (tailBuffer is not null)
-                        {
-                            tailBuffer.Enqueue(parsed!);
-                            tailLineNumbers!.Enqueue(multilineStartLine);
-                            if (tailBuffer.Count > opts.IgnoreLast)
-                            {
-                                var toYield = tailBuffer.Dequeue();
-                                LineNumber = tailLineNumbers.Dequeue();
-                                TotalRecords++;
-                                LastRecord = toYield;
-                                yield return toYield;
-                            }
-                        }
-                        else
-                        {
-                            TotalRecords++;
-                            LineNumber = multilineStartLine;
-                            LastRecord = parsed;
-                            yield return parsed!;
-                        }
-                    }
-                    continue;  // Still buffering or just processed
-                }
-            }
-
-            // IgnoreEmptyLines (single-line path)
-            if (opts.IgnoreEmptyLines && line.Length == 0) continue;
-
-            // CommentMarker
-            if (opts.CommentMarker != '\0' && line.Length > 0 && line.Span[0] == opts.CommentMarker) continue;
-
-            // CREC-10: ConditionalRecord filtering runs before parse attempt
-            if (_conditionMatcher is not null && !_conditionMatcher.ShouldInclude(line.Span))
-                continue;
-
-            cancellationToken.ThrowIfCancellationRequested();
-
-            // LIMIT-02: BeforeRead event and interface notification
-            string lineStr = line.Span.ToString();
-            if (BeforeReadRecord is not null || s_hasNotifyRead)
-            {
-                var beforeReadArgs = new BeforeReadEventArgs<T>(this, lineStr, lineNumber);
-
-                if (BeforeReadRecord is not null)
-                {
-                    BeforeReadRecord.Invoke(this, beforeReadArgs);
-                }
-
-                if (s_hasNotifyRead)
-                {
-                    var notifyRecord = _descriptor.CreateDefaultInstance();
-                    if (notifyRecord is INotifyRead<T> notifyReadBefore)
-                    {
-                        notifyReadBefore.BeforeRead(beforeReadArgs);
-                    }
-                }
-
-                if (beforeReadArgs.StopReading)
-                    yield break;
-                if (beforeReadArgs.SkipThisRecord)
-                    continue;
-                if (beforeReadArgs.RecordLineChanged)
-                {
-                    lineStr = beforeReadArgs.RecordLine;
-                }
-            }
-
-            // Phase 18: Parse single-line record - error handling outside try-catch for yield compatibility
-            var singleParseResult = TryParseRecord(lineStr, opts.Delimiter, _descriptor.Fields.Length, lineNumber, out var singleParsed);
-            if (!singleParseResult.Success)
-            {
-                if (singleParseResult.ShouldContinue)
-                    continue;
-                yield break;
-            }
-
-            // INTF-05, INTF-07: AfterRead interface notification for async enumerable
-            if (s_hasNotifyRead && singleParsed is INotifyRead<T> notifyReadSingle)
-            {
-                var afterArgs = new AfterReadEventArgs<T>(this, singleParsed!, lineStr, lineNumber);
-                notifyReadSingle.AfterRead(afterArgs);
-                if (afterArgs.SkipThisRecord)
-                    continue;
-            }
-
-            // LIMIT-01: tail buffer logic
-            if (tailBuffer is not null)
-            {
-                tailBuffer.Enqueue(singleParsed!);
-                tailLineNumbers!.Enqueue(lineNumber);
-                if (tailBuffer.Count > opts.IgnoreLast)
-                {
-                    var toYield = tailBuffer.Dequeue();
-                    LineNumber = tailLineNumbers.Dequeue();
-                    TotalRecords++;
-                    LastRecord = toYield;
-                    yield return toYield;
-                }
-            }
-            else
-            {
-                TotalRecords++;
-                LineNumber = lineNumber;
-                LastRecord = singleParsed;
-                yield return singleParsed!;
-            }
-        }
-
-        // Phase 18 MULT-04: Handle any remaining buffered multiline content at EOF
-        if (isBuffering && lineBuffer.Length > 0)
-        {
-            var finalLine = lineBuffer.ToString();
-            var finalParseResult = TryParseRecord(finalLine, opts.Delimiter, _descriptor.Fields.Length, multilineStartLine, out var finalParsed);
-            if (finalParseResult.Success)
-            {
-                if (tailBuffer is not null)
-                {
-                    tailBuffer.Enqueue(finalParsed!);
-                    tailLineNumbers!.Enqueue(multilineStartLine);
-                    if (tailBuffer.Count > opts.IgnoreLast)
-                    {
-                        var toYield = tailBuffer.Dequeue();
-                        LineNumber = tailLineNumbers.Dequeue();
-                        TotalRecords++;
-                        LastRecord = toYield;
-                        yield return toYield;
-                    }
-                }
-                else
-                {
-                    TotalRecords++;
-                    LineNumber = multilineStartLine;
-                    LastRecord = finalParsed;
-                    yield return finalParsed!;
-                }
-            }
-        }
-
-        // LIMIT-01: capture footer text from remaining tail buffer entries
-        if (tailBuffer is not null && tailBuffer.Count > 0)
-        {
-            var footerLines = new string[tailBuffer.Count];
-            int i = 0;
-            while (tailBuffer.Count > 0)
-            {
-                var rec = tailBuffer.Dequeue();
-                using var buf = new RentedBufferWriter(256);
-                _descriptor.Format(rec, buf);
-                footerLines[i++] = buf.WrittenSpan.ToString();
-            }
-            FooterText = string.Join(NewLineForWrite, footerLines);
-        }
-    }
-
-    /// <summary>
-    /// Phase 18: Helper method to parse a record with error handling outside try-catch
-    /// to allow yield return in calling async iterator.
-    /// Phase 41: Supports recycling via _recyclable.ParseInto when RecycleRecords is enabled.
-    /// </summary>
-    private (bool Success, bool ShouldContinue) TryParseRecord(
-        string line,
-        string delimiter,
-        int fieldCount,
-        int lineNumber,
-        out T? record)
-    {
-        record = default;
-
+        _streamingRead = true;
+        int id = ++_streamingReadId;
         try
         {
-            EnsureDelimitedFieldCount(line, delimiter, fieldCount, _descriptor.Fields);
-            if (RecycleRecords && _recyclable is not null)
-            {
-                if (_recycled is null)
-                {
-                    _recycled = _descriptor.Parse(line.AsSpan(), lineCount: 1);
-                }
-                else
-                {
-                    _recyclable.ParseInto(line.AsSpan(), lineCount: 1, _recycled);
-                }
-                record = _recycled;
-            }
-            else
-            {
-                record = _descriptor.Parse(line.AsSpan(), lineCount: 1);
-            }
-            return (true, true);
+            await foreach (var record in StreamFileAsync(filePath, id, cancellationToken).ConfigureAwait(false))
+                yield return record;
         }
-        catch (Exception ex)
+        finally
         {
-            switch (_errorManager.ErrorMode)
+            // After Close() the engine belongs to whatever session was opened since.
+            if (id == _streamingReadId)
+                _streamingRead = false;
+        }
+    }
+
+    private async IAsyncEnumerable<T> StreamFileAsync(string filePath, int id, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        using var stream = File.OpenRead(filePath);
+        var lineReader = new PipelineLineReader(stream, Encoding);
+        await using var lineReaderScope = lineReader.ConfigureAwait(false);
+        using var session = BeginSession();
+        session.AllowRecycle = RecycleRecords;
+        try
+        {
+            while (id == _streamingReadId && !session.Stopped && await lineReader.ReadLineAsync(cancellationToken).ConfigureAwait(false))
             {
-                case ErrorMode.ThrowException:
-                    throw CreateParseContextException(lineNumber, line, ex);
-                case ErrorMode.IgnoreAndContinue:
-                    return (false, true);
-                case ErrorMode.SaveAndContinue:
-                    _errorManager.AddError(new ErrorInfo(lineNumber, line, ex));
-                    return (false, true);
-                default:
-                    return (false, false);
+                if (session.Push(lineReader.CurrentLine.Span, lineReader.CurrentEnding))
+                {
+                    // A Close() from AfterReadRecord still returns this record, then ends the enumeration.
+                    if (id == _streamingReadId)
+                    {
+                        LastRecord = session.Current;
+                        SyncPosition(session);
+                    }
+
+                    yield return session.Current;
+                }
             }
+
+            if (id == _streamingReadId)
+                session.Complete();
+        }
+        finally
+        {
+            if (id == _streamingReadId)
+                SyncPosition(session);
         }
     }
 
     // =========================================================================
-    // Streaming write — ENGI-12
+    // Streaming write
     // =========================================================================
 
     /// <summary>
-    /// ENGI-12: Creates or overwrites <paramref name="filePath"/> for streaming writes.
+    /// Creates or overwrites <paramref name="filePath"/> for streaming writes.
     /// The engine owns the <see cref="StreamWriter"/> and disposes it on <see cref="Close"/>/<see cref="Dispose"/>.
     /// </summary>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="filePath"/> is null.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when a write session is already open.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when a write session is already open, or a read session (or <see cref="ReadAsync"/> enumeration) is open.</exception>
     public void BeginWriteFile(string filePath)
     {
         ArgumentNullException.ThrowIfNull(filePath);
@@ -809,25 +393,32 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
     /// <summary>
     /// Opens <paramref name="filePath"/> in append mode for streaming writes.
     /// Records written via <see cref="WriteNext(T)"/> are appended to the end of the file.
+    /// Like FileHelpers 3.x, <see cref="HeaderText"/> and <see cref="FooterText"/> are cleared so neither is
+    /// written into the middle of the existing file.
     /// The engine owns the <see cref="StreamWriter"/> and disposes it on <see cref="Close"/>/<see cref="Dispose"/>.
     /// </summary>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="filePath"/> is null.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when a write session is already open.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when a write session is already open, or a read session (or <see cref="ReadAsync"/> enumeration) is open.</exception>
     public void BeginAppendFile(string filePath)
     {
         ArgumentNullException.ThrowIfNull(filePath);
         ThrowIfWriterOpen();
-        _writer = new StreamWriter(filePath, append: true, Encoding);
+        // Like AppendToFile: a missing final line terminator in the existing file is written first (3.x).
+        _writer = WriteFraming.OpenAppender(filePath, Encoding, NewLineForWrite);
         _ownsWriter = true;
+
+        // 3.x BeginAppendToFile: no header/footer in the middle of an existing file.
+        HeaderText = null;
+        FooterText = null;
         InitWriteSession();
     }
 
     /// <summary>
-    /// ENGI-12: Uses <paramref name="writer"/> for streaming writes. The engine does NOT dispose
+    /// Uses <paramref name="writer"/> for streaming writes. The engine does NOT dispose
     /// the writer on <see cref="Close"/>/<see cref="Dispose"/> — the caller owns it.
     /// </summary>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="writer"/> is null.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when a write session is already open.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when a write session is already open, or a read session (or <see cref="ReadAsync"/> enumeration) is open.</exception>
     public void BeginWriteStream(TextWriter writer)
     {
         ArgumentNullException.ThrowIfNull(writer);
@@ -838,10 +429,10 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
     }
 
     /// <summary>
-    /// ENGI-12: Accumulates written records into an internal <see cref="StringWriter"/>.
+    /// Accumulates written records into an internal <see cref="StringWriter"/>.
     /// Retrieve the result via <see cref="EndWriteString"/> (which also calls <see cref="Close"/>).
     /// </summary>
-    /// <exception cref="InvalidOperationException">Thrown when a write session is already open.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when a write session is already open, or a read session (or <see cref="ReadAsync"/> enumeration) is open.</exception>
     public void BeginWriteString()
     {
         ThrowIfWriterOpen();
@@ -857,17 +448,18 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
     /// </summary>
     public string EndWriteString()
     {
-        string result = _stringWriter?.ToString() ?? string.Empty;
+        // Close() writes FooterText first; a disposed StringWriter still returns its content.
+        var stringWriter = _stringWriter;
         Close();
-        return result;
+        return stringWriter?.ToString() ?? string.Empty;
     }
 
     // =========================================================================
-    // Per-record push — ENGI-13
+    // Per-record push
     // =========================================================================
 
     /// <summary>
-    /// ENGI-13: Formats <paramref name="record"/> via the descriptor and writes it to the
+    /// Formats <paramref name="record"/> via the descriptor and writes it to the
     /// open write session, followed by <see cref="NewLineForWrite"/>.
     /// </summary>
     /// <exception cref="InvalidOperationException">Thrown when no write session is open.</exception>
@@ -875,7 +467,7 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
     {
         ThrowIfNoWriter();
 
-        // INTF-06, INTF-07: BeforeWrite event and interface notification
+        // BeforeWriteRecord event, then INotifyWrite<T>.BeforeWrite
         if (BeforeWriteRecord is not null || _implementsNotifyWrite)
         {
             var beforeArgs = new BeforeWriteEventArgs<T>(this, record, TotalRecords + 1);
@@ -896,9 +488,10 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
         }
 
         _writeBuf!.Reset();
+        _writeBuf.NewLine = NewLineForWrite;
         _descriptor.Format(record, _writeBuf);
 
-        // INTF-06, INTF-07: AfterWrite event and interface notification
+        // AfterWriteRecord event, then INotifyWrite<T>.AfterWrite
         if (AfterWriteRecord is not null || _implementsNotifyWrite)
         {
             string formattedLine = _writeBuf.WrittenSpan.ToString();
@@ -924,7 +517,7 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
         TotalRecords++;
     }
 
-    /// <summary>ENGI-13: Writes each record in <paramref name="records"/> via <see cref="WriteNext(T)"/>.</summary>
+    /// <summary>Writes each record in <paramref name="records"/> via <see cref="WriteNext(T)"/>.</summary>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="records"/> is null.</exception>
     /// <exception cref="InvalidOperationException">Thrown when no write session is open.</exception>
     public void WriteNext(IEnumerable<T> records)
@@ -935,23 +528,27 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
     }
 
     // =========================================================================
-    // Lifecycle — ENGI-14
+    // Lifecycle
     // =========================================================================
 
     /// <summary>
-    /// ENGI-14: Flushes and closes the current read or write session. Idempotent.
-    /// Writes <see cref="FooterText"/> (if set) before flushing the writer.
+    /// Flushes and closes the current read or write session. Idempotent.
+    /// Writes <see cref="FooterText"/> (if set) before flushing the writer. A running
+    /// <see cref="ReadAsync"/> enumeration ends at its next record, and the engine can start a new session
+    /// even when that enumerator is never disposed.
     /// </summary>
     public void Close()
     {
+        if (_streamingRead)
+        {
+            _streamingRead = false;
+            _streamingReadId++;
+        }
+
         // Flush writer session
         if (_writer is not null)
         {
-            if (FooterText is not null)
-            {
-                _writer.Write(FooterText);
-                _writer.Write(NewLineForWrite);
-            }
+            WriteFraming.WriteFrame(_writer, FooterText, NewLineForWrite);
             _writer.Flush();
             if (_ownsWriter)
                 _writer.Dispose();
@@ -965,6 +562,10 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
         _writeBuf = null;
 
         // Release reader
+        _session?.Dispose();
+        _session = null;
+        _source?.Dispose();
+        _source = null;
         if (_reader is not null)
         {
             if (_ownsReader)
@@ -972,14 +573,10 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
             _reader = null;
             _ownsReader = false;
         }
-
-        // Clear ring buffer
-        _tailBuffer?.Clear();
-        _currentLine = null;
     }
 
     /// <summary>
-    /// ENGI-14: Calls <see cref="Close"/>. Idempotent and reuse-safe — the engine can be
+    /// Calls <see cref="Close"/>. Idempotent and reuse-safe — the engine can be
     /// opened again with a new <c>BeginRead*</c> or <c>BeginWrite*</c> call after disposal.
     /// This matches FileHelpers 3.x engine behavior where the engine object is reused across
     /// multiple file-processing sessions.
@@ -990,11 +587,11 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
     }
 
     // =========================================================================
-    // IEnumerable<T> — ENGI-14
+    // IEnumerable<T>
     // =========================================================================
 
     /// <summary>
-    /// ENGI-14: Iterates the open read session via <see cref="ReadNext()"/>.
+    /// Iterates the open read session until the end of input.
     /// A <see cref="BeginReadFile"/>, <see cref="BeginReadStream"/>, or
     /// <see cref="BeginReadString"/> call is required before enumerating.
     /// </summary>
@@ -1002,7 +599,7 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
     public IEnumerator<T> GetEnumerator()
     {
         ThrowIfNoReader();
-        while (ReadNext() is { } record)
+        while (TryReadNext(out var record, allowRecycle: true))
             yield return record;
     }
 
@@ -1012,41 +609,42 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
     // Private helpers
     // =========================================================================
 
-    /// <summary>
-    /// Consumes IgnoreFirst header lines, initialises the ring buffer for IgnoreLast,
-    /// and pre-fetches the first content line into <see cref="_currentLine"/>.
-    /// </summary>
-    private void OpenReaderCore()
+    /// <summary>Resets the read-side state and starts a session on the shared record pipeline.</summary>
+    private RecordReadSession<T> BeginSession()
     {
-        var opts = _descriptor.Options;
         LineNumber = 0;
         TotalRecords = 0;
         HeaderText = null;
         FooterText = null;
-        _currentLineNumber = 0;
-        _tailBuffer = null;
+        LastRecord = default;
         _errorManager.ClearErrors();
-        _earlyStop = false;
+        return new RecordReadSession<T>(_core, this, this, _errorManager, NewLineForWrite, maxRecords: 0);
+    }
 
-        // Consume IgnoreFirst header lines and capture them into HeaderText.
-        var headerLines = new List<string>(opts.IgnoreFirst);
-        for (int i = 0; i < opts.IgnoreFirst; i++)
+    /// <summary>Starts the session and consumes the <see cref="IgnoreFirstAttribute"/> header lines eagerly.</summary>
+    private void OpenReaderCore()
+    {
+        _session = BeginSession();
+        _source = new TextReaderLineSource(_reader!);
+        _endOfInput = false;
+
+        while (_session.InHeader)
         {
-            string? line = _reader!.ReadLine();
-            if (line is null) break;
-            headerLines.Add(line);
-            _currentLineNumber++;
+            if (!_source.TryReadLine(out var line, out var ending))
+            {
+                _endOfInput = true;
+                _session.Complete();
+                break;
+            }
+
+            _session.Push(line, ending);
         }
-        if (headerLines.Count > 0)
-            HeaderText = string.Join(NewLineForWrite, headerLines);
+    }
 
-        // Initialise ring buffer for IgnoreLast (capacity = N+1 to detect overflow).
-        if (opts.IgnoreLast > 0)
-            _tailBuffer = new Queue<BufferedLine>(opts.IgnoreLast + 1);
-
-        // Pre-read first content line.
-        _currentLine = _reader!.ReadLine();
-        if (_currentLine is not null) _currentLineNumber++;
+    private void SyncPosition(RecordReadSession<T> session)
+    {
+        LineNumber = session.LastLineNumber;
+        TotalRecords = session.RecordCount;
     }
 
     private void InitWriteSession()
@@ -1055,17 +653,28 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
         _writeBuf = new RentedBufferWriter(initialSize);
         TotalRecords = 0;
 
-        if (HeaderText is not null)
-        {
-            _writer!.Write(HeaderText);
-            _writer.Write(NewLineForWrite);
-        }
+        WriteFraming.WriteFrame(_writer!, HeaderText, NewLineForWrite);
     }
 
+    /// <summary>Guards <c>BeginRead*</c>: one read at a time, never while writing (3.x).</summary>
     private void ThrowIfReaderOpen()
     {
         if (_reader is not null)
             throw new InvalidOperationException("A read session is already open. Call Close() first.");
+        ThrowIfStreamingRead();
+        ThrowIfWriterOpenForRead();
+    }
+
+    private void ThrowIfStreamingRead()
+    {
+        if (_streamingRead)
+            throw new InvalidOperationException("A ReadAsync enumeration is running on this engine. Finish or dispose it first, or use a separate engine instance.");
+    }
+
+    private void ThrowIfWriterOpenForRead()
+    {
+        if (_writer is not null)
+            throw new InvalidOperationException("A write session is open on this engine. Call Close() before reading.");
     }
 
     private void ThrowIfNoReader()
@@ -1074,10 +683,13 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
             throw new InvalidOperationException("No read session is open. Call BeginReadFile, BeginReadStream, or BeginReadString first.");
     }
 
+    /// <summary>Guards <c>BeginWrite*</c>: one write at a time, never while reading (3.x).</summary>
     private void ThrowIfWriterOpen()
     {
         if (_writer is not null)
             throw new InvalidOperationException("A write session is already open. Call Close() first.");
+        if (_reader is not null || _streamingRead)
+            throw new InvalidOperationException("A read session is open on this engine. Call Close() (or finish the ReadAsync enumeration) before writing.");
     }
 
     private void ThrowIfNoWriter()
@@ -1085,124 +697,4 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>
         if (_writer is null)
             throw new InvalidOperationException("No write session is open. Call BeginWriteFile, BeginWriteStream, or BeginWriteString first.");
     }
-
-    private static void EnsureDelimitedFieldCount(
-        string line,
-        string delimiter,
-        int expectedFieldCount,
-        ReadOnlySpan<FieldDescriptor> fields)
-    {
-        if (string.IsNullOrEmpty(delimiter) || expectedFieldCount <= 0)
-            return;
-
-        for (int i = 0; i < fields.Length; i++)
-        {
-            if (fields[i].Delimiter is not null)
-                return;
-        }
-
-        int count = 1;
-        bool inQuotes = false;
-        for (int i = 0; i < line.Length; i++)
-        {
-            if (line[i] == '"')
-            {
-                if (inQuotes && i + 1 < line.Length && line[i + 1] == '"')
-                {
-                    i++;
-                    continue;
-                }
-
-                inQuotes = !inQuotes;
-                continue;
-            }
-
-            if (!inQuotes && IsDelimiterAt(line, delimiter, i))
-            {
-                count++;
-                i += delimiter.Length - 1;
-            }
-        }
-
-        if (count != expectedFieldCount)
-            throw new FormatException($"Expected {expectedFieldCount} fields but found {count} in line: '{line}'. Check that all delimiters are present and no fields contain unescaped delimiter characters.");
-    }
-
-    private static bool IsDelimiterAt(string line, string delimiter, int index)
-    {
-        if (index + delimiter.Length > line.Length)
-            return false;
-
-        return line.AsSpan(index, delimiter.Length).SequenceEqual(delimiter.AsSpan());
-    }
-
-    private string JoinBufferedLines(Queue<BufferedLine> lines)
-    {
-        var values = new List<string>(lines.Count);
-        foreach (var line in lines)
-            values.Add(line.Text);
-
-        return string.Join(NewLineForWrite, values);
-    }
-
-    /// <summary>
-    /// Phase 18 MULT-02: Assembles multiline quoted fields in streaming mode.
-    /// Checks if the current line starts a multiline field, and if so, buffers additional lines.
-    /// </summary>
-    private (string? AssembledLine, int AssembledLineNumber, bool IsComplete) AssembleMultilineLine(string line, int lineNumber)
-    {
-        var opts = _descriptor.Options;
-
-        // If not in multiline mode, return as-is
-        if (opts.MultilineMode != MultilineMode.AllowForRead)
-        {
-            return (line, lineNumber, true);
-        }
-
-        // Check if we need to start buffering
-        if (_multilineBuffer.Length == 0)
-        {
-            // Check if this line starts a multiline quoted field
-            if (DelimitedFieldEnumerator.HasUnclosedQuote(line.AsSpan()))
-            {
-                // Start buffering
-                _multilineBuffer.Clear();
-                _multilineBuffer.Append(line);
-                _multilineStartLineNumber = lineNumber;
-                return (null, lineNumber, false);  // Need more lines
-            }
-
-            // Single-line record
-            return (line, lineNumber, true);
-        }
-        else
-        {
-            // Already buffering - append this line
-                _multilineBuffer.Append(_readMultilineJoin);
-                _multilineBuffer.Append(line);
-
-            // Check if quote is now closed
-            var assembled = _multilineBuffer.ToString();
-            if (!DelimitedFieldEnumerator.HasUnclosedQuote(assembled.AsSpan()))
-            {
-                // Quote closed - return assembled line
-                var result = assembled;
-                int resultLineNumber = _currentLineNumber > 0 ? _currentLineNumber : _multilineStartLineNumber;
-                _multilineBuffer.Clear();
-                return (result, resultLineNumber, true);
-            }
-
-            // Still buffering - need more lines
-            return (null, lineNumber, false);
-        }
-    }
-
-    private static FormatException CreateParseContextException(int lineNumber, string line, Exception inner, int columnIndex = -1, string? fieldName = null)
-    {
-        var columnInfo = columnIndex >= 0 ? $", column {columnIndex + 1}" : "";
-        var fieldInfo = fieldName != null ? $", field '{fieldName}'" : "";
-        return new FormatException($"Error parsing line {lineNumber}{columnInfo}{fieldInfo}: '{line}'. {inner.Message}", inner);
-    }
-
-    private readonly record struct BufferedLine(string Text, int LineNumber);
 }

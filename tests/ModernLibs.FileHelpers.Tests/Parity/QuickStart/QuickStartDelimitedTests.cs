@@ -13,21 +13,20 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.Parity.QuickStart;
 
 /// <summary>
-/// TEST-01, TEST-02: QuickStart Delimited Read/Write tests.
+/// QuickStart Delimited Read/Write tests.
 /// Based on original FileHelpers QuickStart examples from https://www.filehelpers.net/quickstart/
 /// </summary>
-[Category("Phase19")]
 [Category("Parity")]
 [Category("QuickStart")]
 public sealed class QuickStartDelimitedTests
 {
-    #region TEST-01: Read Delimited File
+    #region Read Delimited File
 
     /// <summary>
-    /// TEST-01: QuickStart Read Delimited File - matches original FileHelpers behavior.
+    /// QuickStart Read Delimited File - matches original FileHelpers behavior.
     /// </summary>
     [Test]
-    [DisplayName("TEST-01: Read delimited CSV file - matches original FileHelpers.ReadFile behavior")]
+    [DisplayName("Read delimited CSV file - matches original FileHelpers.ReadFile behavior")]
     public async Task ReadDelimited_MatchesOriginalBehavior()
     {
         // Arrange: Input matching original FileHelpers QuickStart example
@@ -54,10 +53,10 @@ public sealed class QuickStartDelimitedTests
     }
 
     /// <summary>
-    /// TEST-01: Read delimited with header skip matches original FileHelpers [IgnoreFirst] behavior.
+    /// Read delimited with header skip matches original FileHelpers [IgnoreFirst] behavior.
     /// </summary>
     [Test]
-    [DisplayName("TEST-01: Read delimited with header - IgnoreFirst captures header in HeaderText")]
+    [DisplayName("Read delimited with header - IgnoreFirst captures header in HeaderText")]
     public async Task ReadDelimited_WithHeader_MatchesOriginalBehavior()
     {
         // Arrange: CSV with header row
@@ -76,10 +75,10 @@ public sealed class QuickStartDelimitedTests
     }
 
     /// <summary>
-    /// TEST-01: Read delimited from file path works like original FileHelpers.
+    /// Read delimited from file path works like original FileHelpers.
     /// </summary>
     [Test]
-    [DisplayName("TEST-01: ReadFile reads from file path - matches original FileHelpers behavior")]
+    [DisplayName("ReadFile reads from file path - matches original FileHelpers behavior")]
     public async Task ReadDelimited_FromFile_MatchesOriginalBehavior()
     {
         // Arrange: Write test file
@@ -106,10 +105,10 @@ public sealed class QuickStartDelimitedTests
     }
 
     /// <summary>
-    /// TEST-01: ReadStream from TextReader matches original FileHelpers.
+    /// ReadStream from TextReader matches original FileHelpers.
     /// </summary>
     [Test]
-    [DisplayName("TEST-01: ReadStream reads from TextReader - matches original FileHelpers behavior")]
+    [DisplayName("ReadStream reads from TextReader - matches original FileHelpers behavior")]
     public async Task ReadDelimited_FromStream_MatchesOriginalBehavior()
     {
         // Arrange
@@ -127,13 +126,13 @@ public sealed class QuickStartDelimitedTests
 
     #endregion
 
-    #region TEST-02: Write Delimited File
+    #region Write Delimited File
 
     /// <summary>
-    /// TEST-02: Write delimited CSV file - matches original FileHelpers behavior.
+    /// Write delimited CSV file - matches original FileHelpers behavior.
     /// </summary>
     [Test]
-    [DisplayName("TEST-02: Write delimited CSV - matches original FileHelpers.WriteFile behavior")]
+    [DisplayName("Write delimited CSV - matches original FileHelpers.WriteFile behavior")]
     public async Task WriteDelimited_MatchesOriginalBehavior()
     {
         // Arrange: Create records like original FileHelpers example
@@ -154,10 +153,10 @@ public sealed class QuickStartDelimitedTests
     }
 
     /// <summary>
-    /// TEST-02: Write delimited to file path works like original FileHelpers.
+    /// Write delimited to file path works like original FileHelpers.
     /// </summary>
     [Test]
-    [DisplayName("TEST-02: WriteFile writes to file path - matches original FileHelpers behavior")]
+    [DisplayName("WriteFile writes to file path - matches original FileHelpers behavior")]
     public async Task WriteDelimited_ToFile_MatchesOriginalBehavior()
     {
         // Arrange
@@ -184,10 +183,10 @@ public sealed class QuickStartDelimitedTests
     }
 
     /// <summary>
-    /// TEST-02: WriteStream to TextWriter matches original FileHelpers.
+    /// WriteStream to TextWriter matches original FileHelpers.
     /// </summary>
     [Test]
-    [DisplayName("TEST-02: WriteStream writes to TextWriter - matches original FileHelpers behavior")]
+    [DisplayName("WriteStream writes to TextWriter - matches original FileHelpers behavior")]
     public async Task WriteDelimited_ToStream_MatchesOriginalBehavior()
     {
         // Arrange
@@ -211,10 +210,10 @@ public sealed class QuickStartDelimitedTests
     #region Round-Trip Tests (Read -> Write -> Read)
 
     /// <summary>
-    /// TEST-01/02: Round-trip verification - read then write then read produces equivalent results.
+    /// Round-trip verification - read then write then read produces equivalent results.
     /// </summary>
     [Test]
-    [DisplayName("TEST-01/02: Round-trip read-write-read produces equivalent records")]
+    [DisplayName("Round-trip read-write-read produces equivalent records")]
     public async Task RoundTrip_ProducesEquivalentRecords()
     {
         // Arrange: Original input

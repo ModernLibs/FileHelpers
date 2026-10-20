@@ -11,10 +11,8 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.Attributes;
 
 /// <summary>
-/// TDD RED tests for [FieldDelimiter] attribute (FDEL-01).
-/// These tests define the contract before implementation (Wave 0).
+/// Tests for the [FieldDelimiter] attribute contract.
 /// </summary>
-[Category("Phase17")]
 [Category("Attributes")]
 public sealed class FieldDelimiterTests
 {

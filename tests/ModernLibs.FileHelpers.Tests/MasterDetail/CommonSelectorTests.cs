@@ -11,7 +11,7 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.MasterDetail;
 
 /// <summary>
-/// Phase 52 GAP-05: CommonSelector tests — factory methods and enum constructor overloads.
+/// CommonSelector tests — factory methods and enum constructor overloads.
 /// </summary>
 public class CommonSelectorTests
 {

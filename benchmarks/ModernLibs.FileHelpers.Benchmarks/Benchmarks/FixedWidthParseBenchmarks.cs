@@ -32,6 +32,14 @@ public record struct FixedRecordStruct(
     [property: FieldOrder(7), FieldFixedLength(10)] string Suffix
 );
 
+/// <summary>Concatenates the fixed-width fields back into the record's line, for <see cref="DataCheck.FixedWidth"/>.</summary>
+internal static class FixedRecordText
+{
+    public static string Of(FixedRecord r) => string.Concat(r.Id, r.Name, r.NumericField, r.Description, r.DecimalField, r.Code, r.Suffix);
+
+    public static string Of(FixedRecordStruct r) => string.Concat(r.Id, r.Name, r.NumericField, r.Description, r.DecimalField, r.Code, r.Suffix);
+}
+
 [MemoryDiagnoser]
 public class FixedWidthParseBenchmarks
 {
@@ -50,6 +58,14 @@ public class FixedWidthParseBenchmarks
         _filePath = DatasetGenerator.EnsureFixedWidth(dataDir, Rows);
         _classEngine = new FileHelperEngine<FixedRecord>();
         _structEngine = new FileHelperEngine<FixedRecordStruct>();
+
+        // Correctness guard: every benchmark must parse the file it measures.
+        var lines = DataCheck.DataLines(_filePath, hasHeader: false);
+        var cls = ReadAllRows_Class();
+        DataCheck.FixedWidth("class", lines, cls.Length, i => FixedRecordText.Of(cls[i]));
+        var str = ReadAllRows_Struct();
+        DataCheck.FixedWidth("struct", lines, str.Length, i => FixedRecordText.Of(str[i]));
+        DataCheck.Equal(Rows, SliceAllFields_SpanSlicer(), "slicer line count");
     }
 
     [Benchmark(Baseline = true)]

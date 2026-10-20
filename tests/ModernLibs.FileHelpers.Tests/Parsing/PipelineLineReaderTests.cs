@@ -10,10 +10,9 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.Parsing;
 
 /// <summary>
-/// Acceptance tests for <c>PipelineLineReader</c> (PIPE-04).
+/// Acceptance tests for <c>PipelineLineReader</c>.
 /// Covers LF, CRLF, CR, no-trailing-newline, empty stream, UTF-8 multi-byte, and cancellation.
 /// </summary>
-[Category("Phase08")]
 [Category("Pipeline")]
 public sealed class PipelineLineReaderTests
 {
@@ -42,10 +41,10 @@ public sealed class PipelineLineReaderTests
     }
 
     // -------------------------------------------------------------------------
-    // PIPE-04 — PipelineLineReader
+    // PipelineLineReader
     // -------------------------------------------------------------------------
 
-    /// <summary>PIPE-04: Stream with LF-only separators; each ReadOnlyMemory&lt;char&gt; matches expected line without newline char.</summary>
+    /// <summary>Stream with LF-only separators; each ReadOnlyMemory&lt;char&gt; matches expected line without newline char.</summary>
     [Test]
     [DisplayName("ReadLinesAsync yields correct lines for LF-terminated input")]
     public async Task ReadLinesAsync_LFTerminated_YieldsCorrectLines()
@@ -60,7 +59,7 @@ public sealed class PipelineLineReaderTests
         await Assert.That(lines[2]).IsEqualTo("gamma");
     }
 
-    /// <summary>PIPE-04: Stream with CRLF separators; lines yielded without CRLF.</summary>
+    /// <summary>Stream with CRLF separators; lines yielded without CRLF.</summary>
     [Test]
     [DisplayName("ReadLinesAsync yields correct lines for CRLF-terminated input")]
     public async Task ReadLinesAsync_CRLFTerminated_YieldsCorrectLines()
@@ -75,7 +74,7 @@ public sealed class PipelineLineReaderTests
         await Assert.That(lines[2]).IsEqualTo("three");
     }
 
-    /// <summary>PIPE-04: Stream with CR-only separators (old Mac); correct lines yielded.</summary>
+    /// <summary>Stream with CR-only separators (old Mac); correct lines yielded.</summary>
     [Test]
     [DisplayName("ReadLinesAsync yields correct lines for CR-terminated (old Mac) input")]
     public async Task ReadLinesAsync_CRTerminated_YieldsCorrectLines()
@@ -90,7 +89,7 @@ public sealed class PipelineLineReaderTests
         await Assert.That(lines[2]).IsEqualTo("z");
     }
 
-    /// <summary>PIPE-04: Stream without trailing newline; last line is still yielded.</summary>
+    /// <summary>Stream without trailing newline; last line is still yielded.</summary>
     [Test]
     [DisplayName("ReadLinesAsync yields last line when input lacks trailing newline")]
     public async Task ReadLinesAsync_LastLineNoNewline_YieldsLastLine()
@@ -104,7 +103,7 @@ public sealed class PipelineLineReaderTests
         await Assert.That(lines[1]).IsEqualTo("second");
     }
 
-    /// <summary>PIPE-04: Empty byte stream; zero iterations (no lines yielded).</summary>
+    /// <summary>Empty byte stream; zero iterations (no lines yielded).</summary>
     [Test]
     [DisplayName("ReadLinesAsync yields empty list for empty stream input")]
     public async Task ReadLinesAsync_EmptyStream_YieldsNothing()
@@ -116,7 +115,7 @@ public sealed class PipelineLineReaderTests
         await Assert.That(lines.Count).IsEqualTo(0);
     }
 
-    /// <summary>PIPE-04: Stream containing UTF-8 multi-byte characters (e.g. "héllo"); correct char output decoded.</summary>
+    /// <summary>Stream containing UTF-8 multi-byte characters (e.g. "héllo"); correct char output decoded.</summary>
     [Test]
     [DisplayName("ReadLinesAsync correctly decodes UTF-8 multi-byte characters")]
     public async Task ReadLinesAsync_MultiByteUtf8_DecodesCorrectly()
@@ -131,7 +130,7 @@ public sealed class PipelineLineReaderTests
         await Assert.That(lines[1]).IsEqualTo("wörld");
     }
 
-    /// <summary>PIPE-04: CancellationTokenSource cancelled before iteration; OperationCanceledException is thrown.
+    /// <summary>CancellationTokenSource cancelled before iteration; OperationCanceledException is thrown.
     /// NOTE: Implementation must apply [EnumeratorCancellation] to the CancellationToken parameter.</summary>
     [Test]
     [DisplayName("ReadLinesAsync throws OperationCanceledException when token is pre-cancelled")]

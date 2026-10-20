@@ -4,8 +4,8 @@ namespace ModernLibs.FileHelpers.Parsing;
 
 /// <summary>
 /// Evaluates record condition filters against input lines.
-/// CREC-10: Filtering runs before parse attempt.
-/// CREC-11: Regex patterns compiled once per engine instance.
+/// Filtering runs before parse attempt.
+/// Regex patterns compiled once per engine instance.
 /// </summary>
 internal sealed class RecordConditionMatcher
 {
@@ -23,14 +23,15 @@ internal sealed class RecordConditionMatcher
         _condition = condition;
         _pattern = pattern ?? string.Empty;
 
-        // CREC-11: Compile regex once if needed
+        // Compile the regex once, when the condition needs one.
         // MA0009: User-provided regex patterns are accepted; compile-time validation via MFH004
         // and documentation guidance address DoS concerns for patterns in ConditionalRecord.
 #pragma warning disable MA0009
         if (condition is RecordCondition.IncludeIfRegex or RecordCondition.ExcludeIfRegex
             && !string.IsNullOrEmpty(pattern))
         {
-            _regex = new Regex(pattern, RegexOptions.Compiled);
+            // FileHelpers 3.x options: Compiled | IgnoreCase | ExplicitCapture.
+            _regex = new Regex(pattern, RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture);
         }
 #pragma warning restore MA0009
     }

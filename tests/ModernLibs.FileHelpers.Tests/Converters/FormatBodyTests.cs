@@ -11,11 +11,9 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.Converters;
 
 /// <summary>
-/// Integration tests for PIPE-09 (Format body round-trip).
+/// Integration tests for the Format body round-trip.
 /// Tests verify the source-generated Format method for existing fixture types.
-/// Format body wired in Wave 3 (06-05-PLAN.md).
 /// </summary>
-[Category("Phase06")]
 [Category("Format")]
 public sealed class FormatBodyTests
 {

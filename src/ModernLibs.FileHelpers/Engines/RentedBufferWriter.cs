@@ -20,6 +20,12 @@ internal sealed class RentedBufferWriter : IBufferWriter<char>, IDisposable
         _written = 0;
     }
 
+    /// <summary>
+    /// The engine's <c>NewLineForWrite</c>, written before each <see cref="FieldInNewLineAttribute"/> field
+    /// (see <see cref="RecordFormatting.WriteFieldNewLine"/>).
+    /// </summary>
+    public string NewLine { get; set; } = "\r\n";
+
     /// <summary>Span of chars written since the last <see cref="Reset"/>.</summary>
     public ReadOnlySpan<char> WrittenSpan => _buffer.AsSpan(0, _written);
 

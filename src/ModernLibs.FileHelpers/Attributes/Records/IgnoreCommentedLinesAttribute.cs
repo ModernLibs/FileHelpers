@@ -1,8 +1,9 @@
 namespace ModernLibs.FileHelpers;
 
 /// <summary>
-/// Skips lines that begin with (or contain, depending on <see cref="AnyPlace"/>) the specified comment marker character.
-/// The marker is a single <see langword="char"/>, not a string, to avoid multi-character ambiguity.
+/// Skips lines that start with the specified comment marker character (optionally after whitespace, see
+/// <see cref="AnyPlace"/>), as in FileHelpers 3.x.
+/// The marker is a single <see langword="char"/> (3.x uses a string).
 /// </summary>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct, AllowMultiple = false, Inherited = false)]
 public sealed class IgnoreCommentedLinesAttribute : Attribute
@@ -11,20 +12,20 @@ public sealed class IgnoreCommentedLinesAttribute : Attribute
     public char CommentMarker { get; }
 
     /// <summary>
-    /// When <see langword="true"/>, any line containing the marker character anywhere is skipped.
-    /// When <see langword="false"/>, only lines that begin with the marker are skipped.
-    /// Default is <see langword="true"/>.
+    /// When <see langword="true"/> (default), the marker may be preceded by spaces or tabs.
+    /// When <see langword="false"/>, only lines whose first character is the marker are skipped.
+    /// A marker in the middle of a line never makes it a comment.
     /// </summary>
     public bool AnyPlace { get; }
 
-    /// <summary>Skips lines that contain the specified comment marker character (anywhere in the line).</summary>
+    /// <summary>Skips lines that start with the marker, optionally after whitespace.</summary>
     /// <param name="commentMarker">The single character that marks a line as a comment (e.g., <c>'#'</c>, <c>';'</c>).</param>
     public IgnoreCommentedLinesAttribute(char commentMarker) : this(commentMarker, true) { }
 
     /// <summary>Skips lines that are marked as comments by the specified character.</summary>
     /// <param name="commentMarker">The single character that marks a line as a comment.</param>
     /// <param name="anyPlace">
-    /// <see langword="true"/> to skip any line containing the marker;
+    /// <see langword="true"/> to allow whitespace before the marker;
     /// <see langword="false"/> to skip only lines that begin with the marker.
     /// </param>
     public IgnoreCommentedLinesAttribute(char commentMarker, bool anyPlace)

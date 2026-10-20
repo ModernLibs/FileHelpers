@@ -6,15 +6,16 @@ using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using ModernLibs.FileHelpers.Generator;
+using ModernLibs.FileHelpers.Tests.Generator.Correctness;
 using TUnit.Core;
 
 namespace ModernLibs.FileHelpers.Tests.Generator;
 
 /// <summary>
 /// Tests that the generator emits correct compile-time diagnostics:
-/// - MLFH001: type used with engine lacks record attribute (RED — implemented in Plan 04-03)
+/// - MLFH001: type used with engine lacks record attribute
 /// - MLFH002: [FixedLengthRecord] field missing [FieldFixedLength] — emits error, suppresses descriptor
-/// - MLFH003: duplicate [FieldOrder] values in the same record (RED — implemented in Plan 04-03)
+/// - MLFH003: duplicate [FieldOrder] values in the same record
 /// </summary>
 [Category("Generator")]
 public sealed class DiagnosticTests
@@ -40,9 +41,9 @@ public sealed class DiagnosticTests
             options: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
     }
 
-    // ── MLFH001 (RED until Plan 04-03) ───────────────────────────────────────────
+    // ── MLFH001 ────────────────────────────────────────────────────────────────────
 
-    /// <summary>SGEN-07: MLFH001 — type used with engine lacks record attribute.</summary>
+    /// <summary>MLFH001 — type used with engine lacks record attribute.</summary>
     [Test]
     [DisplayName("Generator emits MLFH001 diagnostic when type lacks record attribute")]
     public async Task MFH001_TypeLacksRecordAttribute_EmitsDiagnostic()
@@ -69,9 +70,10 @@ public sealed class DiagnosticTests
 
         driver = driver.RunGenerators(compilation);
         var result = driver.GetRunResult();
+        var diagnostics = result.Diagnostics.AddRange(ModernLibs.FileHelpers.Tests.Generator.Correctness.GeneratorHarness.AnalyzerDiagnostics(compilation));
 
         // Act: Find MLFH001 diagnostic
-        var mfh001 = result.Diagnostics.FirstOrDefault(d => string.Equals(d.Id, "MLFH001", StringComparison.Ordinal));
+        var mfh001 = diagnostics.FirstOrDefault(d => string.Equals(d.Id, "MLFH001", StringComparison.Ordinal));
 
         // Assert: MLFH001 diagnostic emitted with Error severity and mentions Undecorated
         await Assert.That(mfh001).IsNotNull();
@@ -79,7 +81,7 @@ public sealed class DiagnosticTests
         await Assert.That(mfh001.GetMessage(CultureInfo.InvariantCulture)).Contains("Undecorated");
     }
 
-    // ── MLFH002 (GREEN — implemented in Plan 04-02) ──────────────────────────────
+    // ── MLFH002 ────────────────────────────────────────────────────────────────────
 
     /// <summary>MLFH002: FixedLengthRecord with a field missing [FieldFixedLength] emits MLFH002 and suppresses descriptor.</summary>
     [Test]
@@ -104,9 +106,10 @@ public sealed class DiagnosticTests
 
         driver = driver.RunGenerators(compilation);
         var result = driver.GetRunResult();
+        var diagnostics = result.Diagnostics.AddRange(ModernLibs.FileHelpers.Tests.Generator.Correctness.GeneratorHarness.AnalyzerDiagnostics(compilation));
 
         // MLFH002: generator emits the diagnostic for the unannotated field
-        var mfh002 = result.Diagnostics
+        var mfh002 = diagnostics
             .Where(d => string.Equals(d.Id, "MLFH002", StringComparison.Ordinal))
             .ToList();
 
@@ -116,7 +119,7 @@ public sealed class DiagnosticTests
         await Assert.That(mfh002.Count).IsEqualTo(1);
 
         // Descriptor is suppressed — no generated file
-        await Assert.That(result.GeneratedTrees.Length).IsEqualTo(0);
+        await Assert.That(GeneratorHarness.WorkingDescriptorCount(result)).IsEqualTo(0);
 
         // Diagnostic message identifies the specific field
         await Assert.That(mfh002[0].GetMessage(CultureInfo.InvariantCulture)).Contains("Symbol");
@@ -144,9 +147,10 @@ public sealed class DiagnosticTests
 
         driver = driver.RunGenerators(compilation);
         var result = driver.GetRunResult();
+        var diagnostics = result.Diagnostics.AddRange(ModernLibs.FileHelpers.Tests.Generator.Correctness.GeneratorHarness.AnalyzerDiagnostics(compilation));
 
         // No MLFH002 diagnostics — all fields are correctly annotated
-        var mfh002 = result.Diagnostics
+        var mfh002 = diagnostics
             .Where(d => string.Equals(d.Id, "MLFH002", StringComparison.Ordinal))
             .ToList();
 
@@ -162,9 +166,9 @@ public sealed class DiagnosticTests
         await Assert.That(generated).Contains("__ValidFixedDescriptor");
     }
 
-    // ── MLFH003 (RED until Plan 04-03) ───────────────────────────────────────────
+    // ── MLFH003 ────────────────────────────────────────────────────────────────────
 
-    /// <summary>SGEN-09: MLFH003 — duplicate [FieldOrder] values in the same record.</summary>
+    /// <summary>MLFH003 — duplicate [FieldOrder] values in the same record.</summary>
     [Test]
     [DisplayName("Generator emits MLFH003 and suppresses descriptor for duplicate FieldOrder values")]
     public async Task MFH003_DuplicateFieldOrder_EmitsDiagnosticAndSuppressesDescriptor()
@@ -186,9 +190,10 @@ public sealed class DiagnosticTests
 
         driver = driver.RunGenerators(compilation);
         var result = driver.GetRunResult();
+        var diagnostics = result.Diagnostics.AddRange(ModernLibs.FileHelpers.Tests.Generator.Correctness.GeneratorHarness.AnalyzerDiagnostics(compilation));
 
         // Act: Find MLFH003 diagnostic
-        var mfh003 = result.Diagnostics.FirstOrDefault(d => string.Equals(d.Id, "MLFH003", StringComparison.Ordinal));
+        var mfh003 = diagnostics.FirstOrDefault(d => string.Equals(d.Id, "MLFH003", StringComparison.Ordinal));
 
         // Assert: MLFH003 diagnostic emitted with Error severity, mentions both fields and order value
         await Assert.That(mfh003).IsNotNull();
@@ -198,10 +203,10 @@ public sealed class DiagnosticTests
         await Assert.That(mfh003.GetMessage(CultureInfo.InvariantCulture)).Contains("Second");
         await Assert.That(mfh003.GetMessage(CultureInfo.InvariantCulture)).Contains("1");
         // Descriptor must NOT be emitted when MFH003 fires (ambiguous layout)
-        await Assert.That(result.GeneratedTrees.Length).IsEqualTo(0);
+        await Assert.That(GeneratorHarness.WorkingDescriptorCount(result)).IsEqualTo(0);
     }
 
-    // ── MLFH006 (Phase 57 DX-01) ─────────────────────────────────────────────────
+    // ── MLFH006 ────────────────────────────────────────────────────────────────────
 
     /// <summary>MLFH006: FieldConverter target type lacks parameterless constructor — emits Error.</summary>
     [Test]
@@ -231,8 +236,9 @@ public sealed class DiagnosticTests
 
         driver = driver.RunGenerators(compilation);
         var result = driver.GetRunResult();
+        var diagnostics = result.Diagnostics.AddRange(ModernLibs.FileHelpers.Tests.Generator.Correctness.GeneratorHarness.AnalyzerDiagnostics(compilation));
 
-        var mfh006 = result.Diagnostics.FirstOrDefault(d => string.Equals(d.Id, "MLFH006", StringComparison.Ordinal));
+        var mfh006 = diagnostics.FirstOrDefault(d => string.Equals(d.Id, "MLFH006", StringComparison.Ordinal));
 
         await Assert.That(mfh006).IsNotNull();
         await Assert.That(mfh006!.Severity).IsEqualTo(DiagnosticSeverity.Error);
@@ -240,7 +246,7 @@ public sealed class DiagnosticTests
         await Assert.That(mfh006.GetMessage(CultureInfo.InvariantCulture)).Contains("CustomConverter");
     }
 
-    // ── MLFH007 (Phase 57 DX-01) ─────────────────────────────────────────────────
+    // ── MLFH007 ────────────────────────────────────────────────────────────────────
 
     /// <summary>MLFH007: FieldFixedLength exceeds default threshold of 1000 — emits Warning.</summary>
     [Test]
@@ -263,8 +269,9 @@ public sealed class DiagnosticTests
 
         driver = driver.RunGenerators(compilation);
         var result = driver.GetRunResult();
+        var diagnostics = result.Diagnostics.AddRange(ModernLibs.FileHelpers.Tests.Generator.Correctness.GeneratorHarness.AnalyzerDiagnostics(compilation));
 
-        var mfh007 = result.Diagnostics.FirstOrDefault(d => string.Equals(d.Id, "MLFH007", StringComparison.Ordinal));
+        var mfh007 = diagnostics.FirstOrDefault(d => string.Equals(d.Id, "MLFH007", StringComparison.Ordinal));
 
         await Assert.That(mfh007).IsNotNull();
         await Assert.That(mfh007!.Severity).IsEqualTo(DiagnosticSeverity.Warning);
@@ -273,7 +280,7 @@ public sealed class DiagnosticTests
         await Assert.That(mfh007.GetMessage(CultureInfo.InvariantCulture)).Contains("1000");
     }
 
-    // ── MLFH008 (Phase 57 DX-01) ─────────────────────────────────────────────────
+    // ── MLFH008 ────────────────────────────────────────────────────────────────────
 
     /// <summary>MLFH008: FieldOrder has gaps in sequence — emits Warning.</summary>
     [Test]
@@ -299,8 +306,9 @@ public sealed class DiagnosticTests
 
         driver = driver.RunGenerators(compilation);
         var result = driver.GetRunResult();
+        var diagnostics = result.Diagnostics.AddRange(ModernLibs.FileHelpers.Tests.Generator.Correctness.GeneratorHarness.AnalyzerDiagnostics(compilation));
 
-        var mfh008 = result.Diagnostics.FirstOrDefault(d => string.Equals(d.Id, "MLFH008", StringComparison.Ordinal));
+        var mfh008 = diagnostics.FirstOrDefault(d => string.Equals(d.Id, "MLFH008", StringComparison.Ordinal));
 
         await Assert.That(mfh008).IsNotNull();
         await Assert.That(mfh008!.Severity).IsEqualTo(DiagnosticSeverity.Warning);
@@ -332,13 +340,14 @@ public sealed class DiagnosticTests
 
         driver = driver.RunGenerators(compilation);
         var result = driver.GetRunResult();
+        var diagnostics = result.Diagnostics.AddRange(ModernLibs.FileHelpers.Tests.Generator.Correctness.GeneratorHarness.AnalyzerDiagnostics(compilation));
 
-        var mfh008 = result.Diagnostics.FirstOrDefault(d => string.Equals(d.Id, "MLFH008", StringComparison.Ordinal));
+        var mfh008 = diagnostics.FirstOrDefault(d => string.Equals(d.Id, "MLFH008", StringComparison.Ordinal));
 
         await Assert.That(mfh008).IsNull();
     }
 
-    // ── MLFH009 (Phase 57 DX-01) ─────────────────────────────────────────────────
+    // ── MLFH009 ────────────────────────────────────────────────────────────────────
 
     /// <summary>MLFH009: Record type has no public fields — emits Warning.</summary>
     [Test]
@@ -361,8 +370,9 @@ public sealed class DiagnosticTests
 
         driver = driver.RunGenerators(compilation);
         var result = driver.GetRunResult();
+        var diagnostics = result.Diagnostics.AddRange(ModernLibs.FileHelpers.Tests.Generator.Correctness.GeneratorHarness.AnalyzerDiagnostics(compilation));
 
-        var mfh009 = result.Diagnostics.FirstOrDefault(d => string.Equals(d.Id, "MLFH009", StringComparison.Ordinal));
+        var mfh009 = diagnostics.FirstOrDefault(d => string.Equals(d.Id, "MLFH009", StringComparison.Ordinal));
 
         await Assert.That(mfh009).IsNotNull();
         await Assert.That(mfh009!.Severity).IsEqualTo(DiagnosticSeverity.Warning);
@@ -391,8 +401,9 @@ public sealed class DiagnosticTests
 
         driver = driver.RunGenerators(compilation);
         var result = driver.GetRunResult();
+        var diagnostics = result.Diagnostics.AddRange(ModernLibs.FileHelpers.Tests.Generator.Correctness.GeneratorHarness.AnalyzerDiagnostics(compilation));
 
-        var mfh009 = result.Diagnostics.FirstOrDefault(d => string.Equals(d.Id, "MLFH009", StringComparison.Ordinal));
+        var mfh009 = diagnostics.FirstOrDefault(d => string.Equals(d.Id, "MLFH009", StringComparison.Ordinal));
 
         await Assert.That(mfh009).IsNull();
     }

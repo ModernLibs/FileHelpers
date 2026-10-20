@@ -6,9 +6,8 @@ using ModernLibs.FileHelpers;
 namespace ModernLibs.FileHelpers.Tests.Generator.Fixtures;
 
 /// <summary>
-/// Integration fixture: [FixedLengthRecord] type used in Phase 4 generator tests.
-/// When Phase 4 implements the FixedLength pipeline arm, the build-time generator will emit
-/// a [ModuleInitializer] descriptor for this type (SGEN-08 integration).
+/// Integration fixture: [FixedLengthRecord] type used in generator tests.
+/// The build-time generator emits a [ModuleInitializer] descriptor for this type.
 /// </summary>
 [FixedLengthRecord]
 internal sealed class SimpleFixedLengthRecord

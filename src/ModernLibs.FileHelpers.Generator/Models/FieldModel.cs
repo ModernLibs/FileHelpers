@@ -27,21 +27,33 @@ internal sealed record FieldModel(
     bool IsValueDiscarded,
     int FixedLength = -1,                                             // -1 = not a fixed-length field or attribute missing (sentinel)
     bool IsInitOnly = false,                                          // true for init-only properties (record class / record struct)
-    GeneratorConverterKind ConverterKind = GeneratorConverterKind.None, // NEW: explicit [FieldConverter(ConverterKind.X)] annotation
-    string? ConverterTypeName = null,                                  // NEW: explicit [FieldConverter(typeof(MyConverter))] annotation
+    GeneratorConverterKind ConverterKind = GeneratorConverterKind.None, // explicit [FieldConverter(ConverterKind.X)] annotation
+    string? ConverterTypeName = null,                                  // explicit [FieldConverter(typeof(MyConverter))] annotation
     bool DirectSpanConverter = false,                                  // true when ConverterTypeName is ISpanConverter<TField> (public ctor)
-    EquatableArray<string> ConverterArgs = default,                    // NEW: format strings or other converter constructor args
-    bool IsQuoted = false,                                             // Phase 7 D-06: from [FieldQuoted]
-    char QuoteChar = '"',                                              // Phase 7 D-06: quote character from [FieldQuoted(char)]
-    string? Delimiter = null,                                           // FDEL-01: per-field delimiter override from [FieldDelimiter]
-    string? UnrecognisedConverterType = null,                          // IN-02: [FieldConverter(typeof(X))] type that isn't a ConverterBase subclass — raises MLFH004
-    int? AlignMode = null,                                             // Phase 12: 0=Left, 1=Center, 2=Right; null = no alignment
-    char? AlignChar = null,                                             // Phase 12: custom pad char; null = default space
-    int OverflowMode = 0,                                                // Phase 20: 0=DiscardEnd, 1=Error from [FieldFixedLength]
-    bool IsNotEmpty = false,                                            // Phase 13 FAVL-06: from [FieldNotEmpty]
-    bool IsInNewLine = false,                                           // Phase 14 MLIN-01: from [FieldInNewLine]
-    string? FieldName = null,                                           // Phase 38 HDR-03: from [FieldName("ColumnName")]
-    string? Caption = null,                                             // Phase 50 GAP-02: from [FieldCaption("Display Name")]
-    string? CultureName = null,                                         // Phase 51 GAP-04: from [FieldConverter(CultureName = "fr-FR")]
-    string? MissingParameterlessCtorTypeName = null)                     // Phase 57 DX-01: recognized converter type lacks public parameterless ctor — raises MLFH006
+    EquatableArray<string> ConverterArgs = default,                    // format strings or other converter constructor args
+    bool IsQuoted = false,                                             // from [FieldQuoted]
+    char QuoteChar = '"',                                              // quote character from [FieldQuoted(char)]
+    int QuoteMode = 1,                                                 // [FieldQuoted] QuoteMode: 0=AlwaysQuoted, 1=OptionalForRead, 2=OptionalForWrite, 3=OptionalForBoth
+    int QuoteMultiline = 0,                                            // [FieldQuoted] MultilineMode (record override applied): 0=AllowForBoth, 1=AllowForRead, 2=AllowForWrite, 3=NotAllow
+    string? Delimiter = null,                                           // per-field delimiter override from [FieldDelimiter]
+    string? UnrecognisedConverterType = null,                          // [FieldConverter(typeof(X))] type that isn't a ConverterBase subclass — raises MLFH004
+    int? AlignMode = null,                                             // [FieldAlign]: 0=Left, 1=Center, 2=Right; null = no alignment
+    char? AlignChar = null,                                             // [FieldAlign] pad char; null = default space
+    int OverflowMode = 0,                                                // 0=DiscardEnd, 1=Error from [FieldFixedLength]
+    bool IsNotEmpty = false,                                            // from [FieldNotEmpty]
+    bool IsInNewLine = false,                                           // from [FieldInNewLine]
+    string? Caption = null,                                             // from [FieldCaption("Display Name")]
+    string? CultureName = null,                                         // from [FieldConverter(CultureName = "fr-FR")]
+    string? MissingParameterlessCtorTypeName = null,                     // recognized converter type lacks public parameterless ctor — raises MLFH006
+    bool IsValueType = false,                                           // Field type is a value type (including Nullable<T>)
+    bool IsNullableValueType = false,                                   // Field type is Nullable<T> — empty input reads as null
+    string? NullValueExpression = null,                                 // C# expression for [FieldNullValue], already cast to the field type
+    string? IncompatibleNullValueType = null,                           // [FieldNullValue] constant type not convertible to the field — raises MLFH010
+    string Identifier = "",                                             // Member name escaped for C# (@class)
+    string UnderlyingTypeName = "",                                     // Fully-qualified type without Nullable<T> / nullable annotation
+    FieldValueKind ValueKind = FieldValueKind.Unsupported,              // Built-in conversion family of the underlying type
+    bool ConverterTargetsUnderlying = false,                            // Direct ISpanConverter<T> used on a T? field
+    FieldAssignKind Assign = FieldAssignKind.Setter,                    // How the parsed value reaches the record
+    LocationInfo? Location = null,                                      // Member declaration location for diagnostics
+    string? TrimChars = null)                                           // [FieldTrim] chars (3.x default whitespace set when none given)
     : IEquatable<FieldModel>;

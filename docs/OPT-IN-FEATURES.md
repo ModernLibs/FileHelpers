@@ -1,247 +1,198 @@
-# Opt-In Performance Features
+# Opt-in features
 
-ModernLibs.FileHelpers provides three opt-in features for scenarios where allocation-free parsing is critical: **streaming APIs**, **record recycling**, and **ref struct (span) records**. All three are zero-cost when not used — the default batch APIs behave exactly as before.
+`FileHelperEngine<T>.ReadFile`, `ReadString` and `ReadStream` work as in FileHelpers 3.x: they read
+the whole input and return an array. This page describes the other ways to read, for large inputs or
+when allocations matter. They all go through the same record pipeline, so they produce the same
+records, `HeaderText`/`FooterText`, errors and line numbers as `ReadString` for the same input.
 
----
+The examples use these record types:
 
-## 1. Streaming APIs
+```csharp
+[DelimitedRecord(",")]
+public sealed class Customer
+{
+    public int Id;
+    public string Name = "";
+    public decimal Balance;
+}
 
-### IAsyncEnumerable<T> — ReadAsync
+[DelimitedRecord(",")]
+public record struct Reading
+{
+    public int SensorId;
+    public double Value;
+}
+```
 
-Stream records from a file one at a time without loading the entire file into memory:
+## Streaming
+
+### `ReadAsync`: `IAsyncEnumerable<T>`
 
 ```csharp
 var engine = new FileHelperEngine<Customer>();
 
-await foreach (var customer in engine.ReadAsync("customers.csv"))
+await foreach (Customer customer in engine.ReadAsync("customers.csv", cancellationToken))
 {
     Process(customer);
 }
 ```
 
-**When to use:** Files larger than available memory, or when you want to start processing records before the entire file is read.
+The file is read through `System.IO.Pipelines` and only the current record is kept in memory.
+`FileHelperAsyncEngine<T>` has the same method. Cancelling the token stops the read with an
+`OperationCanceledException`.
 
-**Known limitation:** `IgnoreLast` is not honored by `ReadAsync`. Trailing lines that would be skipped by `[IgnoreLast(N)]` will be parsed as data records. Use `ReadFile` when `IgnoreLast` semantics are required.
-
-**Allocation:** Each record is a new heap allocation for class types. Zero allocations for `record struct` types.
-
-### IEnumerable<T> — ReadSync
-
-Stream records from a `TextReader` or string:
+### `ReadSync`: `IEnumerable<T>`
 
 ```csharp
-// From TextReader (reader is NOT disposed by the engine)
-using var reader = new StreamReader("customers.csv");
-foreach (var customer in engine.ReadSync(reader))
+using var reader = new StreamReader("customers.csv");   // the engine does not dispose the reader
+foreach (Customer customer in engine.ReadSync(reader))
 {
     Process(customer);
 }
 
-// From string
-foreach (var customer in engine.ReadSync(csvContent))
+foreach (Customer customer in engine.ReadSync(csvText))   // or from a string
 {
     Process(customer);
 }
 ```
 
-**When to use:** You already have a `TextReader` or string and want lazy enumeration instead of batch materialization.
+### Record by record: `FileHelperAsyncEngine<T>`
 
----
-
-## 2. Callback-Based Reads
-
-Callback methods eliminate the `T[]` result array allocation entirely. Records are passed to your callback as they're parsed:
-
-### Action<T> Callback
+The FileHelpers 3.x pull API:
 
 ```csharp
-var engine = new FileHelperEngine<Customer>();
-
-// From span (zero content allocation)
-engine.ReadSpan(content.AsSpan(), customer =>
+using var engine = new FileHelperAsyncEngine<Customer>();
+engine.BeginReadFile("customers.csv");
+while (engine.ReadNext() is { } customer)
 {
     Process(customer);
-});
-
-// From string
-engine.ReadString(csvContent, customer =>
-{
-    Process(customer);
-});
-
-// From file (streaming from disk)
-engine.ReadFile("customers.csv", customer =>
-{
-    Process(customer);
-});
-
-// Async from file
-await engine.ReadFileAsync("customers.csv", customer =>
-{
-    Process(customer);
-});
+}
 ```
 
-**With maxRecords cap:**
-```csharp
-engine.ReadSpan(content.AsSpan(), customer => Process(customer), maxRecords: 1000);
-```
+`BeginReadStream` and `BeginReadString` read from other sources, and `BeginWriteFile`,
+`BeginAppendFile`, `BeginWriteStream` and `BeginWriteString` with `WriteNext` write record by record.
 
-**When to use:** ETL pipelines, database inserts, or any scenario where records are consumed inline and don't need to be held in memory.
+One engine instance runs one session at a time: `ReadAsync`, `BeginRead*` and `BeginWrite*` throw
+`InvalidOperationException` while another read or write session is open on it. Use a separate
+instance for each concurrent read or write.
 
-### SpanRecordCallback<T> — Ref Callback
+### Multi-record and master/detail files
 
-Pass records by reference to avoid struct copying:
+`MultiRecordAsyncEngine.ReadAsync` and `MasterDetailAsyncEngine<TMaster, TDetail>.ReadAsync` stream
+from a file path or a `Stream`. A `Stream` you pass in stays open; you dispose it.
+
+### Footer text
+
+`[IgnoreLast(n)]` footer lines are known only at the end of the input. `FooterText` is set when a
+streaming read reaches the end; if you stop early, it stays `null`.
+
+## Callbacks
+
+The callback overloads of `ReadFile`, `ReadString` and `ReadSpan` pass each record to your code as it
+is parsed and return the number of records. No result array is allocated:
 
 ```csharp
-engine.ReadSpan(content.AsSpan(), (ref Customer customer) =>
-{
-    // Can mutate the record in-place
-    customer.Balance *= 1.1m;
-    Process(customer);
-});
+int count = engine.ReadFile("customers.csv", customer => Process(customer));
+
+engine.ReadString(csvText, customer => Process(customer), maxRecords: 1000);
+
+await engine.ReadFileAsync("customers.csv", customer => Process(customer), cancellationToken);
 ```
 
-**When to use:** You need to modify records in-place or want to avoid copying large struct types.
+`ReadSpan` reads from a `ReadOnlySpan<char>`, for example a slice of a larger buffer:
 
----
+```csharp
+ReadOnlySpan<char> content = csvText.AsSpan();
+Customer[] customers = engine.ReadSpan(content);
+```
 
-## 3. Record Recycling
+### By-reference callbacks
 
-When `RecycleRecords` is enabled, callback-based reads reuse a single class instance across all callback invocations:
+`ReadString` and `ReadSpan` also accept a `SpanRecordCallback<T>`, which receives the record by
+reference. For large structs this avoids a copy per record:
+
+```csharp
+var sensors = new FileHelperEngine<Reading>();
+
+double total = 0;
+sensors.ReadString(readingsText, (ref Reading r) => total += r.Value);
+```
+
+## Struct records without allocations
+
+A struct or `record struct` whose fields are all value types (numbers, dates, `bool`, `char`, `Guid`,
+enums) is parsed straight from the input span. Read through a callback or `ReadSync`, there is no heap
+allocation per record or per line; the test suite checks that the allocated bytes do not grow with the
+number of records. `string` fields always allocate their string, and the array-returning methods
+allocate the array.
+
+## Record recycling for classes
+
+For class records, `RecycleRecords = true` makes callback and streaming reads reuse one instance:
 
 ```csharp
 var engine = new FileHelperEngine<Customer> { RecycleRecords = true };
 
-engine.ReadString(csvContent, customer =>
+engine.ReadFile("customers.csv", customer =>
 {
-    // IMPORTANT: 'customer' is the same reference each time.
-    // Copy values if you need to retain them.
-    var id = customer.Id;
-    var name = customer.Name;  // copy the string
-    SaveToDatabase(id, name);
+    // 'customer' is the same object every time: copy what you need to keep.
+    Save(customer.Id, customer.Name);
 });
 ```
 
-**When to use:** High-throughput scenarios with class types where you want zero heap allocations per record (beyond the string fields).
+It applies to the `Action<T>` and `SpanRecordCallback<T>` overloads, `ReadSync`, `ReadAsync`,
+`ReadFileAsync`, and to `FileHelperAsyncEngine<T>.ReadNext()`, `foreach` and `ReadAsync`.
+Array-returning reads always create new instances. It has no effect for struct records, and needs a
+class without init-only members (the source generator then emits the recycling support).
 
-**Important:** The callback receives the same reference each time. If you need to retain record data, copy the values before the next callback invocation.
+## Parallel reads
 
-**Struct types:** `RecycleRecords` has no effect for `record struct` types (they're already zero-allocation).
-
----
-
-## 4. RecordPool<T>
-
-For manual pooling control, use `RecordPool<T>` directly:
+For large inputs that fit in memory, `ParallelReadFile` and `ParallelReadString` split the input into
+chunks (4M characters by default, at least 64K) and parse them on several cores:
 
 ```csharp
-using var pool = new RecordPool<Customer>(initialCapacity: 64);
+Customer[] customers = engine.ParallelReadFile("customers.csv");
 
-var engine = new FileHelperEngine<Customer>();
-engine.ReadString(csvContent, customer =>
-{
-    // Process the record
-    Process(customer);
-    
-    // Return to pool for reuse
-    pool.Return(customer);
-});
-
-// Rent from pool when you need a new instance
-var record = pool.Rent();
+Customer[] withProgress = engine.ParallelReadFile(
+    "customers.csv",
+    chunkSize: 1 << 20,
+    progress: (chunk, chunks, recordsSoFar) => Console.WriteLine($"{chunk + 1}/{chunks}"),
+    cancellationToken: cancellationToken);
 ```
 
-**When to use:** You need fine-grained control over object pooling, or want to pool records across multiple engine invocations.
+The result is the same as `ReadString` on the same input: the same records in the same order, header
+and footer from the whole input, original line numbers, and the same `ErrorMode` behaviour (in
+`ThrowException` mode the earliest failing record is reported). Inputs that cannot be split safely are
+read sequentially: records whose quoted fields may span lines, `[FieldInNewLine]` records, engines with
+read events or `INotifyRead<T>` records, and inputs smaller than two chunks.
 
-**Thread safety:** `RecordPool<T>` is NOT thread-safe. It's designed for single-threaded per-engine-instance use. For concurrent access, wrap with `lock` at the call site.
-
----
-
-## 5. Ref Struct Records
-
-For maximum performance, define your record as a `ref struct`. This guarantees zero heap allocations and enables stack-only parsing:
+`[FieldQuoted]` allows multiline values by default (as in FileHelpers 3.x), so a record with a quoted
+field is read sequentially unless you turn multiline reading off for it:
 
 ```csharp
-[DelimitedRecord(",")]
-[SpanRecord]
-public ref struct FastRecord
+[DelimitedRecord(",", MultilineMode = MultilineMode.NotAllow)]   // or AllowForWrite
+public sealed class Product
 {
-    [FieldOrder(1)] public int Id;
-    [FieldOrder(2)] public int Value;
-    [FieldOrder(3)] public decimal Amount;
+    public int Id;
+
+    [FieldQuoted]
+    public string Name = "";
 }
+
+Product[] products = new FileHelperEngine<Product>().ParallelReadFile("products.csv");
 ```
 
-**Usage with ref callback:**
-```csharp
-var engine = new FileHelperEngine<FastRecord>();
+`[FieldQuoted(QuoteMode.OptionalForRead, MultilineMode.NotAllow)]` does the same for one field.
 
-engine.ReadSpan(content.AsSpan(), (ref FastRecord record) =>
-{
-    Process(record.Id, record.Value, record.Amount);
-});
-```
+## Choosing a read method
 
-**Limitations of ref struct records:**
-- Cannot be used as generic type arguments (`List<FastRecord>`, `Task<FastRecord>`, etc.)
-- Cannot be stored in arrays (`FastRecord[]`)
-- Cannot implement interfaces
-- Cannot be used with `async/await`
-- Cannot be captured by closures that cross await boundaries
+| Method | Result array | Per-record allocation | Use for |
+|---|---|---|---|
+| `ReadFile` / `ReadString` / `ReadStream` / `ReadSpan` | Yes | class: one object; value-type struct: none | Small and medium inputs |
+| Callback overloads | No | class: one object (none with `RecycleRecords`); value-type struct: none | Processing records as they are read |
+| `ReadSync` | No | as callbacks | Lazy enumeration with LINQ or `foreach` |
+| `ReadAsync` | No | as callbacks | Large files, async code, cancellation |
+| `FileHelperAsyncEngine<T>` | No | as callbacks | 3.x-style pull loops, record-by-record writing |
+| `ParallelReadFile` / `ParallelReadString` | Yes | class: one object | Large in-memory inputs on multi-core machines |
 
-**When to use:** Performance-critical hot paths where you can work within the ref struct constraints.
-
----
-
-## Feature Comparison
-
-| Feature | T[] Allocation | Per-Record Allocation | Best For |
-|---------|---------------|----------------------|----------|
-| `ReadFile/ReadString` (default) | Yes | Yes (class) / No (struct) | Simple batch processing |
-| `ReadSpan` | Yes | Yes (class) / No (struct) | Span-based input, faster parsing |
-| `ReadSpan(callback)` | No | Yes (class) / No (struct) | Inline processing, ETL |
-| `ReadSpan(ref callback)` | No | Yes (class) / No (struct) | In-place mutation, large structs |
-| `RecycleRecords + callback` | No | Near-zero (class) | High-throughput class records |
-| `RecordPool<T>` | No | Controlled manually | Cross-invocation pooling |
-| Ref struct records | No | Zero (stack-only) | Maximum performance |
-
----
-
-## Migration Examples
-
-### Before (batch allocation):
-```csharp
-var engine = new FileHelperEngine<Order>();
-Order[] orders = engine.ReadFile("orders.csv");
-foreach (var order in orders)
-{
-    db.Insert(order);
-}
-```
-
-### After (zero allocation):
-```csharp
-var engine = new FileHelperEngine<Order> { RecycleRecords = true };
-engine.ReadFile("orders.csv", order =>
-{
-    db.Insert(order.Id, order.Customer, order.Amount);
-});
-```
-
-### Before (loading entire file):
-```csharp
-var engine = new FileHelperEngine<LogEntry>();
-LogEntry[] entries = engine.ReadFile("huge-log.csv");
-var errors = entries.Where(e => e.Level == "ERROR");
-```
-
-### After (streaming):
-```csharp
-var engine = new FileHelperEngine<LogEntry>();
-await foreach (var entry in engine.ReadAsync("huge-log.csv"))
-{
-    if (entry.Level == "ERROR")
-        ReportError(entry);
-}
-```
+`string` fields allocate their value in every case.

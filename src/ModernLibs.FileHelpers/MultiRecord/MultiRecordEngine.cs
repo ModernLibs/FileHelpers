@@ -18,6 +18,12 @@ public sealed class MultiRecordEngine
         set => ErrorManager.ErrorMode = value;
     }
 
+    /// <summary>
+    /// Line terminator written after each record (and inside records with <see cref="FieldInNewLineAttribute"/>
+    /// fields). Defaults to <c>"\r\n"</c> on every platform, like <see cref="FileHelperEngine{T}.NewLineForWrite"/>.
+    /// </summary>
+    public string NewLineForWrite { get; set; } = "\r\n";
+
     /// <summary>Creates a multi-record engine over an AOT-safe closed record set.</summary>
     public MultiRecordEngine(params IMultiRecordType[] recordTypes)
     {
@@ -43,50 +49,30 @@ public sealed class MultiRecordEngine
         return ReadStream(reader);
     }
 
-    /// <summary>Reads mixed records from a text reader.</summary>
+    /// <summary>
+    /// Reads mixed records from a text reader. Each record type keeps its own rules (multiline quoted fields,
+    /// filters, field-count validation); a line that no selector matches is skipped (FileHelpers 3.x).
+    /// </summary>
     public object[] ReadStream(TextReader reader)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ErrorManager.ClearErrors();
 
         var records = new List<object>();
-        string? line;
-        int lineNumber = 0;
-        while ((line = reader.ReadLine()) is not null)
+        using var source = new Parsing.TextReaderLineSource(reader);
+        using var multiRecordReader = new MultiRecordReader(_recordTypes, ErrorManager);
+        while (source.TryReadLine(out var line, out var ending))
         {
-            lineNumber++;
-            if (line.Length == 0)
-                continue;
-            var currentLine = line;
-
-            IMultiRecordType? recordType = null;
-            foreach (var candidate in _recordTypes)
+            if (multiRecordReader.Push(line, ending))
             {
-                if (candidate.Matches(currentLine.AsSpan()))
-                {
-                    recordType = candidate;
-                    break;
-                }
+                while (multiRecordReader.TryTake(out var record))
+                    records.Add(record);
             }
-
-            if (recordType is null)
-            {
-                var selectorException = CreateSelectorMissException(lineNumber, currentLine, _recordTypes);
-                switch (ErrorManager.ErrorMode)
-                {
-                    case ErrorMode.ThrowException:
-                        throw selectorException;
-                    case ErrorMode.IgnoreAndContinue:
-                        continue;
-                    case ErrorMode.SaveAndContinue:
-                        ErrorManager.AddError(new ErrorInfo(lineNumber, currentLine, selectorException));
-                        continue;
-                }
-            }
-
-            records.Add(recordType!.Parse(currentLine.AsSpan()));
         }
 
+        multiRecordReader.Complete();
+        while (multiRecordReader.TryTake(out var record))
+            records.Add(record);
         return records.ToArray();
     }
 
@@ -129,13 +115,8 @@ public sealed class MultiRecordEngine
                 throw new ArgumentException($"Record type {record.GetType().Name} is not part of this multi-record engine. Available types: {availableTypes}.", nameof(records));
             }
 
-            writer.WriteLine(recordType.Format(record));
+            writer.Write(recordType is IMultiRecordTypeWriter typed ? typed.Format(record, NewLineForWrite) : recordType.Format(record));
+            writer.Write(NewLineForWrite);
         }
-    }
-
-    private static FormatException CreateSelectorMissException(int lineNumber, string line, IMultiRecordType[] recordTypes)
-    {
-        var types = string.Join(", ", recordTypes.Select(t => t.GetType().Name));
-        return new FormatException($"No multi-record selector matched line {lineNumber}: '{line}'. Available record types: {types}.");
     }
 }

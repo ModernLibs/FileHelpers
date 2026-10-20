@@ -28,7 +28,7 @@ public static class Program
 
         Action<Stream> fuzzAction = target switch
         {
-            "delimited" => FuzzDelimitedFieldEnumerator,
+            "delimited" => FuzzQuoteBalanceScanner,
             "spanline" => FuzzSpanLineReader,
             "fixedlength" => FuzzFixedLengthSlicer,
             "converters" => FuzzConverters,
@@ -39,7 +39,7 @@ public static class Program
         return 0;
     }
 
-    public static void FuzzDelimitedFieldEnumerator(Stream stream)
+    public static void FuzzQuoteBalanceScanner(Stream stream)
     {
         using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, bufferSize: 1024, leaveOpen: true);
         var input = reader.ReadToEnd();
@@ -47,33 +47,20 @@ public static class Program
         if (input.Length == 0)
             return;
 
-        // Test HasUnclosedQuote static method
-        _ = DelimitedFieldEnumerator.HasUnclosedQuote(input);
-
-        // Test line splitting via SpanLineReader first
+        // Quote-aware multiline detection and field counting used by the engines
         var lineReader = new SpanLineReader(input);
+        // Alternating per-field trim settings exercise both "blanks before quote" rules.
+        string?[] trimStart = [" \t", null, " \t", null];
+        const string quotes = "\"\"\0'"; // quoted, quoted, unquoted, apostrophe-quoted fields
+        bool insideQuotes = false;
+        int field = 0;
         while (lineReader.TryReadLine(out var line))
         {
-            if (line.IsEmpty)
-                continue;
-
-            // Test default delimiter path
-            var enumerator = new DelimitedFieldEnumerator(line, ",");
-            while (enumerator.MoveNext())
-            {
-                _ = enumerator.Current;
-            }
-
-            // Test per-field delimiter path with mixed delimiters
-            if (line.Length > 3)
-            {
-                var fieldDelimiters = new string?[] { ";", "\t", null };
-                var enumerator2 = new DelimitedFieldEnumerator(line, ",", fieldDelimiters);
-                while (enumerator2.MoveNext())
-                {
-                    _ = enumerator2.Current;
-                }
-            }
+            if (!insideQuotes)
+                field = 0;
+            insideQuotes = QuoteBalanceScanner.EndsInsideQuotes(line, insideQuotes, ",", quotes, trimStart, ref field);
+            _ = QuoteBalanceScanner.CountFields(line, ",", quotes, trimStart);
+            _ = QuoteBalanceScanner.CountFields(line, ";|", "''", [" \t"]);
         }
     }
 

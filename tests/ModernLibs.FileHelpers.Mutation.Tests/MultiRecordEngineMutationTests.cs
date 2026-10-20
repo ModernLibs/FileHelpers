@@ -27,7 +27,7 @@ internal sealed class UnknownRecord { }
 /// <summary>
 /// xUnit mutation-target tests for <see cref="MultiRecordEngine"/>.
 /// Covers selector dispatch, error modes, multi-type parsing, empty input,
-/// and sync I/O parity (MUT-04).
+/// and sync I/O parity.
 /// </summary>
 public sealed class MultiRecordEngineMutationTests
 {
@@ -53,16 +53,18 @@ public sealed class MultiRecordEngineMutationTests
     }
 
     [Fact]
-    public void ReadString_NoSelectorMatch_ThrowException_ErrorModeThrows()
+    public void ReadString_NoSelectorMatch_ThrowException_SkipsLine()
     {
         // Arrange: engine with narrow selector that won't match
         var engine = new MultiRecordEngine(
             MultiRecordType.For<HeaderRecord>(line => line.StartsWith("H|", StringComparison.Ordinal)));
         engine.ErrorMode = ErrorMode.ThrowException;
 
-        // Act & Assert: unmatched line throws FormatException
-        var ex = Assert.Throws<FormatException>(() => engine.ReadString("X|unknown"));
-        Assert.Contains("No multi-record selector matched", ex.Message);
+        // Act: FileHelpers 3.x skips a line no selector matches, even in ThrowException mode
+        var records = engine.ReadString("X|unknown");
+
+        // Assert: nothing read, nothing thrown
+        Assert.Empty(records);
     }
 
     [Fact]
@@ -83,7 +85,7 @@ public sealed class MultiRecordEngineMutationTests
     }
 
     [Fact]
-    public void ReadString_NoSelectorMatch_SaveAndContinue_CollectsErrors()
+    public void ReadString_NoSelectorMatch_SaveAndContinue_SkipsWithoutError()
     {
         // Arrange: engine with SaveAndContinue error mode
         var engine = new MultiRecordEngine(
@@ -93,10 +95,9 @@ public sealed class MultiRecordEngineMutationTests
         // Act: input with matching and non-matching lines
         var records = engine.ReadString("H|BATCH\nX|unknown\nH|BATCH2");
 
-        // Assert: matching records returned, errors collected
+        // Assert: matching records returned; a selector miss is not an error (3.x)
         Assert.Equal(2, records.Length);
-        Assert.Single(engine.ErrorManager.Errors);
-        Assert.Equal(2, engine.ErrorManager.Errors[0].LineNumber);
+        Assert.Empty(engine.ErrorManager.Errors);
     }
 
     [Fact]

@@ -14,9 +14,8 @@ using ModernLibs.FileHelpers;
 namespace ModernLibs.FileHelpers.Tests.Engine.Fixtures;
 
 /// <summary>
-/// Simple delimited fixture used by engine read/write tests (ENGI-01..ENGI-07, ENGI-16).
-/// Header-skipping uses [IgnoreFirst(1)] to exercise D-10 HeaderText capture.
-/// Category tag: Phase07.
+/// Simple delimited fixture used by engine read/write tests.
+/// Header-skipping uses [IgnoreFirst(1)] to exercise HeaderText capture.
 /// </summary>
 [DelimitedRecord(",")]
 [IgnoreFirst(1)]
@@ -28,7 +27,7 @@ internal sealed class CsvOrder
 }
 
 /// <summary>
-/// IN-01: Positional record struct fixture. Exercises the generator's positional-constructor
+/// Positional record struct fixture. Exercises the generator's positional-constructor
 /// code path (all init-only + struct → <c>new T(__v0, __v1, __v2)</c>) end-to-end through
 /// <see cref="FileHelperEngine{T}"/>. Prior fixtures used classes only; this guards against
 /// regressions in the positional-ctor emission path at the engine level.
@@ -52,7 +51,7 @@ internal sealed class FixedEmployee
 }
 
 /// <summary>
-/// Fixture exercising [FieldTrim] (D-05). The generator is expected to emit inline trim logic
+/// Fixture exercising [FieldTrim]. The generator is expected to emit inline trim logic
 /// in the Parse body for fields with TrimMode != None.
 /// </summary>
 [DelimitedRecord(",")]
@@ -64,7 +63,7 @@ internal sealed class TrimmedRecord
 }
 
 /// <summary>
-/// Fixture exercising [FieldQuoted] (D-06). The generator is expected to emit quote wrapping
+/// Fixture exercising [FieldQuoted]. The generator is expected to emit quote wrapping
 /// in the Format body and quote stripping in the Parse body.
 /// </summary>
 [DelimitedRecord(",")]
@@ -76,7 +75,7 @@ internal sealed class QuotedRecord
 }
 
 /// <summary>
-/// Fixture exercising WR-04: a [FieldQuoted] field with embedded delimiters and a trailing
+/// Fixture exercising a [FieldQuoted] field with embedded delimiters and a trailing
 /// non-quoted field. Parse must tolerate commas inside the quoted payload without splitting.
 /// </summary>
 [DelimitedRecord(",")]
@@ -90,7 +89,7 @@ internal sealed class QuotedWithTrailing
 }
 
 /// <summary>
-/// Fixture exercising [IgnoreCommentedLines] and [IgnoreEmptyLines] (D-08 filtering).
+/// Fixture exercising [IgnoreCommentedLines] and [IgnoreEmptyLines] (record filtering).
 /// </summary>
 [DelimitedRecord(",")]
 [IgnoreCommentedLines('#')]
@@ -102,7 +101,7 @@ internal sealed class CommentedRecord
 }
 
 /// <summary>
-/// Fixture exercising [IgnoreLast(1)] (D-10 FooterText capture on read).
+/// Fixture exercising [IgnoreLast(1)] (FooterText capture on read).
 /// </summary>
 [DelimitedRecord(",")]
 [IgnoreLast(1)]
@@ -113,7 +112,7 @@ internal sealed class FooteredRecord
 }
 
 /// <summary>
-/// Phase 50 GAP-02: Fixture exercising [FieldCaption] attribute.
+/// Fixture exercising [FieldCaption] attribute.
 /// </summary>
 [DelimitedRecord(",")]
 [IgnoreFirst(1)]
@@ -131,7 +130,7 @@ internal sealed class CaptionedRecord
     public decimal Amount;
 }
 
-// Phase 50 GAP-03: Base record for IgnoreInheritedClass tests
+// Base record for IgnoreInheritedClass tests
 internal class IgnoreInheritedBase
 {
     public int Id;
@@ -139,17 +138,17 @@ internal class IgnoreInheritedBase
 }
 
 /// <summary>
-/// Phase 50 GAP-03: Derived record WITHOUT IgnoreInheritedClass — should include base fields.
+/// Derived record WITHOUT IgnoreInheritedClass — should include base fields.
 /// </summary>
 [DelimitedRecord(",")]
 internal sealed class DerivedWithInherited : IgnoreInheritedBase
 {
-    [FieldOrder(3)]
+    // base-class fields come first (FileHelpers 3.x order), so no [FieldOrder] is needed.
     public string DerivedField = string.Empty;
 }
 
 /// <summary>
-/// Phase 50 GAP-03: Derived record WITH IgnoreInheritedClass — should exclude base fields.
+/// Derived record WITH IgnoreInheritedClass — should exclude base fields.
 /// </summary>
 [DelimitedRecord(",")]
 [IgnoreInheritedClass]
@@ -160,7 +159,7 @@ internal sealed class DerivedWithoutInherited : IgnoreInheritedBase
 }
 
 /// <summary>
-/// Phase 51 GAP-04: European decimal parsing with fr-FR culture (comma as decimal separator).
+/// European decimal parsing with fr-FR culture (comma as decimal separator).
 /// Uses semicolon delimiter to avoid conflict with European decimal comma.
 /// </summary>
 [DelimitedRecord(";")]
@@ -175,7 +174,7 @@ internal sealed class EuropeanDecimalRecord
 }
 
 /// <summary>
-/// Phase 51 GAP-04: Date parsing with de-DE culture (dd.MM.yyyy format).
+/// Date parsing with de-DE culture (dd.MM.yyyy format).
 /// Uses semicolon delimiter to avoid conflict with date format dots.
 /// </summary>
 [DelimitedRecord(";")]
@@ -193,7 +192,7 @@ internal sealed class GermanDateRecord
 }
 
 /// <summary>
-/// Phase 51 GAP-04: InvariantCulture default (no culture specified) — regression test.
+/// InvariantCulture default (no culture specified) — regression test.
 /// Uses semicolon delimiter to allow testing comma rejection.
 /// </summary>
 [DelimitedRecord(";")]
@@ -208,7 +207,7 @@ internal sealed class InvariantDecimalRecord
 }
 
 /// <summary>
-/// Phase 51 GAP-04: Multiple cultures in same record.
+/// Multiple cultures in same record.
 /// Uses semicolon delimiter to avoid conflict with European decimal comma.
 /// </summary>
 [DelimitedRecord(";")]
@@ -228,7 +227,7 @@ internal sealed class MultiCultureRecord
 }
 
 /// <summary>
-/// Phase 51 GAP-04: Fixed-length record with culture.
+/// Fixed-length record with culture.
 /// </summary>
 [FixedLengthRecord]
 internal sealed class FixedCultureRecord
@@ -244,7 +243,7 @@ internal sealed class FixedCultureRecord
 }
 
 /// <summary>
-/// Phase 51 GAP-04: Double with culture for high-precision numeric parsing.
+/// Double with culture for high-precision numeric parsing.
 /// Uses semicolon delimiter to avoid conflict with European decimal comma.
 /// </summary>
 [DelimitedRecord(";")]
@@ -259,7 +258,7 @@ internal sealed class CultureDoubleRecord
 }
 
 /// <summary>
-/// Phase 52 GAP-05: Master record for CommonSelector testing.
+/// Master record for CommonSelector testing.
 /// RecordType field contains "ORD" prefix for selector classification.
 /// </summary>
 [DelimitedRecord(",")]
@@ -276,7 +275,7 @@ internal sealed class OrderHeader
 }
 
 /// <summary>
-/// Phase 52 GAP-05: Detail record for CommonSelector testing.
+/// Detail record for CommonSelector testing.
 /// RecordType field contains "LIN" prefix for selector classification.
 /// </summary>
 [DelimitedRecord(",")]
@@ -296,7 +295,7 @@ internal sealed class OrderLine
 }
 
 /// <summary>
-/// Phase 53 GAP-06: Simple record for ReadRemaining testing.
+/// Simple record for ReadRemaining testing.
 /// </summary>
 [DelimitedRecord(",")]
 internal sealed class SimpleRecord
@@ -309,7 +308,7 @@ internal sealed class SimpleRecord
 }
 
 /// <summary>
-/// Phase 53 GAP-07: Record with IgnoreEmptyLines for filter testing.
+/// Record with IgnoreEmptyLines for filter testing.
 /// </summary>
 [DelimitedRecord(",")]
 [IgnoreEmptyLines]

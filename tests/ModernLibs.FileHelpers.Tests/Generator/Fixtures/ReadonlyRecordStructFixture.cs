@@ -5,7 +5,7 @@ namespace ModernLibs.FileHelpers.Tests.Generator.Fixtures;
 /// <summary>
 /// Integration fixture: readonly record struct with positional (init-only) properties.
 /// Annotated with [DelimitedRecord] so the build-time generator emits a [ModuleInitializer]
-/// descriptor. Used by ModuleInitializerTests (Phase 4 additions) to verify SGEN-06.
+/// descriptor. Used by ModuleInitializerTests for the readonly record struct shape.
 /// </summary>
 [DelimitedRecord(",")]
 internal readonly record struct ReadonlyRecordStructFixture(

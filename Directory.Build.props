@@ -3,7 +3,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <!--
-      TreatWarningsAsErrors is conditioned to exclude generator projects (D-09).
+      TreatWarningsAsErrors is conditioned to exclude the source generator project.
       The generator targets netstandard2.0 and sets IsRoslynComponent=true.
       Roslyn/Meziantou rules fire on netstandard2.0 patterns that are valid there —
       letting them become errors would block the generator build.
@@ -12,17 +12,17 @@
     <NuGetAudit>false</NuGetAudit>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <!--
-      latest-recommended (not latest-all) per design spec §12.
-      latest-all enables experimental rules with high false-positive rate.
+      latest-recommended (not latest-all): the rules Microsoft recommends. latest-all also turns on
+      every rule that is off by default, many of which are noisy for this code base.
     -->
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <LangVersion>14</LangVersion>
   </PropertyGroup>
   <ItemGroup>
     <!--
-      Three-layer analyzer stack (D-07).
-      PrivateAssets="all" prevents analyzers from leaking into consumers.
-      Versions declared in Directory.Packages.props (CPM, D-06).
+      Analyzer stack: Roslynator, Meziantou.Analyzer and the .NET SDK analyzers.
+      PrivateAssets="all" keeps the analyzers out of the package dependencies of consumers.
+      Versions are declared in Directory.Packages.props (central package management).
     -->
     <PackageReference Include="Roslynator.Analyzers" PrivateAssets="all" />
     <PackageReference Include="Meziantou.Analyzer" PrivateAssets="all" />

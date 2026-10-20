@@ -11,14 +11,13 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.Generator;
 
 /// <summary>
-/// GREEN tests for generator-emitted [FieldQuoted] handling (D-06).
+/// Tests for generator-emitted [FieldQuoted] handling.
 /// Exercises Parse (strip + unescape) and Format (wrap + double) round-trip paths.
 /// </summary>
-[Category("Phase07")]
 [Category("Generator")]
 public sealed class GeneratorFieldQuotedTests
 {
-    /// <summary>D-06: Format wraps quoted field values in double quotes (always-quote semantics).</summary>
+    /// <summary>Format wraps quoted field values in double quotes (always-quote semantics).</summary>
     [Test]
     [DisplayName("Format wraps FieldQuoted value in double quotes")]
     public async Task Format_FieldQuoted_WrapsInDoubleQuotes()
@@ -35,7 +34,7 @@ public sealed class GeneratorFieldQuotedTests
         await Assert.That(result).IsEqualTo("\"test\"");
     }
 
-    /// <summary>D-06: Parse strips surrounding double quotes from a quoted field value.</summary>
+    /// <summary>Parse strips surrounding double quotes from a quoted field value.</summary>
     [Test]
     [DisplayName("Parse strips outer double quotes from FieldQuoted value")]
     public async Task Parse_FieldQuoted_RemovesOuterQuotes()
@@ -50,7 +49,7 @@ public sealed class GeneratorFieldQuotedTests
         await Assert.That(record.Description).IsEqualTo("Hello World");
     }
 
-    /// <summary>D-06: Format escapes internal quotes by doubling (e.g., " becomes "").</summary>
+    /// <summary>Format escapes internal quotes by doubling (e.g., " becomes "").</summary>
     [Test]
     [DisplayName("Format escapes internal quotes by doubling in FieldQuoted value")]
     public async Task Format_FieldQuoted_EscapesInternalQuotes()
@@ -68,7 +67,7 @@ public sealed class GeneratorFieldQuotedTests
         await Assert.That(result).IsEqualTo("\"He said \"\"hi\"\"\"");
     }
 
-    /// <summary>D-06: Parse unescapes doubled internal quotes back to a single quote.</summary>
+    /// <summary>Parse unescapes doubled internal quotes back to a single quote.</summary>
     [Test]
     [DisplayName("Parse unescapes doubled quotes to single quote in FieldQuoted value")]
     public async Task Parse_FieldQuoted_UnescapesDoubleQuotes()
@@ -84,7 +83,7 @@ public sealed class GeneratorFieldQuotedTests
     }
 
     /// <summary>
-    /// WR-04: embedded delimiters inside a [FieldQuoted] payload do not terminate the
+    /// Embedded delimiters inside a [FieldQuoted] payload do not terminate the
     /// field. The parser must track "inside quotes" state and scan past commas that
     /// appear inside the quoted span.
     /// </summary>
@@ -104,7 +103,7 @@ public sealed class GeneratorFieldQuotedTests
     }
 
     /// <summary>
-    /// WR-04: doubled quotes inside a quoted span keep the parser "inside quotes" so an
+    /// Doubled quotes inside a quoted span keep the parser "inside quotes" so an
     /// adjacent delimiter is still treated as literal content until the outer quote closes.
     /// </summary>
     [Test]
@@ -123,7 +122,7 @@ public sealed class GeneratorFieldQuotedTests
     }
 
     /// <summary>
-    /// WR-04 round-trip: write a record whose quoted field contains the record's own delimiter,
+    /// Write a record whose quoted field contains the record's own delimiter,
     /// then read it back with the same engine. Guards against regressions in the write-then-read
     /// quote-aware path.
     /// </summary>

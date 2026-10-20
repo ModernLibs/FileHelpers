@@ -9,7 +9,9 @@ using Sylvan.Data.Csv;
 
 namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks;
 
+// The PackageAssets file starts with a header line; dates are ISO 8601 "s" (see DatasetGenerator.DateFormat).
 [DelimitedRecord(",")]
+[IgnoreFirst]
 public sealed class PackageAsset
 {
     [FieldOrder(1)] public int Id { get; set; }
@@ -26,8 +28,8 @@ public sealed class PackageAsset
     [FieldOrder(12)] public string MinClientVersion { get; set; } = "";
     [FieldOrder(13)] public int Type { get; set; }
     [FieldOrder(14)] public bool IsPrerelease { get; set; }
-    [FieldOrder(15)] public DateTime Published { get; set; }
-    [FieldOrder(16)] public DateTime LastUpdated { get; set; }
+    [FieldOrder(15), FieldConverter(ConverterKind.Date, DatasetGenerator.DateFormat)] public DateTime Published { get; set; }
+    [FieldOrder(16), FieldConverter(ConverterKind.Date, DatasetGenerator.DateFormat)] public DateTime LastUpdated { get; set; }
     [FieldOrder(17)] public long PackageSize { get; set; }
     [FieldOrder(18)] public int DependencyCount { get; set; }
     [FieldOrder(19)] public bool HasReadme { get; set; }
@@ -69,6 +71,18 @@ public sealed class PackageAssetRow
     public bool RequireLicenseAcceptance { get; set; }
 }
 
+/// <summary>Projections of the PackageAssets row types for <see cref="DataCheck.PackageAssets"/>.</summary>
+internal static class PackageAssetColumns
+{
+    public static string?[] Of(PackageAsset r) => DataCheck.PackageColumns(
+        r.Id, r.Version, r.DownloadCount, r.MinClientVersion, r.IsPrerelease,
+        r.Published, r.LastUpdated, r.PackageSize, r.RepositoryType, r.RequireLicenseAcceptance);
+
+    public static string?[] Of(PackageAssetRow r) => DataCheck.PackageColumns(
+        r.Id, r.Version, r.DownloadCount, r.MinClientVersion, r.IsPrerelease,
+        r.Published, r.LastUpdated, r.PackageSize, r.RepositoryType, r.RequireLicenseAcceptance);
+}
+
 [MemoryDiagnoser]
 public class DelimitedParseBenchmarks
 {
@@ -85,13 +99,27 @@ public class DelimitedParseBenchmarks
         Directory.CreateDirectory(dataDir);
         _filePath = DatasetGenerator.EnsurePackageAssets(dataDir, Rows);
         _engine = new FileHelperEngine<PackageAsset>();
+
+        // Correctness guard: every benchmark must parse the file it measures.
+        var lines = DataCheck.DataLines(_filePath, hasHeader: true);
+        var fh = ReadAllRows_FileHelpers();
+        DataCheck.PackageAssets("FileHelpers", lines, fh.Length, i => PackageAssetColumns.Of(fh[i]));
+        var sylvan = ReadAllRows_Sylvan();
+        DataCheck.PackageAssets("Sylvan", lines, sylvan.Count, i => PackageAssetColumns.Of(sylvan[i]));
+        var csvHelper = ReadAllRows_CsvHelper();
+        DataCheck.PackageAssets("CsvHelper", lines, csvHelper.Count, i => PackageAssetColumns.Of(csvHelper[i]));
+        foreach (var (name, ids) in new[] { ("FileHelpers", ReadFirstColumn_FileHelpers()), ("Sylvan", ReadFirstColumn_Sylvan()), ("CsvHelper", ReadFirstColumn_CsvHelper()) })
+        {
+            DataCheck.Equal(Rows, ids.Length, name + " first-column count");
+            DataCheck.Equal(Rows - 1, ids[^1], name + " last Id");
+        }
     }
 
     [Benchmark(Baseline = true)]
     public PackageAsset[] ReadAllRows_FileHelpers() => _engine.ReadFile(_filePath);
 
     [Benchmark]
-    public List<PackageAssetRow> ReadAllRows_Sylvan()
+    public IReadOnlyList<PackageAssetRow> ReadAllRows_Sylvan()
     {
         var results = new List<PackageAssetRow>(Rows);
         using var reader = CsvDataReader.Create(_filePath);
@@ -130,7 +158,7 @@ public class DelimitedParseBenchmarks
     }
 
     [Benchmark]
-    public List<PackageAssetRow> ReadAllRows_CsvHelper()
+    public IReadOnlyList<PackageAssetRow> ReadAllRows_CsvHelper()
     {
         using var reader = new System.IO.StreamReader(_filePath);
         using var csv = new CsvHelper.CsvReader(reader, System.Globalization.CultureInfo.InvariantCulture);

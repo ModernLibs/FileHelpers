@@ -14,14 +14,13 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.Engine;
 
 /// <summary>
-/// GREEN acceptance tests for <see cref="FileHelperEngine{T}"/> properties
-/// (ENGI-08 LineNumber/TotalRecords, ENGI-16 Encoding, D-09 NewLineForWrite default).
+/// Acceptance tests for <see cref="FileHelperEngine{T}"/> properties
+/// (LineNumber/TotalRecords, Encoding, NewLineForWrite default).
 /// </summary>
-[Category("Phase07")]
 [Category("Engine")]
 public sealed class EnginePropertiesTests
 {
-    /// <summary>ENGI-08: LineNumber reflects the 1-based index of the last successfully parsed line.</summary>
+    /// <summary>LineNumber reflects the 1-based index of the last successfully parsed line.</summary>
     [Test]
     [DisplayName("LineNumber reflects last parsed line (3) after reading header plus two data rows")]
     public async Task LineNumber_AfterRead_ReflectsLastParsedLine()
@@ -39,7 +38,7 @@ public sealed class EnginePropertiesTests
         await Assert.That(engine.LineNumber).IsEqualTo(3);
     }
 
-    /// <summary>ENGI-08: TotalRecords equals the count of records returned from the last Read call.</summary>
+    /// <summary>TotalRecords equals the count of records returned from the last Read call.</summary>
     [Test]
     [DisplayName("TotalRecords equals 3 after reading three data rows from input")]
     public async Task TotalRecords_AfterRead_ReflectsCount()
@@ -57,9 +56,9 @@ public sealed class EnginePropertiesTests
     }
 
     /// <summary>
-    /// ENGI-08: TotalRecords stays coherent with the last call — verified here by calling
+    /// TotalRecords stays coherent with the last call — verified here by calling
     /// Read twice with different counts and confirming the second call overwrites the first.
-    /// (Write tests live in Wave 4; this placeholder proves the read-side coherence only.)
+    /// (Write-side coherence is covered by the write tests.)
     /// </summary>
     [Test]
     [DisplayName("TotalRecords updates to 1 after second read with single record overwrites previous value")]
@@ -80,7 +79,7 @@ public sealed class EnginePropertiesTests
         await Assert.That(engine.TotalRecords).IsEqualTo(1);
     }
 
-    /// <summary>D-09: NewLineForWrite defaults to "\r\n" (FileHelpers 3.x compat).</summary>
+    /// <summary>NewLineForWrite defaults to "\r\n" (FileHelpers 3.x compat).</summary>
     [Test]
     [DisplayName("NewLineForWrite property defaults to CRLF (\\r\\n) for FileHelpers 3.x compatibility")]
     public async Task NewLineForWrite_DefaultIsCRLF()
@@ -93,7 +92,7 @@ public sealed class EnginePropertiesTests
         await Assert.That(engine.NewLineForWrite).IsEqualTo("\r\n");
     }
 
-    /// <summary>ENGI-16: Encoding defaults to UTF-8.</summary>
+    /// <summary>Encoding defaults to UTF-8.</summary>
     [Test]
     [DisplayName("Encoding property defaults to UTF-8")]
     public async Task Encoding_DefaultIsUtf8()
@@ -106,7 +105,7 @@ public sealed class EnginePropertiesTests
         await Assert.That(engine.Encoding).IsEqualTo(Encoding.UTF8);
     }
 
-    /// <summary>ENGI-16: Encoding can be changed (e.g., Latin1) and is honored on ReadFile.</summary>
+    /// <summary>Encoding can be changed (e.g., Latin1) and is honored on ReadFile.</summary>
     [Test]
     [DisplayName("Encoding property can be set to Latin1 and is used when reading files")]
     public async Task Encoding_CanBeChanged()
@@ -144,7 +143,7 @@ public sealed class EnginePropertiesTests
     }
 
     /// <summary>
-    /// IN-05: Real regression guard for <see cref="FileHelperEngine{T}.Encoding"/>. Writes a
+    /// Real regression guard for <see cref="FileHelperEngine{T}.Encoding"/>. Writes a
     /// file with a non-ASCII payload using Latin1, then reads it back with the engine's
     /// Encoding set to Latin1. If the engine silently falls back to UTF-8 the decode will
     /// produce replacement / mojibake characters and the assertion fails — unlike the

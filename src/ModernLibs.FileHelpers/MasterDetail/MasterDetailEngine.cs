@@ -11,6 +11,23 @@ public sealed class MasterDetailEngine<TMaster, TDetail>
     private readonly FileHelperEngine<TMaster> _masterEngine = new();
     private readonly FileHelperEngine<TDetail> _detailEngine = new();
 
+    /// <summary>Error manager for read operations; cleared at the start of every read.</summary>
+    public ErrorManager ErrorManager { get; } = new();
+
+    /// <summary>Shortcut to <see cref="ErrorManager.ErrorMode"/>.</summary>
+    public ErrorMode ErrorMode
+    {
+        get => ErrorManager.ErrorMode;
+        set => ErrorManager.ErrorMode = value;
+    }
+
+    /// <summary>
+    /// Line terminator written after each master and detail record (and inside records with
+    /// <see cref="FieldInNewLineAttribute"/> fields). Defaults to <c>"\r\n"</c> on every platform, like
+    /// <see cref="FileHelperEngine{T}.NewLineForWrite"/>.
+    /// </summary>
+    public string NewLineForWrite { get; set; } = "\r\n";
+
     /// <summary>Creates a master/detail engine with an explicit line selector.</summary>
     public MasterDetailEngine(MasterDetailSelector selector)
     {
@@ -57,63 +74,31 @@ public sealed class MasterDetailEngine<TMaster, TDetail>
         return ReadStream(reader);
     }
 
-    /// <summary>Reads grouped master/detail records from a text reader.</summary>
+    /// <summary>
+    /// Reads grouped master/detail records from a text reader. Master and detail records keep their own rules
+    /// (multiline quoted fields, filters, field-count validation); failures go through <see cref="ErrorMode"/>.
+    /// A detail record before the first master is a <see cref="BadUsageException"/>.
+    /// </summary>
     public MasterDetails<TMaster, TDetail>[] ReadStream(TextReader reader)
     {
         ArgumentNullException.ThrowIfNull(reader);
-        return ReadFromContent(reader.ReadToEnd());
-    }
+        ErrorManager.ClearErrors();
 
-    private MasterDetails<TMaster, TDetail>[] ReadFromContent(string content)
-    {
         var groups = new List<MasterDetails<TMaster, TDetail>>();
-        TMaster? currentMaster = default;
-        List<TDetail>? currentDetails = null;
-        using var lineReader = new StringReader(content);
-        var newline = Parsing.MultilineLineJoin.Detect(content.AsSpan());
-        var logicalLineBuffer = new StringBuilder();
-        var hasPendingLogicalLine = false;
-        RecordAction pendingAction = RecordAction.Skip;
-
-        string? line;
-        while ((line = lineReader.ReadLine()) is not null)
+        using var source = new Parsing.TextReaderLineSource(reader);
+        using var groupReader = new MasterDetailReader<TMaster, TDetail>(_selector, _masterEngine.Core, _detailEngine.Core, ErrorManager);
+        while (source.TryReadLine(out var line, out var ending))
         {
-            if (line.Length == 0)
-                continue;
-
-            if (!hasPendingLogicalLine)
+            if (groupReader.Push(line, ending))
             {
-                var action = _selector(line.AsSpan());
-                if (action is RecordAction.Skip)
-                    continue;
-
-                pendingAction = action;
-                hasPendingLogicalLine = true;
+                while (groupReader.TryTake(out var group))
+                    groups.Add(group);
             }
-
-            AppendLogicalLine(logicalLineBuffer, line, newline);
-            if (!TryFlushPendingLogicalLine(
-                    isEndOfInput: false,
-                    groups,
-                    ref currentMaster,
-                    ref currentDetails,
-                    ref hasPendingLogicalLine,
-                    ref pendingAction,
-                    logicalLineBuffer))
-                continue;
         }
 
-        if (!TryFlushPendingLogicalLine(
-                isEndOfInput: true,
-                groups,
-                ref currentMaster,
-                ref currentDetails,
-                ref hasPendingLogicalLine,
-                ref pendingAction,
-                logicalLineBuffer))
-            throw new FormatException("Incomplete multiline record at end of input.");
-
-        FlushCurrentGroup(groups, currentMaster, currentDetails);
+        groupReader.Complete();
+        while (groupReader.TryTake(out var group))
+            groups.Add(group);
         return groups.ToArray();
     }
 
@@ -138,92 +123,13 @@ public sealed class MasterDetailEngine<TMaster, TDetail>
         ArgumentNullException.ThrowIfNull(writer);
         ArgumentNullException.ThrowIfNull(groups);
 
+        // The record engines write each record followed by NewLineForWrite.
+        _masterEngine.NewLineForWrite = NewLineForWrite;
+        _detailEngine.NewLineForWrite = NewLineForWrite;
         foreach (var group in groups)
         {
-            writer.WriteLine(FormatSingle(_masterEngine, group.Master));
-            foreach (var detail in group.Details)
-                writer.WriteLine(FormatSingle(_detailEngine, detail));
+            _masterEngine.WriteStream(writer, [group.Master]);
+            _detailEngine.WriteStream(writer, group.Details);
         }
     }
-
-    private static T ParseSingle<T>(FileHelperEngine<T> engine, string line)
-    {
-        var records = engine.ReadString(line);
-        return records.Length == 1
-            ? records[0]
-            : throw new FormatException($"Expected one {typeof(T).Name} record but parsed {records.Length}.");
-    }
-
-    private static void AppendLogicalLine(StringBuilder buffer, string line, string newline)
-    {
-        if (buffer.Length > 0)
-            buffer.Append(newline);
-        buffer.Append(line);
-    }
-
-    private bool TryFlushPendingLogicalLine(
-        bool isEndOfInput,
-        List<MasterDetails<TMaster, TDetail>> groups,
-        ref TMaster? currentMaster,
-        ref List<TDetail>? currentDetails,
-        ref bool hasPendingLogicalLine,
-        ref RecordAction pendingAction,
-        StringBuilder logicalLineBuffer)
-    {
-        if (!hasPendingLogicalLine)
-            return true;
-
-        var logicalLine = logicalLineBuffer.ToString();
-        if (!isEndOfInput && DelimitedFieldEnumerator.HasUnclosedQuote(logicalLine.AsSpan()))
-            return false;
-
-        try
-        {
-            if (pendingAction is RecordAction.Master)
-                FlushCurrentGroup(groups, currentMaster, currentDetails);
-            ApplyLogicalLine(pendingAction, logicalLine, ref currentMaster, ref currentDetails);
-        }
-        catch (FormatException) when (!isEndOfInput)
-        {
-            // Keep buffering until we have a complete logical line.
-            return false;
-        }
-
-        logicalLineBuffer.Clear();
-        hasPendingLogicalLine = false;
-        pendingAction = RecordAction.Skip;
-        return true;
-    }
-
-    private static void FlushCurrentGroup(
-        List<MasterDetails<TMaster, TDetail>> groups,
-        TMaster? currentMaster,
-        List<TDetail>? currentDetails)
-    {
-        if (currentDetails is not null && currentMaster is not null)
-            groups.Add(new MasterDetails<TMaster, TDetail>(currentMaster, currentDetails));
-    }
-
-    private void ApplyLogicalLine(
-        RecordAction action,
-        string logicalLine,
-        ref TMaster? currentMaster,
-        ref List<TDetail>? currentDetails)
-    {
-        switch (action)
-        {
-            case RecordAction.Master:
-                currentMaster = ParseSingle(_masterEngine, logicalLine);
-                currentDetails = [];
-                break;
-            case RecordAction.Detail:
-                if (currentDetails is null)
-                    throw new FormatException("Detail record appeared before a master record.");
-                currentDetails.Add(ParseSingle(_detailEngine, logicalLine));
-                break;
-        }
-    }
-
-    private static string FormatSingle<T>(FileHelperEngine<T> engine, T record) =>
-        engine.WriteString([record]).TrimEnd('\r', '\n');
 }

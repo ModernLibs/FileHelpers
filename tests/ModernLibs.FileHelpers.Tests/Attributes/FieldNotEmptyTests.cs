@@ -17,16 +17,14 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.Attributes;
 
 /// <summary>
-/// TDD tests for [FieldNotEmpty] validation attribute (FAVL-06, FAVL-09).
-/// These tests define the expected behavior before implementation (RED phase).
+/// Tests for the [FieldNotEmpty] validation attribute.
 /// </summary>
-[Category("Phase13")]
 [Category("Validation")]
 public sealed class FieldNotEmptyTests
 {
     #region Delimited Record Tests
 
-    /// <summary>FAVL-06: Empty string field throws validation exception with field name.</summary>
+    /// <summary>Empty string field throws validation exception with field name.</summary>
     [Test]
     [DisplayName("Parse_FieldNotEmpty_EmptyString_ThrowsValidationException")]
     public async Task Parse_FieldNotEmpty_EmptyString_ThrowsValidationException()
@@ -38,7 +36,7 @@ public sealed class FieldNotEmptyTests
         await Assert.That(() => desc.Parse(",123".AsSpan())).ThrowsException();
     }
 
-    /// <summary>FAVL-06: Whitespace-only field throws validation exception.</summary>
+    /// <summary>Whitespace-only field throws validation exception.</summary>
     [Test]
     [DisplayName("Parse_FieldNotEmpty_WhitespaceOnly_ThrowsValidationException")]
     public async Task Parse_FieldNotEmpty_WhitespaceOnly_ThrowsValidationException()
@@ -50,7 +48,7 @@ public sealed class FieldNotEmptyTests
         await Assert.That(() => desc.Parse("   ,123".AsSpan())).ThrowsException();
     }
 
-    /// <summary>FAVL-06: Valid non-whitespace content parses successfully.</summary>
+    /// <summary>Valid non-whitespace content parses successfully.</summary>
     [Test]
     [DisplayName("Parse_FieldNotEmpty_ValidContent_ParsesSuccessfully")]
     public async Task Parse_FieldNotEmpty_ValidContent_ParsesSuccessfully()
@@ -66,7 +64,7 @@ public sealed class FieldNotEmptyTests
         await Assert.That(record.Id).IsEqualTo(123);
     }
 
-    /// <summary>FAVL-06: Content with internal spaces is valid (spaces are not trimmed by default).</summary>
+    /// <summary>Content with internal spaces is valid (spaces are not trimmed by default).</summary>
     [Test]
     [DisplayName("Parse_FieldNotEmpty_InternalSpaces_ParsesSuccessfully")]
     public async Task Parse_FieldNotEmpty_InternalSpaces_ParsesSuccessfully()
@@ -81,7 +79,7 @@ public sealed class FieldNotEmptyTests
         await Assert.That(record.Name).IsEqualTo("Alice Smith");
     }
 
-    /// <summary>FAVL-09: ErrorMode.SaveAndContinue captures FieldNotEmpty errors in ErrorManager.</summary>
+    /// <summary>ErrorMode.SaveAndContinue captures FieldNotEmpty errors in ErrorManager.</summary>
     [Test]
     [DisplayName("ReadFile_FieldNotEmpty_SaveAndContinue_CapturesErrors")]
     public async Task ReadFile_FieldNotEmpty_SaveAndContinue_CapturesErrors()
@@ -104,7 +102,7 @@ public sealed class FieldNotEmptyTests
         await Assert.That(engine.ErrorManager.Errors[1].LineNumber).IsEqualTo(4);
     }
 
-    /// <summary>FAVL-06: Trim happens BEFORE not-empty check - trimmed content can be valid.</summary>
+    /// <summary>Trim happens BEFORE not-empty check - trimmed content can be valid.</summary>
     [Test]
     [DisplayName("Parse_FieldNotEmpty_WithTrim_TrimmedContent_ValidatesAfterTrim")]
     public async Task Parse_FieldNotEmpty_WithTrim_TrimmedContent_ValidatesAfterTrim()
@@ -119,7 +117,7 @@ public sealed class FieldNotEmptyTests
         await Assert.That(record.Name).IsEqualTo("Alice");
     }
 
-    /// <summary>FAVL-06: Trim happens BEFORE not-empty check - trimmed to empty fails.</summary>
+    /// <summary>Trim happens BEFORE not-empty check - trimmed to empty fails.</summary>
     [Test]
     [DisplayName("Parse_FieldNotEmpty_WithTrim_OnlyWhitespace_ThrowsAfterTrim")]
     public async Task Parse_FieldNotEmpty_WithTrim_OnlyWhitespace_ThrowsAfterTrim()
@@ -135,7 +133,7 @@ public sealed class FieldNotEmptyTests
 
     #region Fixed-Length Record Tests
 
-    /// <summary>FAVL-06: Fixed-length record with empty field throws validation exception.</summary>
+    /// <summary>Fixed-length record with empty field throws validation exception.</summary>
     [Test]
     [DisplayName("Parse_FixedLength_FieldNotEmpty_Empty_ThrowsValidationException")]
     public async Task Parse_FixedLength_FieldNotEmpty_Empty_ThrowsValidationException()
@@ -147,7 +145,7 @@ public sealed class FieldNotEmptyTests
         await Assert.That(() => desc.Parse("      00100".AsSpan())).ThrowsException();
     }
 
-    /// <summary>FAVL-06: Fixed-length record with valid content parses successfully.</summary>
+    /// <summary>Fixed-length record with valid content parses successfully.</summary>
     [Test]
     [DisplayName("Parse_FixedLength_FieldNotEmpty_Valid_ParsesSuccessfully")]
     public async Task Parse_FixedLength_FieldNotEmpty_Valid_ParsesSuccessfully()
@@ -167,7 +165,7 @@ public sealed class FieldNotEmptyTests
 
     #region Multiple NotEmpty Fields Tests
 
-    /// <summary>FAVL-06: Multiple fields with [FieldNotEmpty] - first empty throws.</summary>
+    /// <summary>Multiple fields with [FieldNotEmpty] - first empty throws.</summary>
     [Test]
     [DisplayName("Parse_MultipleNotEmpty_FirstEmpty_ThrowsWithFirstFieldName")]
     public async Task Parse_MultipleNotEmpty_FirstEmpty_ThrowsWithFirstFieldName()
@@ -179,7 +177,7 @@ public sealed class FieldNotEmptyTests
         await Assert.That(() => desc.Parse(",Smith,30".AsSpan())).ThrowsException();
     }
 
-    /// <summary>FAVL-06: Multiple fields with [FieldNotEmpty] - second empty throws.</summary>
+    /// <summary>Multiple fields with [FieldNotEmpty] - second empty throws.</summary>
     [Test]
     [DisplayName("Parse_MultipleNotEmpty_SecondEmpty_ThrowsWithSecondFieldName")]
     public async Task Parse_MultipleNotEmpty_SecondEmpty_ThrowsWithSecondFieldName()
@@ -191,7 +189,7 @@ public sealed class FieldNotEmptyTests
         await Assert.That(() => desc.Parse("John,,30".AsSpan())).ThrowsException();
     }
 
-    /// <summary>FAVL-06: All NotEmpty fields valid - parses successfully.</summary>
+    /// <summary>All NotEmpty fields valid - parses successfully.</summary>
     [Test]
     [DisplayName("Parse_MultipleNotEmpty_AllValid_ParsesSuccessfully")]
     public async Task Parse_MultipleNotEmpty_AllValid_ParsesSuccessfully()

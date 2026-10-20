@@ -10,18 +10,16 @@ namespace ModernLibs.FileHelpers.Tests.Engine;
 
 /// <summary>
 /// Acceptance tests for <see cref="FileHelperAsyncEngine{T}"/> read operations.
-/// Covers ENGI-09 (BeginRead*), ENGI-10 (ReadNext), ENGI-11 (ReadAsync IAsyncEnumerable — skipped),
-/// and ENGI-14 (IEnumerable&lt;T&gt; / Dispose).
+/// Covers BeginRead*, ReadNext, ReadAsync (IAsyncEnumerable) and IEnumerable&lt;T&gt; / Dispose.
 /// </summary>
-[Category("Phase08")]
 [Category("AsyncEngine")]
 public sealed class AsyncEngineReadTests
 {
     // -------------------------------------------------------------------------
-    // ENGI-09 — BeginRead* opens reader
+    // BeginRead* opens reader
     // -------------------------------------------------------------------------
 
-    /// <summary>ENGI-09: BeginReadFile on a temp CSV file; ReadNext returns first record.</summary>
+    /// <summary>BeginReadFile on a temp CSV file; ReadNext returns first record.</summary>
     [Test]
     [DisplayName("BeginReadFile opens file and ReadNext returns first CsvOrder record with correct values")]
     public async Task BeginReadFile_DelimitedRecord_OpensReader()
@@ -48,7 +46,7 @@ public sealed class AsyncEngineReadTests
         }
     }
 
-    /// <summary>ENGI-09: BeginReadStream with a StringReader; ReadNext returns a record.</summary>
+    /// <summary>BeginReadStream with a StringReader; ReadNext returns a record.</summary>
     [Test]
     [DisplayName("BeginReadStream with StringReader parses first CsvOrder record correctly")]
     public async Task BeginReadStream_FromTextReader_OpensReader()
@@ -68,7 +66,7 @@ public sealed class AsyncEngineReadTests
         await Assert.That(record.CustomerName).IsEqualTo("Bob");
     }
 
-    /// <summary>ENGI-09: BeginReadString with CSV content; ReadNext returns first CsvOrder with correct OrderId.</summary>
+    /// <summary>BeginReadString with CSV content; ReadNext returns first CsvOrder with correct OrderId.</summary>
     [Test]
     [DisplayName("BeginReadString parses first data record skipping header line")]
     public async Task BeginReadString_ParsesFirstRecord()
@@ -88,10 +86,10 @@ public sealed class AsyncEngineReadTests
     }
 
     // -------------------------------------------------------------------------
-    // ENGI-10 — ReadNext() / ReadNext(int)
+    // ReadNext() / ReadNext(int)
     // -------------------------------------------------------------------------
 
-    /// <summary>ENGI-10: BeginReadString on single-record content; second ReadNext() call returns null.</summary>
+    /// <summary>BeginReadString on single-record content; second ReadNext() call returns null.</summary>
     [Test]
     [DisplayName("ReadNext returns null when reaching end of single-record input")]
     public async Task ReadNext_ReturnsNullAtEof()
@@ -112,7 +110,7 @@ public sealed class AsyncEngineReadTests
         await Assert.That(second).IsNull();
     }
 
-    /// <summary>ENGI-10: BeginReadString on 5-record content; ReadNext(3) returns array of length 3.</summary>
+    /// <summary>BeginReadString on 5-record content; ReadNext(3) returns array of length 3.</summary>
     [Test]
     [DisplayName("ReadNext(3) returns batch of exactly 3 records from 5-record input")]
     public async Task ReadNext_WithCount_ReturnsBatch()
@@ -132,7 +130,7 @@ public sealed class AsyncEngineReadTests
         await Assert.That(batch[2].OrderId).IsEqualTo(3);
     }
 
-    /// <summary>ENGI-10: BeginReadString with 1 header line via CsvOrder [IgnoreFirst(1)]; ReadNext returns first data record.</summary>
+    /// <summary>BeginReadString with 1 header line via CsvOrder [IgnoreFirst(1)]; ReadNext returns first data record.</summary>
     [Test]
     [DisplayName("ReadNext skips header line and returns first data record with HeaderText captured")]
     public async Task ReadNext_IgnoreFirst_SkipsHeaderLines()
@@ -201,10 +199,10 @@ public sealed class AsyncEngineReadTests
     }
 
     // -------------------------------------------------------------------------
-    // ENGI-11 — ReadAsync IAsyncEnumerable (deferred to Plan 04)
+    // ReadAsync IAsyncEnumerable
     // -------------------------------------------------------------------------
 
-    /// <summary>ENGI-11: ReadAsync(tempFilePath) via await foreach; total count matches expected.</summary>
+    /// <summary>ReadAsync(tempFilePath) via await foreach; total count matches expected.</summary>
     [Test]
     [DisplayName("ReadAsync with file path yields all 3 records via await foreach")]
     public async Task ReadAsync_FilePath_YieldsAllRecords()
@@ -235,7 +233,7 @@ public sealed class AsyncEngineReadTests
         }
     }
 
-    /// <summary>ENGI-11: ReadAsync with a pre-cancelled CancellationToken throws OperationCanceledException.</summary>
+    /// <summary>ReadAsync with a pre-cancelled CancellationToken throws OperationCanceledException.</summary>
     [Test]
     [DisplayName("ReadAsync with pre-cancelled token throws OperationCanceledException immediately")]
     public async Task ReadAsync_CancellationToken_StopsIteration()
@@ -275,10 +273,10 @@ public sealed class AsyncEngineReadTests
     }
 
     // -------------------------------------------------------------------------
-    // ENGI-14 — IEnumerable<T> / Dispose
+    // IEnumerable<T> / Dispose
     // -------------------------------------------------------------------------
 
-    /// <summary>ENGI-14: BeginReadString then foreach over engine instance yields expected records.</summary>
+    /// <summary>BeginReadString then foreach over engine instance yields expected records.</summary>
     [Test]
     [DisplayName("GetEnumerator iterates open session yielding all 3 records")]
     public async Task GetEnumerator_IteratesOpenSession()
@@ -302,7 +300,7 @@ public sealed class AsyncEngineReadTests
         await Assert.That(results[2].OrderId).IsEqualTo(3);
     }
 
-    /// <summary>ENGI-14: BeginReadString, Dispose, then second Dispose does not throw (idempotent).</summary>
+    /// <summary>BeginReadString, Dispose, then second Dispose does not throw (idempotent).</summary>
     [Test]
     [DisplayName("Dispose closes reader and double-dispose is idempotent without throwing")]
     public async Task Dispose_ClosesReader_NoPendingResources()

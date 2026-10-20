@@ -10,7 +10,7 @@
 namespace ModernLibs.FileHelpers.Tests.Parity.QuickStart.Fixtures;
 
 // ============================================================================
-// Delimited Fixtures (TEST-01, TEST-02)
+// Delimited Fixtures
 // ============================================================================
 
 /// <summary>
@@ -38,7 +38,7 @@ internal sealed class CustomerWithHeader
 }
 
 // ============================================================================
-// Fixed-Length Fixtures (TEST-03, TEST-04)
+// Fixed-Length Fixtures
 // ============================================================================
 
 /// <summary>
@@ -64,7 +64,7 @@ internal sealed class FixedCustomerAligned
 }
 
 // ============================================================================
-// Streaming Fixtures (TEST-05)
+// Streaming Fixtures
 // ============================================================================
 
 /// <summary>

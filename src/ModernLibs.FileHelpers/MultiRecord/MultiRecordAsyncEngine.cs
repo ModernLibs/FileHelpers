@@ -1,6 +1,3 @@
-// MA0004: ConfigureAwait — library code; callers control context. Suppressed per project pattern.
-#pragma warning disable MA0004
-
 using System.Runtime.CompilerServices;
 using System.Text;
 using ModernLibs.FileHelpers.Parsing;
@@ -46,7 +43,7 @@ public sealed class MultiRecordAsyncEngine : IAsyncDisposable
         return ReadFromFileAsync(filePath, cancellationToken);
     }
 
-    /// <summary>Reads mixed records from a stream asynchronously.</summary>
+    /// <summary>Reads mixed records from a stream asynchronously. The caller owns <paramref name="stream"/>; it is left open.</summary>
     public IAsyncEnumerable<object> ReadAsync(
         Stream stream,
         CancellationToken cancellationToken = default)
@@ -60,7 +57,7 @@ public sealed class MultiRecordAsyncEngine : IAsyncDisposable
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         using var stream = File.OpenRead(filePath);
-        await foreach (var record in ReadFromStreamAsync(stream, cancellationToken))
+        await foreach (var record in ReadFromStreamAsync(stream, cancellationToken).ConfigureAwait(false))
             yield return record;
     }
 
@@ -70,99 +67,22 @@ public sealed class MultiRecordAsyncEngine : IAsyncDisposable
     {
         ErrorManager.ClearErrors();
 
-        await using var lineReader = new PipelineLineReader(stream, Encoding);
+        var lineReader = new PipelineLineReader(stream, Encoding);
+        await using var lineReaderScope = lineReader.ConfigureAwait(false);
+        using var multiRecordReader = new MultiRecordReader(_recordTypes, ErrorManager);
 
-        var lineBuffer = new StringBuilder();
-        int lineNumber = 0;
-        bool isBuffering = false;
-        int bufferStartLine = 0;
-
-        await foreach (var line in lineReader.ReadLinesAsync(cancellationToken))
+        while (await lineReader.ReadLineAsync(cancellationToken).ConfigureAwait(false))
         {
-            lineNumber++;
-
-            if (line.Length == 0)
+            if (multiRecordReader.Push(lineReader.CurrentLine.Span, lineReader.CurrentEnding))
             {
-                if (isBuffering)
-                    lineBuffer.Append(line.Span);
-                continue;
-            }
-
-            if (!isBuffering)
-            {
-                if (DelimitedFieldEnumerator.HasUnclosedQuote(line.Span))
-                {
-                    lineBuffer.Clear();
-                    lineBuffer.Append(line.Span);
-                    bufferStartLine = lineNumber;
-                    isBuffering = true;
-                    continue;
-                }
-
-                var result = TryProcessLine(line.Span.ToString(), lineNumber, cancellationToken);
-                if (result is not null)
-                    yield return result;
-            }
-            else
-            {
-                lineBuffer.Append(line.Span);
-                var assembled = lineBuffer.ToString();
-
-                if (!DelimitedFieldEnumerator.HasUnclosedQuote(assembled.AsSpan()))
-                {
-                    isBuffering = false;
-                    var result = TryProcessLine(assembled, bufferStartLine, cancellationToken);
-                    if (result is not null)
-                        yield return result;
-                    lineBuffer.Clear();
-                }
+                while (multiRecordReader.TryTake(out var record))
+                    yield return record;
             }
         }
 
-        if (isBuffering && lineBuffer.Length > 0)
-        {
-            var result = TryProcessLine(lineBuffer.ToString(), bufferStartLine, cancellationToken);
-            if (result is not null)
-                yield return result;
-        }
-    }
-
-    private object? TryProcessLine(string line, int lineNumber, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-
-        IMultiRecordType? recordType = null;
-        foreach (var candidate in _recordTypes)
-        {
-            if (candidate.Matches(line.AsSpan()))
-            {
-                recordType = candidate;
-                break;
-            }
-        }
-
-        if (recordType is null)
-        {
-            var selectorException = CreateSelectorMissException(lineNumber, line, _recordTypes);
-            switch (ErrorManager.ErrorMode)
-            {
-                case ErrorMode.ThrowException:
-                    throw selectorException;
-                case ErrorMode.IgnoreAndContinue:
-                    return null;
-                case ErrorMode.SaveAndContinue:
-                    ErrorManager.AddError(new ErrorInfo(lineNumber, line, selectorException));
-                    return null;
-            }
-        }
-
-        return recordType!.Parse(line.AsSpan());
-    }
-
-    private static FormatException CreateSelectorMissException(int lineNumber, string line, IMultiRecordType[] recordTypes)
-    {
-        var types = string.Join(", ", recordTypes.Select(t => t.GetType().Name));
-        return new FormatException($"No multi-record selector matched line {lineNumber}: '{line}'. Available record types: {types}.");
+        multiRecordReader.Complete();
+        while (multiRecordReader.TryTake(out var record))
+            yield return record;
     }
 
     /// <inheritdoc/>

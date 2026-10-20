@@ -26,9 +26,9 @@ public sealed class GeneratorOutputTests
             options: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
     }
 
-    /// <summary>SGEN-01: ForAttributeWithMetadataName discovers the annotated type and pipeline runs.</summary>
+    /// <summary>ForAttributeWithMetadataName discovers the annotated type and pipeline runs.</summary>
     [Test]
-    [DisplayName("Generator discovers DelimitedRecord type and pipeline produces one output file (SGEN-01)")]
+    [DisplayName("Generator discovers DelimitedRecord type and pipeline produces one output file")]
     public async Task Generator_DiscoverDelimitedRecord_PipelineRuns()
     {
         // Arrange: Create compilation with DelimitedRecord-annotated type
@@ -53,13 +53,13 @@ public sealed class GeneratorOutputTests
 
         // Assert: No diagnostics and exactly one generated file for Trade type
         await Assert.That(result.Diagnostics.IsEmpty).IsTrue();
-        // SGEN-01: pipeline ran and produced exactly one generated file for the Trade type
+        // pipeline ran and produced exactly one generated file for the Trade type
         await Assert.That(result.GeneratedTrees.Length).IsEqualTo(1);
     }
 
-    /// <summary>SGEN-02: Emitted descriptor compiles and contains Parse/Format stubs.</summary>
+    /// <summary>Emitted descriptor compiles and contains Parse/Format stubs.</summary>
     [Test]
-    [DisplayName("Generator emits descriptor implementing IRecyclableDescriptor with Parse and Format stubs (SGEN-02)")]
+    [DisplayName("Generator emits descriptor implementing IRecyclableDescriptor with Parse and Format stubs")]
     public async Task Generator_EmittedDescriptor_CompilesWithParseAndFormatStubs()
     {
         // Arrange: Create compilation with DelimitedRecord-annotated type
@@ -87,9 +87,9 @@ public sealed class GeneratorOutputTests
 
         string generatedSource = result.GeneratedTrees[0].GetText().ToString();
 
-        // SGEN-02 assertions on emitted source text.
+        // Assertions on the emitted source text.
         // Trade is a class with mutable (non-init-only) fields, so the generator emits
-        // IRecyclableDescriptor<T> (which extends IRecordDescriptor<T>) — Plan 04 ENGI-15.
+        // IRecyclableDescriptor<T> (which extends IRecordDescriptor<T>) for RecycleRecords.
         await Assert.That(generatedSource).Contains("file sealed class __TradeDescriptor");
         await Assert.That(generatedSource).Contains("IRecyclableDescriptor<global::Trade>");
         await Assert.That(generatedSource).Contains("writer.Advance");

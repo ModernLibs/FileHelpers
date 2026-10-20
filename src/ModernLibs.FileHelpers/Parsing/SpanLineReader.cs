@@ -9,17 +9,17 @@ namespace ModernLibs.FileHelpers;
 /// This is a pure span-slicing primitive — no I/O, no ArrayPool ownership.
 /// </summary>
 /// <remarks>
-/// D-01: Operates on ReadOnlySpan&lt;char&gt; only. Phase 7 batch engine owns the buffer
-/// and hands filled slices to SpanLineReader.
+/// Operates on ReadOnlySpan&lt;char&gt; only: the caller owns the buffer and hands filled slices to
+/// SpanLineReader.
 /// Loop invariant: <c>_remaining</c> strictly decreases on every <see cref="TryReadLine"/> call
-/// (advances by at least 1 char), preventing infinite loops (T-05-02).
+/// (advances by at least 1 char), preventing infinite loops.
 /// </remarks>
-public ref struct SpanLineReader
+internal ref struct SpanLineReader
 {
     private ReadOnlySpan<char> _remaining;
     private int _lineNumber;
 
-    // Static readonly: SearchValues creation cost paid once per AppDomain (CLAUDE.md §SearchValues).
+    // Static readonly: the SearchValues creation cost is paid once per process.
     private static readonly SearchValues<char> s_newlineChars =
         SearchValues.Create(['\r', '\n']);
 

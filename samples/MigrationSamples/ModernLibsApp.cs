@@ -1,10 +1,12 @@
 // ============================================================================
 // ModernLibsApp - Example using ModernLibs.FileHelpers 4.x
 // ============================================================================
-// This file demonstrates ModernLibs.FileHelpers usage, which is 95%+ compatible
-// with FileHelpers 3.x. The only changes are:
+// This file is the ModernLibs.FileHelpers version of OriginalFileHelpersApp.cs (FileHelpers 3.x).
+// The differences visible in this sample are:
 // 1. Namespace: ModernLibs.FileHelpers instead of FileHelpers
-// 2. Generic interfaces: INotifyRead<T> instead of INotifyRead
+// 2. Generic interfaces: INotifyRead<T> / INotifyWrite<T> instead of INotifyRead / INotifyWrite
+// 3. Examples 7 and 8 use features 3.x does not have (IAsyncEnumerable streaming).
+// docs/MIGRATION.md lists all API differences.
 //
 // Compile this with: dotnet run
 // ============================================================================
@@ -79,12 +81,11 @@ public class ValidatedCustomer : INotifyRead<ValidatedCustomer>, INotifyWrite<Va
     }
 }
 
-class Program
+static class Program
 {
     static void Main(string[] args)
     {
         Console.WriteLine("=== ModernLibs.FileHelpers 4.x Examples ===\n");
-        Console.WriteLine("Note: This code is 95%+ compatible with FileHelpers 3.x\n");
 
         // Example 1: Read CSV with header
         ReadCsvWithHeader();
@@ -157,8 +158,8 @@ class Program
         var engine = new FileHelperEngine<Employee>();
 
         // Fixed-width data
-        string fixedData = "100     John Doe                50000.00    \r\n" +
-                          "101     Jane Smith              65000.00    ";
+        string fixedData = "100     John Doe                 50000.00    \r\n" +
+                          "101     Jane Smith               65000.00    ";
 
         var employees = engine.ReadString(fixedData);
 
@@ -186,7 +187,7 @@ class Program
         Console.WriteLine($"   Valid records: {customers.Length}");
         Console.WriteLine($"   Errors: {engine.ErrorManager.ErrorCount}");
         foreach (var err in engine.ErrorManager.Errors)
-            Console.WriteLine($"   - Line {err.LineNumber}: {err.Exception.Message}");
+            Console.WriteLine($"   - Line {err.LineNumber}: {err.ExceptionInfo?.Message}");
         Console.WriteLine();
     }
 
@@ -244,12 +245,12 @@ class Program
         await File.WriteAllTextAsync(tempFile,
             "CustomerId,Name,Email,Balance\r\n" +
             "1,John Doe,john@example.com,1500.50\r\n" +
-            "2,Jane Smith,jane@example.com,2300.75");
+            "2,Jane Smith,jane@example.com,2300.75").ConfigureAwait(false);
 
         var engine = new FileHelperAsyncEngine<Customer>();
 
         int count = 0;
-        await foreach (var customer in engine.ReadAsync(tempFile))
+        await foreach (var customer in engine.ReadAsync(tempFile).ConfigureAwait(false))
         {
             count++;
         }

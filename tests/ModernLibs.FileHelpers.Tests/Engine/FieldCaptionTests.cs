@@ -15,9 +15,8 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.Engine;
 
 /// <summary>
-/// Tests verifying FieldCaption attribute functionality (GAP-02).
+/// Tests verifying FieldCaption attribute functionality.
 /// </summary>
-[Category("Phase50")]
 [Category("Engine")]
 [Category("FieldCaption")]
 public sealed class FieldCaptionTests

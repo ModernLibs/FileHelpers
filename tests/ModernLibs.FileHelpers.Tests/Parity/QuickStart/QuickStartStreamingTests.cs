@@ -13,22 +13,21 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.Parity.QuickStart;
 
 /// <summary>
-/// TEST-05: QuickStart Record-by-Record Streaming tests.
+/// QuickStart Record-by-Record Streaming tests.
 /// Based on original FileHelpers QuickStart examples from https://www.filehelpers.net/quickstart/
 /// Tests FileHelperAsyncEngine streaming behavior.
 /// </summary>
-[Category("Phase19")]
 [Category("Parity")]
 [Category("QuickStart")]
 public sealed class QuickStartStreamingTests
 {
-    #region TEST-05: Record-by-Record Streaming - Delimited
+    #region Record-by-Record Streaming - Delimited
 
     /// <summary>
-    /// TEST-05: BeginReadFile + ReadNext() pattern matches original FileHelpers AsyncEngine.
+    /// BeginReadFile + ReadNext() pattern matches original FileHelpers AsyncEngine.
     /// </summary>
     [Test]
-    [DisplayName("TEST-05: BeginReadFile + ReadNext streaming - matches original FileHelpers behavior")]
+    [DisplayName("BeginReadFile + ReadNext streaming - matches original FileHelpers behavior")]
     public async Task StreamingDelimited_BeginReadFile_MatchesOriginalBehavior()
     {
         // Arrange: Write test file
@@ -62,10 +61,10 @@ public sealed class QuickStartStreamingTests
     }
 
     /// <summary>
-    /// TEST-05: BeginReadStream + ReadNext() pattern matches original FileHelpers.
+    /// BeginReadStream + ReadNext() pattern matches original FileHelpers.
     /// </summary>
     [Test]
-    [DisplayName("TEST-05: BeginReadStream + ReadNext streaming - matches original FileHelpers")]
+    [DisplayName("BeginReadStream + ReadNext streaming - matches original FileHelpers")]
     public async Task StreamingDelimited_BeginReadStream_MatchesOriginalBehavior()
     {
         // Arrange
@@ -88,10 +87,10 @@ public sealed class QuickStartStreamingTests
     }
 
     /// <summary>
-    /// TEST-05: BeginReadString + ReadNext() pattern matches original FileHelpers.
+    /// BeginReadString + ReadNext() pattern matches original FileHelpers.
     /// </summary>
     [Test]
-    [DisplayName("TEST-05: BeginReadString + ReadNext streaming - matches original FileHelpers")]
+    [DisplayName("BeginReadString + ReadNext streaming - matches original FileHelpers")]
     public async Task StreamingDelimited_BeginReadString_MatchesOriginalBehavior()
     {
         // Arrange
@@ -112,10 +111,10 @@ public sealed class QuickStartStreamingTests
     }
 
     /// <summary>
-    /// TEST-05: IAsyncEnumerable pattern matches original FileHelpers streaming behavior.
+    /// IAsyncEnumerable pattern matches original FileHelpers streaming behavior.
     /// </summary>
     [Test]
-    [DisplayName("TEST-05: IAsyncEnumerable ReadAsync - matches streaming behavior")]
+    [DisplayName("IAsyncEnumerable ReadAsync - matches streaming behavior")]
     public async Task StreamingDelimited_IAsyncEnumerable_MatchesBehavior()
     {
         // Arrange: Write test file
@@ -145,10 +144,10 @@ public sealed class QuickStartStreamingTests
     }
 
     /// <summary>
-    /// TEST-05: Streaming with header skip (IgnoreFirst) matches original FileHelpers.
+    /// Streaming with header skip (IgnoreFirst) matches original FileHelpers.
     /// </summary>
     [Test]
-    [DisplayName("TEST-05: Streaming with IgnoreFirst header - matches original FileHelpers")]
+    [DisplayName("Streaming with IgnoreFirst header - matches original FileHelpers")]
     public async Task StreamingDelimited_WithHeader_MatchesOriginalBehavior()
     {
         // Arrange
@@ -170,10 +169,10 @@ public sealed class QuickStartStreamingTests
     }
 
     /// <summary>
-    /// TEST-05: IEnumerable pattern (foreach over engine) matches original FileHelpers.
+    /// IEnumerable pattern (foreach over engine) matches original FileHelpers.
     /// </summary>
     [Test]
-    [DisplayName("TEST-05: IEnumerable foreach pattern - matches original FileHelpers")]
+    [DisplayName("IEnumerable foreach pattern - matches original FileHelpers")]
     public async Task StreamingDelimited_IEnumerable_MatchesOriginalBehavior()
     {
         // Arrange
@@ -195,13 +194,13 @@ public sealed class QuickStartStreamingTests
 
     #endregion
 
-    #region TEST-05: Record-by-Record Streaming - Fixed-Length
+    #region Record-by-Record Streaming - Fixed-Length
 
     /// <summary>
-    /// TEST-05: Fixed-length streaming with BeginReadFile + ReadNext().
+    /// Fixed-length streaming with BeginReadFile + ReadNext().
     /// </summary>
     [Test]
-    [DisplayName("TEST-05: Fixed-length streaming - BeginReadFile + ReadNext")]
+    [DisplayName("Fixed-length streaming - BeginReadFile + ReadNext")]
     public async Task StreamingFixed_BeginReadFile_MatchesOriginalBehavior()
     {
         // Arrange: Write test file
@@ -235,13 +234,13 @@ public sealed class QuickStartStreamingTests
 
     #endregion
 
-    #region TEST-05: Write Streaming
+    #region Write Streaming
 
     /// <summary>
-    /// TEST-05: Streaming write with BeginWriteFile + WriteNext matches original FileHelpers.
+    /// Streaming write with BeginWriteFile + WriteNext matches original FileHelpers.
     /// </summary>
     [Test]
-    [DisplayName("TEST-05: BeginWriteFile + WriteNext streaming - matches original FileHelpers")]
+    [DisplayName("BeginWriteFile + WriteNext streaming - matches original FileHelpers")]
     public async Task StreamingWrite_BeginWriteFile_MatchesOriginalBehavior()
     {
         // Arrange
@@ -277,10 +276,10 @@ public sealed class QuickStartStreamingTests
     }
 
     /// <summary>
-    /// TEST-05: Streaming write with BeginWriteString matches original FileHelpers.
+    /// Streaming write with BeginWriteString matches original FileHelpers.
     /// </summary>
     [Test]
-    [DisplayName("TEST-05: BeginWriteString + EndWriteString - matches original FileHelpers")]
+    [DisplayName("BeginWriteString + EndWriteString - matches original FileHelpers")]
     public async Task StreamingWrite_BeginWriteString_MatchesOriginalBehavior()
     {
         // Arrange
@@ -300,10 +299,10 @@ public sealed class QuickStartStreamingTests
     }
 
     /// <summary>
-    /// TEST-05: WriteNext batch method matches original FileHelpers.
+    /// WriteNext batch method matches original FileHelpers.
     /// </summary>
     [Test]
-    [DisplayName("TEST-05: WriteNext(IEnumerable) batch method - matches original FileHelpers")]
+    [DisplayName("WriteNext(IEnumerable) batch method - matches original FileHelpers")]
     public async Task StreamingWrite_WriteNextBatch_MatchesOriginalBehavior()
     {
         // Arrange
@@ -326,13 +325,13 @@ public sealed class QuickStartStreamingTests
 
     #endregion
 
-    #region TEST-05: Engine Properties and State
+    #region Engine Properties and State
 
     /// <summary>
-    /// TEST-05: LineNumber tracks correctly during streaming read.
+    /// LineNumber tracks correctly during streaming read.
     /// </summary>
     [Test]
-    [DisplayName("TEST-05: LineNumber property tracks correctly during streaming")]
+    [DisplayName("LineNumber property tracks correctly during streaming")]
     public async Task Streaming_LineNumber_TracksCorrectly()
     {
         // Arrange
@@ -363,10 +362,10 @@ public sealed class QuickStartStreamingTests
     }
 
     /// <summary>
-    /// TEST-05: TotalRecords counts correctly during streaming.
+    /// TotalRecords counts correctly during streaming.
     /// </summary>
     [Test]
-    [DisplayName("TEST-05: TotalRecords property counts correctly during streaming")]
+    [DisplayName("TotalRecords property counts correctly during streaming")]
     public async Task Streaming_TotalRecords_CountsCorrectly()
     {
         // Arrange
@@ -390,10 +389,10 @@ public sealed class QuickStartStreamingTests
     }
 
     /// <summary>
-    /// TEST-05: LastRecord property returns the most recent record.
+    /// LastRecord property returns the most recent record.
     /// </summary>
     [Test]
-    [DisplayName("TEST-05: LastRecord property returns most recent record")]
+    [DisplayName("LastRecord property returns most recent record")]
     public async Task Streaming_LastRecord_ReturnsMostRecent()
     {
         // Arrange
@@ -414,10 +413,10 @@ public sealed class QuickStartStreamingTests
     }
 
     /// <summary>
-    /// TEST-05: ReadNext(int count) returns multiple records.
+    /// ReadNext(int count) returns multiple records.
     /// </summary>
     [Test]
-    [DisplayName("TEST-05: ReadNext(int count) returns batch of records")]
+    [DisplayName("ReadNext(int count) returns batch of records")]
     public async Task Streaming_ReadNextBatch_ReturnsBatch()
     {
         // Arrange
@@ -437,13 +436,13 @@ public sealed class QuickStartStreamingTests
 
     #endregion
 
-    #region TEST-05: RecycleRecords (Zero-Allocation Mode)
+    #region RecycleRecords (Zero-Allocation Mode)
 
     /// <summary>
-    /// TEST-05: RecycleRecords mode for class types (zero-allocation pattern).
+    /// RecycleRecords mode for class types (zero-allocation pattern).
     /// </summary>
     [Test]
-    [DisplayName("TEST-05: RecycleRecords mode reuses class instances")]
+    [DisplayName("RecycleRecords mode reuses class instances")]
     public async Task Streaming_RecycleRecords_ReusesInstances()
     {
         // Arrange: Create a class record type
@@ -471,13 +470,13 @@ public sealed class QuickStartStreamingTests
 
     #endregion
 
-    #region TEST-05: Round-Trip Streaming
+    #region Round-Trip Streaming
 
     /// <summary>
-    /// TEST-05: Streaming round-trip (read then write then read) produces equivalent records.
+    /// Streaming round-trip (read then write then read) produces equivalent records.
     /// </summary>
     [Test]
-    [DisplayName("TEST-05: Streaming round-trip produces equivalent records")]
+    [DisplayName("Streaming round-trip produces equivalent records")]
     public async Task StreamingRoundTrip_ProducesEquivalentRecords()
     {
         // Arrange: Original content

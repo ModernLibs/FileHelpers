@@ -5,7 +5,7 @@ namespace ModernLibs.FileHelpers;
 /// Extracts fields by character offset and width from a <see cref="ReadOnlySpan{T}"/> line.
 /// A ref struct — stack-allocated, no heap allocation.
 /// </summary>
-public ref struct FixedLengthSlicer
+internal ref struct FixedLengthSlicer
 {
     private readonly ReadOnlySpan<char> _line;
 
@@ -31,9 +31,9 @@ public ref struct FixedLengthSlicer
     /// beyond the end of the line, or if <paramref name="width"/> is non-positive.
     /// </returns>
     /// <remarks>
-    /// T-05-09: Negative offset returns Empty (guard against DoS from unexpected runtime callers).
+    /// A negative offset returns Empty (defensive guard for unexpected callers).
     /// Source-generated code always passes compile-time non-negative constants from [FieldFixedLength].
-    /// T-05-11: FieldDescriptor.Offset sentinel -1 maps to Empty via the negative-offset guard.
+    /// The FieldDescriptor.Offset sentinel -1 therefore maps to Empty.
     /// </remarks>
     public ReadOnlySpan<char> Slice(int offset, int width)
     {

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 
 namespace ModernLibs.FileHelpers;
@@ -25,7 +26,11 @@ public sealed class ErrorManager
     /// <summary>Saves captured errors using UTF-8 encoding.</summary>
     public void SaveErrors(string filePath) => SaveErrors(filePath, Encoding.UTF8);
 
-    /// <summary>Saves captured errors using the provided <paramref name="encoding"/>.</summary>
+    /// <summary>
+    /// Saves captured errors using the provided <paramref name="encoding"/>: a tab-separated report with the
+    /// line, the 1-based column (as in the exception message; empty when unknown), field, record, raw value and
+    /// exception message.
+    /// </summary>
     public void SaveErrors(string filePath, Encoding encoding)
     {
         ArgumentNullException.ThrowIfNull(filePath);
@@ -35,7 +40,10 @@ public sealed class ErrorManager
         writer.WriteLine("Line\t|\tColumn\t|\tField\t|\tRecord\t|\tRawValue\t|\tException");
         writer.WriteLine(new string('-', 80));
         foreach (var err in _errors)
-            writer.WriteLine($"{err.LineNumber}\t|\t{err.ColumnIndex}\t|\t{err.FieldName ?? ""}\t|\t{err.RecordString}\t|\t{err.RawFieldValue ?? ""}\t|\t{err.ExceptionInfo?.Message}");
+        {
+            string column = err.ColumnIndex >= 0 ? (err.ColumnIndex + 1).ToString(CultureInfo.InvariantCulture) : string.Empty;
+            writer.WriteLine($"{err.LineNumber}\t|\t{column}\t|\t{err.FieldName ?? ""}\t|\t{err.RecordString}\t|\t{err.RawFieldValue ?? ""}\t|\t{err.ExceptionInfo?.Message}");
+        }
     }
 
     /// <summary>Internal write path for engines running in SaveAndContinue mode.</summary>

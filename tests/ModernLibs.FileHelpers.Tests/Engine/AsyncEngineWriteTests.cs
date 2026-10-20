@@ -10,17 +10,16 @@ namespace ModernLibs.FileHelpers.Tests.Engine;
 
 /// <summary>
 /// Acceptance tests for <see cref="FileHelperAsyncEngine{T}"/> write operations.
-/// Covers ENGI-12 (BeginWrite*) and ENGI-13 (WriteNext).
+/// Covers BeginWrite* and WriteNext.
 /// </summary>
-[Category("Phase08")]
 [Category("AsyncEngine")]
 public sealed class AsyncEngineWriteTests
 {
     // -------------------------------------------------------------------------
-    // ENGI-12 — BeginWrite* opens writer
+    // BeginWrite* opens writer
     // -------------------------------------------------------------------------
 
-    /// <summary>ENGI-12: BeginWriteFile on temp path; WriteNext one record; Close; file exists with content.</summary>
+    /// <summary>BeginWriteFile on temp path; WriteNext one record; Close; file exists with content.</summary>
     [Test]
     [DisplayName("BeginWriteFile creates file, WriteNext writes record, Close flushes content to disk")]
     public async Task BeginWriteFile_CreatesFile_WriteNextFlushes()
@@ -49,7 +48,7 @@ public sealed class AsyncEngineWriteTests
         }
     }
 
-    /// <summary>ENGI-12: BeginWriteStream(StringWriter); WriteNext; Close; StringWriter has content.</summary>
+    /// <summary>BeginWriteStream(StringWriter); WriteNext; Close; StringWriter has content.</summary>
     [Test]
     [DisplayName("BeginWriteStream writes to StringWriter and content is retrievable after Close")]
     public async Task BeginWriteStream_WritesToTextWriter()
@@ -68,7 +67,7 @@ public sealed class AsyncEngineWriteTests
         await Assert.That(result).Contains("Eve");
     }
 
-    /// <summary>ENGI-12: BeginWriteString; WriteNext 2 records; EndWriteString; accumulated content has 2 lines.</summary>
+    /// <summary>BeginWriteString; WriteNext 2 records; EndWriteString; accumulated content has 2 lines.</summary>
     [Test]
     [DisplayName("BeginWriteString accumulates 2 records and EndWriteString returns combined content")]
     public async Task BeginWriteString_AccumulatesContent()
@@ -89,10 +88,10 @@ public sealed class AsyncEngineWriteTests
     }
 
     // -------------------------------------------------------------------------
-    // ENGI-13 — WriteNext
+    // WriteNext
     // -------------------------------------------------------------------------
 
-    /// <summary>ENGI-13: BeginWriteString; WriteNext(csvOrder); EndWriteString; output contains "1,Alice,100.50".</summary>
+    /// <summary>BeginWriteString; WriteNext(csvOrder); EndWriteString; output contains "1,Alice,100.50".</summary>
     [Test]
     [DisplayName("WriteNext formats single CsvOrder record correctly as CSV line")]
     public async Task WriteNext_SingleRecord_FormatsCorrectly()
@@ -112,7 +111,7 @@ public sealed class AsyncEngineWriteTests
         await Assert.That(result).Contains("100.50");
     }
 
-    /// <summary>ENGI-13: BeginWriteString; WriteNext(IEnumerable of 3); EndWriteString; output has 3 lines.</summary>
+    /// <summary>BeginWriteString; WriteNext(IEnumerable of 3); EndWriteString; output has 3 lines.</summary>
     [Test]
     [DisplayName("WriteNext with IEnumerable writes all 3 records from array")]
     public async Task WriteNext_Enumerable_WritesAllRecords()
@@ -137,7 +136,7 @@ public sealed class AsyncEngineWriteTests
         await Assert.That(lines.Length).IsEqualTo(3);
     }
 
-    /// <summary>ENGI-13: BeginWriteString; WriteNext 3 times; TotalRecords == 3.</summary>
+    /// <summary>BeginWriteString; WriteNext 3 times; TotalRecords == 3.</summary>
     [Test]
     [DisplayName("WriteNext increments TotalRecords to 3 after writing three records")]
     public async Task WriteNext_TotalRecords_TracksCount()

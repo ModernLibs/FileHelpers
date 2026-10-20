@@ -43,7 +43,8 @@ namespace OriginalFileHelpersApp
         [FieldOrder(3)] [FieldConverter(ConverterKind.Decimal, ".")] public decimal Total;
     }
 
-    // Record implementing INotifyRead/INotifyWrite
+    // Record implementing INotifyRead/INotifyWrite. The engine calls these methods on the record
+    // itself; the non-generic event args have no Record property, so the record's own fields are used.
     [DelimitedRecord(",")]
     [IgnoreFirst(1)]
     public class ValidatedCustomer : INotifyRead, INotifyWrite
@@ -63,14 +64,14 @@ namespace OriginalFileHelpersApp
         public void AfterRead(AfterReadEventArgs e)
         {
             // Skip records with negative balance
-            if (((ValidatedCustomer)e.Record).Balance < 0)
+            if (Balance < 0)
                 e.SkipThisRecord = true;
         }
 
         public void BeforeWrite(BeforeWriteEventArgs e)
         {
             // Validation before write
-            if (string.IsNullOrEmpty(((ValidatedCustomer)e.Record).Email))
+            if (string.IsNullOrEmpty(Email))
                 e.SkipThisRecord = true;
         }
 
@@ -149,8 +150,8 @@ namespace OriginalFileHelpersApp
             var engine = new FileHelperEngine<Employee>();
 
             // Fixed-width data
-            string fixedData = "100     John Doe                50000.00    \r\n" +
-                              "101     Jane Smith              65000.00    ";
+            string fixedData = "100     John Doe                 50000.00    \r\n" +
+                              "101     Jane Smith               65000.00    ";
 
             var employees = engine.ReadString(fixedData);
 
@@ -178,7 +179,7 @@ namespace OriginalFileHelpersApp
             Console.WriteLine($"   Valid records: {customers.Length}");
             Console.WriteLine($"   Errors: {engine.ErrorManager.ErrorCount}");
             foreach (var err in engine.ErrorManager.Errors)
-                Console.WriteLine($"   - Line {err.LineNumber}: {err.Exception.Message}");
+                Console.WriteLine($"   - Line {err.LineNumber}: {err.ExceptionInfo.Message}");
             Console.WriteLine();
         }
 

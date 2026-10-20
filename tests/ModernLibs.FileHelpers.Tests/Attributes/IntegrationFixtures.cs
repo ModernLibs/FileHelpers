@@ -5,7 +5,7 @@ using ModernLibs.FileHelpers;
 
 namespace ModernLibs.FileHelpers.Tests.Attributes;
 
-// ---- Delimited record struct (ATTR-01 + multiple field attributes) ----
+// ---- Delimited record struct (multiple field attributes) ----
 // This type exercises: DelimitedRecord, IgnoreFirst, IgnoreEmptyLines, IgnoreCommentedLines,
 // FieldOrder, FieldTrim, FieldQuoted, FieldConverter, FieldNullValue, FieldOptional, FieldHidden,
 // FieldNotEmpty, FieldValueDiscarded.
@@ -43,11 +43,12 @@ internal record struct OrderRecord
     public string? InternalTag;
 
     [FieldOrder(7)]
+    [FieldOptional] // fields after an optional field must be optional (3.x rule, MLFH018)
     [FieldValueDiscarded]
     public string? LegacyField;
 }
 
-// ---- Fixed-length sealed class (ATTR-02 + ATTR-04 + ATTR-05) ----
+// ---- Fixed-length sealed class ----
 [FixedLengthRecord(FixedMode.ExactLength)]
 [IgnoreLast(1)]
 internal sealed class FixedRecord
@@ -65,7 +66,7 @@ internal sealed class FixedRecord
     public DateTime Period;
 }
 
-// ---- Readonly record struct with fixed-length (ATTR-02 + record struct support) ----
+// ---- Readonly record struct with fixed-length (record struct support) ----
 [FixedLengthRecord]
 internal readonly record struct FixedStructRecord(
     [property: FieldFixedLength(5)] string Prefix,
@@ -73,7 +74,7 @@ internal readonly record struct FixedStructRecord(
     [property: FieldFixedLength(3)] string Suffix
 );
 
-// ---- Delimited record class (ATTR-01 + FieldInNewLine + FieldConverter(Type)) ----
+// ---- Delimited record class (FieldInNewLine + FieldConverter(Type)) ----
 [DelimitedRecord("|")]
 [IgnoreEmptyLines(true)]
 internal sealed class PipedRecord
@@ -86,6 +87,12 @@ internal sealed class PipedRecord
     public string? Description;
 
     [FieldOrder(3)]
-    [FieldConverter(typeof(object))]  // uses custom converter type overload — MLFH004 expected, suppressed in csproj for this test project
-    public object? Payload;
+    [FieldConverter(typeof(PipedPayloadConverter))]  // the custom converter type overload
+    public string? Payload;
+}
+
+/// <summary>Custom converter for <see cref="PipedRecord"/>.</summary>
+internal sealed class PipedPayloadConverter : ModernLibs.FileHelpers.Converters.ConverterBase
+{
+    public override object? StringToField(string text) => text;
 }

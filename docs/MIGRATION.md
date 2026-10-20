@@ -1,608 +1,554 @@
-# Migration Guide: FileHelpers 3.x to ModernLibs.FileHelpers 4.x
+# Migrating from FileHelpers 3.x
 
-This guide helps you migrate from the original FileHelpers library to ModernLibs.FileHelpers. In most cases, migration requires only a single line change.
+ModernLibs.FileHelpers has a FileHelpers 3.x-style API: the same attribute names, engine classes,
+events, `ErrorMode` and exception types. Most code migrates by changing the namespace. This guide
+lists every difference we know of. It was checked against FileHelpers 3.5.2 and ModernLibs.FileHelpers
+4.8.0.
 
-## Overview
+The guide has three parts:
 
-**The Promise**: Change one `using` directive. That's it.
+1. [Package and namespaces](#1-package-and-namespaces): the change every project needs.
+2. [API differences](#2-api-differences): things that no longer compile, and what to use instead.
+3. [Behaviour differences](#3-behaviour-differences): code that compiles but behaves differently.
 
-ModernLibs.FileHelpers maintains **95%+ API compatibility** with FileHelpers 3.x. Most existing code will work without modification after updating the namespace.
+The last sections cover [what is new](#4-what-is-new) and [troubleshooting](#5-troubleshooting).
 
-### Quick Migration
+Behaviour that is not listed here follows FileHelpers 3.x. If you find a difference that is not
+listed, please [open an issue](https://github.com/ModernLibs/FileHelpers/issues).
 
-```csharp
-// Before (FileHelpers 3.x)
-using FileHelpers;
+## 1. Package and namespaces
 
-// After (ModernLibs.FileHelpers 4.x)
-using ModernLibs.FileHelpers;
-```
-
-## Compatibility Matrix
-
-| Feature | Status | Notes |
-|---------|--------|-------|
-| **Core Reading/Writing** | 100% | All engine methods work identically |
-| **Delimited Records** | 100% | `[DelimitedRecord]`, delimiters, quotes |
-| **Fixed-Length Records** | 100% | `[FixedLengthRecord]`, `[FieldFixedLength]` |
-| **Field Attributes** | 100% | Order, converters, trim, optional, null values |
-| **Record Attributes** | 100% | IgnoreFirst, IgnoreLast, IgnoreEmptyLines |
-| **Streaming (AsyncEngine)** | 100% | BeginReadFile/WriteFile, ReadNext, WriteNext |
-| **Error Handling** | 100% | ErrorMode.ThrowException, IgnoreAndContinue, SaveAndContinue |
-| **Events** | 100% | BeforeRead, AfterRead, BeforeWrite, AfterWrite |
-| **INotifyRead/INotifyWrite** | 100% | Interface-based notifications |
-| **Field Alignment** | 100% | `[FieldAlign]` for fixed-length padding |
-| **Field Validation** | 100% | `[FieldNotEmpty]`, `[FieldValueDiscarded]` |
-| **ConditionalRecord** | 100% | Skip records based on prefix/contains/regex |
-| **Per-Field Delimiter** | 100% | `[FieldDelimiter]` override |
-| **Converters** | 100% | DateTime, numeric, boolean, enum, Guid |
-| **Multiline Quoted Fields** | 100% | `[FieldQuoted]` with newlines inside quotes |
-
-## Namespace Changes
-
-### Required Change
-
-```csharp
-// Old namespace
-using FileHelpers;
-
-// New namespace
-using ModernLibs.FileHelpers;
-```
-
-### Project File Update
+Replace the package:
 
 ```xml
-<!-- Remove old package reference -->
 <!-- <PackageReference Include="FileHelpers" Version="3.5.2" /> -->
-
-<!-- Add new package reference -->
-<PackageReference Include="ModernLibs.FileHelpers" Version="4.0.0" />
+<PackageReference Include="ModernLibs.FileHelpers" Version="4.8.0" />
 ```
 
-## API Compatibility Details
+The library targets .NET 10 only and requires C# 11 or later (`MLFH026`; the .NET 10 default is
+C# 14). Record types are processed by a source generator that ships in the package, so there is
+nothing else to install.
 
-### Full Compatibility (No Changes Needed)
+All public types are in two namespaces:
 
-These APIs work identically to FileHelpers 3.x:
+| FileHelpers 3.x | ModernLibs.FileHelpers |
+|---|---|
+| `FileHelpers` | `ModernLibs.FileHelpers` |
+| `FileHelpers.Events` (event args, delegates, `INotifyRead`, `INotifyWrite`) | `ModernLibs.FileHelpers` |
+| `FileHelpers.MasterDetail` (`MasterDetailEngine`, `MasterDetails`, `RecordAction`, `CommonSelector`) | `ModernLibs.FileHelpers` |
+| `ConverterBase` (was in `FileHelpers`) | `ModernLibs.FileHelpers.Converters` |
 
-#### Engine API
-```csharp
-// FileHelperEngine<T> - 100% compatible
-var engine = new FileHelperEngine<Customer>();
-var records = engine.ReadFile("customers.csv");
-engine.WriteFile("output.csv", records);
-
-// FileHelperAsyncEngine<T> - 100% compatible
-var asyncEngine = new FileHelperAsyncEngine<Customer>();
-asyncEngine.BeginReadFile("customers.csv");
-while (asyncEngine.ReadNext() is { } record) { /* process */ }
+```diff
+- using FileHelpers;
+- using FileHelpers.Events;
+- using FileHelpers.MasterDetail;
++ using ModernLibs.FileHelpers;
++ using ModernLibs.FileHelpers.Converters;   // only if you write custom converters
 ```
 
-#### Record Attributes
-```csharp
-// All record attributes work identically
-[DelimitedRecord(",")]
-[FixedLengthRecord]
-[IgnoreFirst(1)]
-[IgnoreLast(1)]
-[IgnoreEmptyLines]
-[IgnoreCommentedLines('#')]
-[ConditionalRecord(RecordCondition.BeginWith, "prefix")]
-```
+Each record type is checked at compile time. A layout mistake that FileHelpers 3.x reported at run
+time (for example a missing `[FieldFixedLength]` or an unsupported field type) is now a build error
+or warning; see the [diagnostics reference](diagnostics.md) (`MLFH001`-`MLFH029`). `MLFH` warnings can be
+suppressed as usual; errors that block the descriptor cannot (`#pragma`, `.editorconfig`, `NoWarn` are
+ignored). If they are hidden with `[SuppressMessage]` or `RunAnalyzers=false`, using the record throws
+a `BadUsageException` that names the errors (see
+[suppressing diagnostics](diagnostics.md#suppressing-diagnostics)).
 
-#### Field Attributes
-```csharp
-// All field attributes work identically
-[FieldOrder(1)]
-[FieldFixedLength(20)]
-[FieldConverter(ConverterKind.Date, "yyyy-MM-dd")]
-[FieldQuoted]
-[FieldTrim(TrimMode.Both)]
-[FieldHidden]
-[FieldOptional]
-[FieldNullValue("N/A")]
-[FieldAlign(AlignMode.Right)]
-[FieldDelimiter(";")]
-[FieldNotEmpty]
-[FieldValueDiscarded]
-```
+## 2. API differences
 
-### Breaking Changes
+### 2.1 Types that are not available
 
-#### 1. Default Encoding Changed: UTF-8 (was system ANSI code page)
-
-FileHelpers 3.x defaulted to `Encoding.GetEncoding(0)` — the system's ANSI code page (e.g. Windows-1252 on Western Windows, Shift-JIS on Japanese Windows). ModernLibs.FileHelpers defaults to `Encoding.UTF8`.
-
-**Impact:**
-
-| Scenario | 3.x (ANSI) | ModernLibs (UTF-8) | Breaking? |
-|---|---|---|---|
-| Pure ASCII (0-127) | ✅ Works | ✅ Works | No |
-| UTF-8 file with BOM | ⚠️ May misread | ✅ Works | No (fix) |
-| UTF-8 file without BOM | ❌ Garbled characters | ✅ Works | No (fix) |
-| Windows-1252 file with accents (é, ñ, ü) | ✅ Works | ❌ Mojibake | **Yes** |
-| Shift-JIS / GBK / other CJK | ✅ Works | ❌ Garbled | **Yes** |
-
-**Migration:** If your files use a legacy encoding, set it explicitly:
-
-```csharp
-var engine = new FileHelperEngine<MyRecord>();
-engine.Encoding = Encoding.GetEncoding(1252);  // Western European
-// or
-engine.Encoding = Encoding.GetEncoding(0);     // System default (3.x behavior)
-```
-
-**Why UTF-8 as default:** UTF-8 is the de facto standard for delimited files. `Encoding.GetEncoding(0)` is platform-dependent — the same file decodes differently on Windows vs Linux vs macOS. Cloud-native and cross-platform scenarios require deterministic encoding.
-
-#### 3. Non-Generic Engine Constructors Removed
-
-FileHelpers 3.x provided non-generic constructors that accepted `Type` at runtime:
-
-```csharp
-// 3.x — NOT SUPPORTED in ModernLibs
-var engine = new FileHelperEngine(typeof(Customer));
-var engine = new FileHelperEngine(typeof(Customer), Encoding.UTF8);
-```
-
-**Why removed:** These constructors are **not AOT-safe**. They require `Activator.CreateInstance(typeof(FileHelperEngine<>).MakeGenericType(recordType))` at runtime, which:
-- Uses reflection to construct generic types from runtime `Type` objects
-- Breaks IL trimming — the trimmer cannot determine which generic instantiations are needed
-- Conflicts with the source-generated descriptor model (`FileHelperRegistry<T>.Descriptor` is populated at compile time via `[ModuleInitializer]`)
-
-**Migration:** Use the generic form exclusively:
-
-```csharp
-// ModernLibs — AOT-safe, source-generated
-var engine = new FileHelperEngine<Customer>();
-engine.Encoding = Encoding.UTF8;  // Set encoding via property if needed
-```
-
-If you need dynamic type dispatch, construct the closed generic engine yourself and cache it:
-
-```csharp
-// One-time reflection at startup, then cache the result
-static readonly object s_lock = new();
-static readonly Dictionary<Type, object> s_engines = new();
-
-static FileHelperEngine<T> GetEngine<T>() => (FileHelperEngine<T>)GetEngine(typeof(T));
-
-static object GetEngine(Type recordType)
-{
-    if (!s_engines.TryGetValue(recordType, out var engine))
-    {
-        lock (s_lock)
-        {
-            if (!s_engines.TryGetValue(recordType, out engine))
-            {
-                engine = Activator.CreateInstance(typeof(FileHelperEngine<>).MakeGenericType(recordType))!;
-                s_engines[recordType] = engine;
-            }
-        }
-    }
-    return engine;
-}
-```
-
-#### 4. Runtime Reflection Features Removed
-
-Features that relied on runtime reflection are not supported:
-
-```csharp
-// NOT SUPPORTED: Dynamic ClassBuilder
-var cb = new ClassBuilder("Customer");  // Removed
-
-// NOT SUPPORTED: DataLink feature
-var link = new DataLinkProvider();  // Removed
-```
-
-**Migration**: Use source-generated record types instead:
-
-```csharp
-// ModernLibs approach: Source-generated record
-[DelimitedRecord(",")]
-public class Customer
-{
-    [FieldOrder(1)] public string Name;
-    [FieldOrder(2)] public int Age;
-}
-```
-
-#### 5. CSV-Specific Helpers
-
-CSV-specific expansion is postponed. Existing delimited records remain supported, but ModernLibs.FileHelpers is intentionally focusing on fixed-width, multi-record, and master/detail processing instead of competing with mature CSV-first libraries.
-
-**Specialist scope at a glance (v1.2 — Fixed Width Specialist):**
-
-| Surface | Parity with FileHelpers 3.x | Notes |
+| FileHelpers 3.x | Why | Use instead |
 |---|---|---|
-| Fixed-width parsing/writing | Behavior parity for the documented attribute set; `FixedMode` and `OverflowMode` are first-class contract knobs (see *Fixed-width: attributes, modes, and converters*). | Intentional non-parity items listed inline in that section. |
-| Multi-record (`MultiRecordEngine`) | API parity through the AOT-safe **closed-set** form `MultiRecordType.For<T>(selector)`. | Runtime type discovery is intentionally not revived (see *Multi-Record selector failures*). |
-| Master/detail (`MasterDetailEngine<TMaster,TDetail>`) | API parity for read/write, including multi-line logical records. | See *Master-Detail Processing*. |
-| CSV-first features (advanced dialects, dynamic `ClassBuilder`, etc.) | **Postponed / intentional non-parity** for v1.2. | Use a CSV-focused library where this is the primary need. |
+| `FileHelperEngine(Type)`, `FileHelperAsyncEngine(Type)`, `MasterDetailEngine(Type, Type)` (non-generic engines) | Need run-time reflection. | The generic engines, for example `new FileHelperEngine<Customer>()`. |
+| `DelimitedFileEngine<T>`, `FixedFileEngine<T>`, `engine.Options` (`DelimitedRecordOptions`, `FixedRecordOptions`, `RecordOptions`) | The layout is compiled into generated code and cannot be changed at run time. | Declare one record type per layout. |
+| `ClassBuilder`, `DelimitedClassBuilder`, `FixedLengthClassBuilder`, `CsvClassBuilder` and the rest of `FileHelpers.Dynamic` | Compile code at run time. | Record types declared in source. |
+| `CsvEngine`, `CsvOptions` | Built on `ClassBuilder`. | A record type with `[DelimitedRecord(",")]`, or a CSV-first library if you have no fixed schema. |
+| `SmartFormatDetector` and `FileHelpers.Detection` | Produces `ClassBuilder` output. | Declare the layout. |
+| `RecordTypeSelector`, `MultiRecordEngine(RecordTypeSelector, params Type[])` | Run-time type dispatch. | `MultiRecordEngine` with `MultiRecordType.For<T>(selector)`, see [2.6](#26-multi-record-files). |
+| `CommonEngine` | Static convenience wrappers. | The engine methods, for example `new FileHelperEngine<T>().ReadFile(path)`. |
+| `FileTransformEngine`, `ITransformable<T>` | Not included. | Read with one engine, project with LINQ, write with another. |
+| `FileDiffEngine`, `BigFileSorter` | Not included. | LINQ set operations; an external sort tool. |
+| `FileDataLink`, `GenericDataLink`, the `DataStorage` classes (`FileStorage`, `SqlServerStorage`, `OleDbStorage`, ...), `ExcelNPOIStorage` | Not included (.NET Framework / extra dependencies). | Your data-access library of choice. |
+| `[FieldArrayLength]` | Not implemented. | Read the values as separate fields or as one string field and split it. |
+| `[FieldIgnored]` (obsolete in 3.x) | Removed. | `[FieldHidden]`. |
+| Non-generic `INotifyRead` / `INotifyWrite` | Replaced. | `INotifyRead<T>` / `INotifyWrite<T>`, see [2.4](#24-events-and-record-notifications). |
 
-The non-parity statements below are normative. Everything not flagged as non-parity should behave identically to FileHelpers 3.x for the supported surface.
+[GAP-ANALYSIS.md](GAP-ANALYSIS.md) explains why each of these was left out.
 
-#### 6. Multi-Record Processing
+### 2.2 `FileHelperEngine<T>`
 
-Multi-record processing is supported through an AOT-safe closed-set API:
+The read, write and append methods of 3.x are available with the same names and parameters
+(`ReadFile`, `ReadString`, `ReadStream`, the `maxRecords` overloads, `WriteFile`, `WriteString`,
+`WriteStream`, `AppendToFile`), as are `HeaderText`, `FooterText`, `Encoding`, `NewLineForWrite`,
+`ErrorMode`, `ErrorManager`, `LineNumber`, `TotalRecords` and the four record events.
+
+| FileHelpers 3.x | ModernLibs.FileHelpers |
+|---|---|
+| `ReadFileAsList`, `ReadStringAsList`, `ReadStreamAsList` | Not available. Use `new List<T>(engine.ReadFile(path))` or the `IEnumerable<T>` returned by `ReadSync`. |
+| `ReadFileAsDT`, `ReadStringAsDT`, `ReadStreamAsDT` (`DataTable`) | Not available. |
+| `WriteFile` / `WriteStream` / `WriteString` with a `maxRecords` argument | Not available. Pass `records.Take(n)`. |
+| `GetFileHeader()` | Not available. `[FieldCaption]` is accepted and stored in the field metadata, but no header line is generated from it. Set `HeaderText` yourself. |
+| `Options` (run-time layout changes) | Not available, see [2.1](#21-types-that-are-not-available). |
+| `RecordType` | Not available. You already know `typeof(T)`. |
+| `where T : class` | No constraint: structs and `record struct` types work too. |
+
+`IFileHelperEngine<T>` and `IFileHelperAsyncEngine<T>` exist as in 3.x, with the members listed in this
+section and the next.
+
+### 2.3 `FileHelperAsyncEngine<T>`
+
+| FileHelpers 3.x | ModernLibs.FileHelpers |
+|---|---|
+| `IDisposable BeginReadFile(...)`, `BeginReadStream`, `BeginReadString`, `BeginWriteFile`, `BeginWriteStream` return `IDisposable` | They return `void`. Dispose the engine instead (`using var engine = ...`), or call `Close()`. |
+| `BeginReadFile(fileName, bufferSize)`, `BeginWriteFile(fileName, bufferSize)` | Not available. |
+| `BeginAppendToFile(fileName)` | `BeginAppendFile(filePath)` |
+| `ReadNexts(int)` | `ReadNext(int)` |
+| `ReadToEnd()` | `ReadRemaining()` |
+| `WriteNexts(IEnumerable<T>)` | `WriteNext(IEnumerable<T>)` |
+| `Flush()` | Not available. `Close()` / `Dispose()` flush the output. |
+| `LastRecordValues`, `this[int]`, `this[string]`, `WriteNextValues()` | Not available. Work with the typed record. |
+| `FileHelperAsyncEngine(Encoding)` constructor | Not available. Set the `Encoding` property. |
+| One instance can run a `ReadAsync` enumeration next to a `BeginRead*` session | Not allowed: `ReadAsync`, `BeginRead*` and `BeginWrite*` throw `InvalidOperationException` while another read or write session is open on the same instance (they share `LineNumber`, `TotalRecords`, `HeaderText` and `ErrorManager`). Use a separate engine instance for each concurrent read or write. As in 3.x, reading while writing is rejected. |
 
 ```csharp
-var engine = new MultiRecordEngine(
-    MultiRecordType.For<Order>(line => line.StartsWith("ORD", StringComparison.Ordinal)),
-    MultiRecordType.For<Customer>(line => line.StartsWith("CUST", StringComparison.Ordinal)));
+// 3.x:  using (engine.BeginReadFile("orders.txt")) { ... }
+using var engine = new FileHelperAsyncEngine<Order>();
+engine.BeginReadFile("orders.txt");
 
-object[] records = engine.ReadFile("mixed.txt");
+Order[] firstTen = engine.ReadNext(10);   // was ReadNexts(10)
+Order[] rest = engine.ReadRemaining();    // was ReadToEnd()
 ```
 
-Legacy `MultiRecordEngine(typeof(Order), typeof(Customer))` runtime type discovery is intentionally not revived because it conflicts with the source-generated, AOT-safe design. Use explicit selectors instead.
+### 2.4 Events and record notifications
 
-#### Multi-Record selector failures and ErrorMode migration behavior
+The event names are the same, and the read event arguments keep `RecordLine`, `RecordLineChanged`,
+`SkipThisRecord`, `LineNumber` and (after read) `Record`. The differences:
 
-Selector miss behavior now follows the same `ErrorMode` contract used by `FileHelperEngine<T>`, with strict behavior by default.
-
-- `ErrorMode.ThrowException` (default): selector misses throw immediately with line number and line text context.
-- `ErrorMode.IgnoreAndContinue`: unmatched lines are skipped and processing continues.
-- `ErrorMode.SaveAndContinue`: unmatched lines are captured into `ErrorManager.Errors` and processing continues.
+| FileHelpers 3.x | ModernLibs.FileHelpers |
+|---|---|
+| Handler signature `(EngineBase engine, XxxEventArgs<T> e)` | `(object sender, XxxEventArgs<T> e)`. Lambdas compile unchanged; named handler methods need the first parameter changed to `object`. |
+| `e.Engine` | Not available. Use `sender`. |
+| `BeforeWriteEventArgs<T>.LineNumber`, `AfterWriteEventArgs<T>.LineNumber` | `RecordNumber`. |
+| `AfterReadEventArgs<T>.Record` is settable | Read-only. Change the record's members instead of replacing the record. |
+| `BeforeReadEventArgs<T>.Record` | Not available (the record has not been parsed yet). |
+| `event EventHandler<ProgressEventArgs> Progress` | `event ProgressChangeHandler Progress` with the same `(sender, ProgressEventArgs)` shape. Lambdas compile unchanged. |
+| `INotifyRead` / `INotifyWrite` with non-generic event args | `INotifyRead<T>` / `INotifyWrite<T>` with generic event args. |
 
 ```csharp
-var engine = new MultiRecordEngine(
-    MultiRecordType.For<Order>(line => line.StartsWith("ORD", StringComparison.Ordinal)),
-    MultiRecordType.For<Customer>(line => line.StartsWith("CST", StringComparison.Ordinal)));
-
-// Default is strict throw semantics.
-engine.ErrorMode = ErrorMode.ThrowException;
-
-// Optional migration-friendly non-throw pathways:
-engine.ErrorMode = ErrorMode.SaveAndContinue;
-object[] records = engine.ReadFile("mixed.txt");
-
-foreach (var error in engine.ErrorManager.Errors)
+[DelimitedRecord(",")]
+public sealed class Order : INotifyRead<Order>   // 3.x: INotifyRead
 {
-    Console.WriteLine($"Selector miss at line {error.LineNumber}: {error.RecordString}");
+    public int Id;
+    public decimal Amount;
+
+    public void BeforeRead(BeforeReadEventArgs<Order> e)   // 3.x: BeforeReadEventArgs
+    {
+        if (e.RecordLine.Contains("INVALID"))
+            e.SkipThisRecord = true;
+    }
+
+    public void AfterRead(AfterReadEventArgs<Order> e) { }
 }
 ```
 
-**Intentional differences / non-parity**
+As in 3.x, `BeforeRead` runs on the instance that then receives the field values, so state you set
+there is kept, for class records with settable members. Struct records, records built through a
+constructor and records with `init`-only members cannot be filled after creation: for them
+`BeforeRead` runs on a separate default instance that is discarded, so use it only to inspect or skip
+the line (`RecordLine`, `SkipThisRecord`).
 
-- **Closed-set configuration required:** ModernLibs requires explicit `MultiRecordType.For<T>(selector)` entries instead of legacy runtime type discovery.  
-  **Rationale:** preserves AOT safety and deterministic source-generated behavior.  
-  **Migration action:** register each record type and selector explicitly during engine construction.
+### 2.5 Attributes
 
-#### 7. Master-Detail Processing
+Attribute names and the common constructors are unchanged. These signatures differ:
 
-Parent/child files are supported with `MasterDetailEngine<TMaster,TDetail>`:
+| FileHelpers 3.x | ModernLibs.FileHelpers |
+|---|---|
+| `[DelimitedRecord(delimiter, defaultCultureName)]`, `[FixedLengthRecord(fixedMode, defaultCultureName)]` | No culture parameter. Set the culture per field: `[FieldConverter(ConverterKind.Decimal, CultureName = "de-DE")]`. |
+| `[IgnoreCommentedLines("#")]`, `[IgnoreCommentedLines("//", anyPlace)]` (string marker) | `[IgnoreCommentedLines('#')]`, `[IgnoreCommentedLines('#', anyPlace)]`: the marker is a single `char`. `anyPlace` works as in 3.x (default `true`: blanks may precede the marker). |
+| `[FieldTrim(TrimMode, string trimChars)]` | `[FieldTrim(TrimMode, params char[] chars)]`, for example `[FieldTrim(TrimMode.Both, ' ', '*')]`. As in 3.x, the characters are skipped only around the quotes of a `[FieldQuoted]` field; the value itself is trimmed of white space. |
+| `[FieldNullValue(typeof(DateTime), "2000-01-01")]` | Not available. Use a constant of the field type, for example `[FieldNullValue(-1)]` on an `int` field or `[FieldNullValue(0.0)]` on a `double` field. A value that does not fit the field type is reported as `MLFH010`. A `DateTime` value cannot be an attribute constant: declare the field as `DateTime?` (an empty field reads as `null`) and substitute the default in your code. |
+| `[FieldConverter(typeof(MyConverter), params object[] args)]` | `[FieldConverter(typeof(MyConverter), params string[] args)]`: the arguments must be strings. See [3.8](#38-custom-converters). |
+| `RecordCondition.IncludeIfMatchRegex`, `RecordCondition.ExcludeIfMatchRegex` | `RecordCondition.IncludeIfRegex`, `RecordCondition.ExcludeIfRegex` |
+| `RecordCondition.IncludeIfEnclosed`, `RecordCondition.ExcludeIfEnclosed` | Not available. Use a regex condition. |
+
+`[FieldDelimiter]` works as in 3.x: it sets the delimiter that *follows* its field. With
+`[DelimitedRecord(",")]`, `{ A; [FieldDelimiter("|")] B; C }` reads and writes `a,b|c`; on the last
+field the attribute only matters for the extra-delimiter check and `OptionalForWrite` quoting. 3.x
+code needs no change. Code written for an earlier 4.x milestone, which used the attribute as the
+delimiter *before* its field (`a|b,c`), must move the attribute one field earlier to keep its file
+layout; files in the milestone layout are rejected with a field-count error ("Delimiter '|' not found
+after field 'B'") instead of being misread.
+
+`[FieldQuoted]` has all the 3.x constructors, including the `MultilineMode` overloads.
+`[FieldFixedLength(n)]` keeps its `OverflowMode` property, and `AlignMode`, `FixedMode`, `QuoteMode`,
+`MultilineMode`, `TrimMode` and `ConverterKind` keep their member names. `ConverterKind` has one new
+member, `Enum`. `[DelimitedRecord]` has a new `MultilineMode` property; when you set it, it overrides
+the multiline setting of every `[FieldQuoted]` field in the record.
+
+Enum *numeric values* are not always the same as in 3.x (`ErrorMode`, `RecordAction`, `ConverterKind`).
+This only matters if you store or cast the numbers; use the names.
+
+### 2.6 Multi-record files
+
+3.x chose the record type with a `RecordTypeSelector` that returned a `Type`. ModernLibs uses a
+closed list of record types, each with a selector that returns `true` when a line belongs to it:
 
 ```csharp
-var engine = new MasterDetailEngine<Order, OrderLine>(line =>
-    line.StartsWith("ORD", StringComparison.Ordinal) ? RecordAction.Master :
-    line.StartsWith("LIN", StringComparison.Ordinal) ? RecordAction.Detail :
+var engine = new MultiRecordEngine(
+    MultiRecordType.For<Order>(line => line.StartsWith("ORD")),
+    MultiRecordType.For<OrderLine>(line => line.StartsWith("LIN")));
+
+object[] records = engine.ReadFile("mixed.txt");
+foreach (object record in records)
+{
+    if (record is Order order) { /* ... */ }
+}
+```
+
+| FileHelpers 3.x | ModernLibs.FileHelpers |
+|---|---|
+| `MultiRecordEngine(RecordTypeSelector, params Type[])`, `RecordSelector` property | `MultiRecordEngine(params IMultiRecordType[])` with `MultiRecordType.For<T>(MultiRecordSelector)` |
+| Selector receives a `string` | Selector receives a `ReadOnlySpan<char>`. `StartsWith`, `Contains`, `EndsWith`, `Length` and indexing work; call `line.ToString()` if you need `string`-only methods. |
+| Record-by-record API on `MultiRecordEngine` (`BeginReadFile`, `ReadNext`, `BeginWriteFile`, `WriteNext`, `Close`) | Not available. Use `MultiRecordAsyncEngine.ReadAsync` for streaming reads. |
+| `AppendToFile`, `WriteFile` / `WriteStream` / `WriteString` with `maxRecords` | Not available. |
+
+### 2.7 Master/detail files
+
+```csharp
+// 3.x enum CommonSelector -> CommonSelectorMode
+var engine = new MasterDetailEngine<Order, OrderLine>(CommonSelectorMode.MasterIfBegins, "ORD");
+
+// or a selector of your own
+var custom = new MasterDetailEngine<Order, OrderLine>(line =>
+    line.StartsWith("ORD") ? RecordAction.Master :
+    line.StartsWith("LIN") ? RecordAction.Detail :
     RecordAction.Skip);
 
-MasterDetails<Order, OrderLine>[] orders = engine.ReadFile("orders.txt");
+MasterDetails<Order, OrderLine>[] groups = engine.ReadFile("orders.txt");
+foreach (var group in groups)
+    Console.WriteLine($"{group.Master.Id}: {group.Details.Count} lines");
 ```
 
-## Before/After Code Examples
+| FileHelpers 3.x | ModernLibs.FileHelpers |
+|---|---|
+| `enum CommonSelector` (`MasterIfBegins`, ...) | `enum CommonSelectorMode` with the same members. The name `CommonSelector` is now a static class of selector presets (`CommonSelector.BeginsWith("ORD")`, `Contains`, `EndsWith`, `Equals`, `HasLengthLessThan`, `HasLengthMoreThan`). |
+| `MasterDetailSelector(string recordString)` | `MasterDetailSelector(ReadOnlySpan<char> line)`, see the selector note in [2.6](#26-multi-record-files). |
+| Parameterless constructor plus `RecordSelector` property | Pass the selector to the constructor. |
+| `MasterDetails<M, D>.Details` is `D[]`; `Master` and `Details` are settable; parameterless constructor | `Details` is `IReadOnlyList<TDetail>` (use `Count`, not `Length`); both properties are read-only; construct with `new MasterDetails<M, D>(master, details)`. |
+| `AppendToFile`, `WriteFile` / `WriteStream` / `WriteString` with `maxRecords` | Not available. |
 
-### Example 1: Basic CSV Reading
+### 2.8 Errors
+
+The exception types have the same names and hierarchy as 3.x: `FileHelpersException` is the base of
+`BadUsageException`, `NullValueNotFoundException` (derives from `BadUsageException`) and
+`ConvertException`. `ConvertException` has the 3.x properties (`FieldName`, `FieldType`,
+`FieldStringValue`, `LineNumber`, `ColumnNumber`, `MessageExtra`, `MessageOriginal`).
+
+| FileHelpers 3.x | ModernLibs.FileHelpers |
+|---|---|
+| `ErrorManager.Errors` is `ErrorInfo[]` | `IReadOnlyList<ErrorInfo>`: use `Count` instead of `Length`. |
+| `ErrorManager` implements `IEnumerable` | It does not; iterate `ErrorManager.Errors`. |
+| `SaveErrors(fileName, string header)` | `SaveErrors(filePath, Encoding encoding)`. `SaveErrors(filePath)` is unchanged. The file format is a tab-separated text report, not the 3.x format; its column numbers are 1-based, like `ConvertException.ColumnNumber`. |
+| `ErrorManager.LoadErrors(fileName)` | Not available. |
+| `ErrorLimit` (default 10 000) | Not available; all errors are kept. |
+| `new ErrorManager(ErrorMode)` | Use the parameterless constructor and set `ErrorMode`. |
+| `ErrorInfo.RecordTypeName` | Not available. `ErrorInfo` adds `FieldName`, `ColumnIndex` and `RawFieldValue`. |
+
+### 2.9 Converters
+
+`ConverterBase` keeps its 3.x members (`StringToField`, `FieldToString`, `CustomNullHandling`,
+`ThrowConvertException`, `DefaultDateTimeFormat`). It now lives in `ModernLibs.FileHelpers.Converters`.
+The built-in converters (`DecimalConverter`, `DateTimeConverter`, ...) are public classes in the same
+namespace, which they were not in 3.x.
+
+### 2.10 Record layout rules
+
+These rules are checked when you build, not when the engine is created. Apart from the members of
+the first rule that cannot be mapped, they are the same as in 3.x.
+
+- **Which members are mapped.** 3.x maps every instance field (any accessibility, including the
+  backing fields of auto-properties) and no other properties. Here `public`, `internal` and
+  `protected internal` fields and properties are mapped (a property needs an accessible getter, and an
+  accessible setter, an `init` accessor or a matching constructor parameter). `private`, `protected` and
+  `private protected` members (and properties without an accessible getter) cannot be reached by
+  generated code and are not part of the layout: an annotated one is an error (`MLFH023`), an
+  unannotated one that 3.x would map is a warning (`MLFH028`), so a migrated record cannot lose a
+  column silently. Make such a member `public` or `internal` to keep the column, or mark it
+  `[FieldHidden]` if it is not one. Properties with explicit accessors, which 3.x ignores, are now
+  columns when they meet these conditions; mark them `[FieldHidden]` to keep them out.
+- **`[FieldOrder]` on all fields or none.** If one mapped field has `[FieldOrder]`, every mapped field
+  needs it (`MLFH024`); `[FieldHidden]` members are exempt. 3.x threw a `BadUsageException`.
+- **`[FieldQuoted]` only in delimited records.** On a field of a fixed-length record it is an error
+  (`MLFH025`), as 3.x threw a `BadUsageException`.
+- **`[IgnoreInheritedClass]`** stops the walk up the inheritance chain at the class that carries it,
+  as in 3.x: for `C : B : A` with the attribute on `B`, the fields of `B` and `C` are mapped, not those
+  of `A`.
+- `ref struct` types cannot be record types (`MLFH027`).
 
 ```csharp
-// ========== BEFORE (FileHelpers 3.x) ==========
-using FileHelpers;
-
 [DelimitedRecord(",")]
-public class Customer
+public sealed class Invoice
 {
-    [FieldOrder(1)] public string Name;
-    [FieldOrder(2)] public int Age;
-    [FieldOrder(3)] public string Country;
+    public int Number;
+    internal decimal Total;               // mapped, as in 3.x
+    [FieldHidden] internal string? Note;  // left out of the layout
+    private int _retries;                 // MLFH028: a column in 3.x, not mapped here
 }
+```
 
-class Program
-{
-    static void Main()
-    {
-        var engine = new FileHelperEngine<Customer>();
-        var customers = engine.ReadFile("customers.csv");
-        foreach (var c in customers)
-            Console.WriteLine($"{c.Name} from {c.Country}");
-    }
-}
+## 3. Behaviour differences
 
-// ========== AFTER (ModernLibs.FileHelpers 4.x) ==========
-using ModernLibs.FileHelpers;  // Only change needed!
+Since 4.8.0, quoted fields (`QuoteMode`, multiline values, blanks before quotes), `[FieldTrim]`
+characters, comment lines (`anyPlace`), `[FieldInNewLine]` and custom converter arguments behave as in
+3.x. The remaining differences are:
 
+### 3.1 Default encoding is UTF-8
+
+3.x used `Encoding.GetEncoding(0)`. On .NET Framework that is the system ANSI code page (for example
+Windows-1252); on .NET Core and later it already is UTF-8. ModernLibs uses `Encoding.UTF8` on every
+platform, which also writes a byte order mark when it creates a file. If your files use a legacy code
+page, set it explicitly:
+
+```csharp
+Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);   // needed on .NET for code pages
+var engine = new FileHelperEngine<Customer>(Encoding.GetEncoding(1252));
+```
+
+### 3.2 Line endings and empty header/footer
+
+- `NewLineForWrite` defaults to `"\r\n"` on every platform. 3.x used `Environment.NewLine`, which is
+  `"\n"` on Linux and macOS. Set `engine.NewLineForWrite = "\n";` if you need that. This applies to
+  `MultiRecordEngine` and `MasterDetailEngine` too: they have a `NewLineForWrite` property with the
+  same default, which also sets the line break inside `[FieldInNewLine]` records.
+- `HeaderText` and `FooterText` are `null` when there is no header or footer. In 3.x they were empty
+  strings, so code like `engine.HeaderText.Length` needs a null check.
+
+### 3.3 Empty fields and conversion errors
+
+These follow 3.x since 4.8.0 (earlier 4.x milestones were different):
+
+- An empty field for a non-nullable value type raises `NullValueNotFoundException` unless the field has
+  `[FieldNullValue]`. Nullable value types (`int?`) become `null`; strings keep their text.
+- A value that cannot be converted raises `ConvertException`; it is never replaced by `default`.
+- `bool` accepts `true`/`false`, `1`/`0`, `y`/`n`, `t`/`f` (trimmed, case-insensitive), as in 3.x. An
+  empty `bool` field follows the empty-field rule above. `yes`/`no` are not accepted by default
+  (earlier 4.x milestones accepted them); declare the strings as in 3.x:
+  `[FieldConverter(ConverterKind.Boolean, "yes", "no")]`.
+- In `ErrorMode.ThrowException`, library exceptions are thrown as-is; any other exception from the
+  read is wrapped in a `FileHelpersException`.
+
+### 3.4 Dates and percentages
+
+- `DateTime` fields without a format use `ConverterBase.DefaultDateTimeFormat`, which is `ddMMyyyy`
+  as in 3.x, for reading and writing.
+- `DateOnly` and `TimeOnly` (not in 3.x) default to `MM/dd/yyyy` and `HH:mm:ss`, which is not the
+  same convention as `DateTime`. `ConverterKind.Date` only applies to `DateTime` fields; for another
+  format, wrap the built-in converter in a custom converter:
+
+  ```csharp
+  public sealed class IsoDateOnlyConverter : ISpanConverter<DateOnly>
+  {
+      private static readonly DateOnlyConverter Inner = new("yyyy-MM-dd");
+
+      public bool TryParse(ReadOnlySpan<char> span, out DateOnly value) => Inner.TryParse(span, out value);
+
+      public bool TryFormat(DateOnly value, Span<char> destination, out int charsWritten) =>
+          Inner.TryFormat(value, destination, out charsWritten);
+  }
+
+  [DelimitedRecord(",")]
+  public sealed class Shipment
+  {
+      [FieldConverter(typeof(IsoDateOnlyConverter))]
+      public DateOnly ShippedOn;
+  }
+  ```
+
+- `ConverterKind.PercentDouble` works as in FileHelpers 3.5.2, not as the 3.x documentation describes
+  it. It reads and writes plain numbers (`50` reads as `50`, `0.5` is written as `0.5`), and a value
+  that contains `%` raises `ConvertException`. The 3.x documentation says `50%` reads as `0.5`, but
+  3.x itself rejects any value with `%`. For files that contain `%`, use a custom converter.
+
+### 3.5 `[FieldInNewLine]` records
+
+`[FieldInNewLine]` follows 3.x. When writing, the field starts on a new line. In a delimited record the
+delimiter stays at the end of the previous line, and the line break is the engine's `NewLineForWrite`:
+
+```csharp
 [DelimitedRecord(",")]
-public class Customer
+public sealed class Host
 {
-    [FieldOrder(1)] public string Name;
-    [FieldOrder(2)] public int Age;
-    [FieldOrder(3)] public string Country;
+    public int Id;
+    [FieldQuoted('"', QuoteMode.OptionalForBoth)] public string Name = "";
+    [FieldInNewLine] public string Ip = "";
+    public string Note = "";
 }
+```
 
-class Program
+```
+107,"a,b",
+166.90.252.2,5" ruler
+```
+
+When reading, each physical line is checked against its own fields, and each field keeps its own
+quote rules (here `"a,b"` is a `[FieldQuoted]` value and `5" ruler` is plain text). Quoted values
+may span lines inside such a record, and `[FieldDelimiter]` works with it (`a,b|` followed by `c,d`
+on the next line). As in 3.x, a line before a new-line field must end with the delimiter that follows
+its last field (`107,abc,`, not `107,abc`), unless the new-line field is `[FieldOptional]` or the line
+ends with a quoted value (`107,"a,b"` is accepted); without it the line is an error ("Delimiter ','
+not found after field 'Name'"). Empty, comment and
+`[ConditionalRecord]`-excluded lines between records are skipped on their own. An error is reported
+on the physical line that fails, and after a layout error the following lines are read as the start of
+the next record, as in 3.x (in `MultiRecordEngine` and `MasterDetailEngine` they go through the
+selector again).
+
+One difference from 3.x remains: a conversion error skips the whole record; 3.x continues with the
+next line.
+
+A `[FieldInNewLine]` first field behaves as in 3.x: every record begins with a blank line. Combined
+with `[IgnoreEmptyLines]` that blank line is skipped and the record cannot be read (3.x behaves the
+same); the build reports this as `MLFH029`.
+
+### 3.6 Multi-record files
+
+- `[IgnoreFirst]` and `[IgnoreLast]` are not applied by `MultiRecordEngine` (3.x applied the ones on
+  the first record type). Header and footer lines are still dropped as long as no selector matches
+  them, because lines that match no selector are skipped.
+- Skipping unmatched lines is the 3.x behaviour (earlier 4.x milestones raised an error).
+
+### 3.7 Footer text in streaming reads
+
+`FooterText` (from `[IgnoreLast]`) is set when a read reaches the end of the input. If you stop a
+streaming read early, for example by calling `Close()` on `FileHelperAsyncEngine<T>` before the last
+record or by leaving a `ReadSync` / `ReadAsync` loop, `FooterText` stays `null`.
+
+### 3.8 Custom converters
+
+Custom converters work as in 3.x. `[FieldConverter(typeof(MyConverter))]` needs a public parameterless
+constructor (`MLFH006` otherwise). `[FieldConverter(typeof(MyConverter), "a", "b")]` passes the
+arguments to a public constructor that takes that many `string` parameters, or a `params string[]`
+constructor (`MLFH022` otherwise). The generated code calls the constructor directly, so there is no
+reflection:
+
+```csharp
+public sealed class TextBoolConverter : ConverterBase
 {
-    static void Main()
+    private readonly string _trueText;
+    private readonly string _falseText;
+
+    public TextBoolConverter(string trueText, string falseText)
     {
-        var engine = new FileHelperEngine<Customer>();
-        var customers = engine.ReadFile("customers.csv");
-        foreach (var c in customers)
-            Console.WriteLine($"{c.Name} from {c.Country}");
-    }
-}
-```
-
-### Example 2: Fixed-Length Records
-
-```csharp
-// ========== BEFORE (FileHelpers 3.x) ==========
-using FileHelpers;
-
-[FixedLengthRecord]
-public class Employee
-{
-    [FieldFixedLength(10)] public int Id;
-    [FieldFixedLength(25)] public string Name;
-    [FieldFixedLength(12)] public decimal Salary;
-}
-
-// ========== AFTER (ModernLibs.FileHelpers 4.x) ==========
-using ModernLibs.FileHelpers;  // Only change needed!
-
-[FixedLengthRecord]
-public class Employee
-{
-    [FieldFixedLength(10)] public int Id;
-    [FieldFixedLength(25)] public string Name;
-    [FieldFixedLength(12)] public decimal Salary;
-}
-```
-
-### Fixed-width: attributes, modes, and converters
-
-When you migrate fixed-length layouts, treat **`FixedMode`** on `[FixedLengthRecord]` and per-field **`OverflowMode`** on `[FieldFixedLength]` as part of the contract, not just decoration.
-
-**Supported field / record attributes (fixed-width)** — the source generator wires these for `[FixedLengthRecord]` types:
-
-| Attribute | Fixed-width |
-|-----------|-------------|
-| `[FieldOrder]` | Yes |
-| `[FieldFixedLength]` (with optional `OverflowMode`) | Yes |
-| `[FieldTrim]` | Yes |
-| `[FieldOptional]` | Yes |
-| `[FieldNullValue]` | Yes |
-| `[FieldNotEmpty]` | Yes |
-| `[FieldValueDiscarded]` | Yes |
-| `[FieldInNewLine]` | Yes (sync `FileHelperEngine` joins physical lines per logical record) |
-| `[FieldAlign]` | Yes |
-| `[FieldConverter]` (`ConverterKind` or `typeof(...)`) | Yes — `typeof` may target `ConverterBase` or `ISpanConverter<T>` with a public parameterless constructor |
-| `[FieldQuoted]` / `[FieldDelimiter]` | Extracted where applicable; prefer delimited records for heavy quoting / per-field delimiter scenarios |
-| `[FieldHidden]` / `[FieldNotInFile]` | Yes |
-| Record filters: `[IgnoreFirst]`, `[IgnoreLast]`, `[IgnoreEmptyLines]`, `[IgnoreCommentedLines]`, `[ConditionalRecord]` | Yes |
-
-**`FixedMode`** (constructor argument on `[FixedLengthRecord]`; default is **`ExactLength`**):
-
-- **`ExactLength`**: Each logical line must be exactly the sum of all field widths. Shorter or longer lines are rejected (see tests in `FixedWidthContractTests`).
-- **`AllowLessChars`**: Lines shorter than the declared total are accepted; trailing fields may be empty or partial. Lines longer than the declared total are still rejected.
-- **`AllowMoreChars`**: Lines must be at least as long as the declared total; extra characters after the last field are ignored.
-- **`AllowVariableLength`**: Similar to allowing variable total length without strict equality; use when trailing content is intentionally ignored (see `FixedWidthContractTests` for precise behavior).
-
-**`OverflowMode`** on `[FieldFixedLength]`:
-
-- **`DiscardEnd`** (default): When formatting a value that does not fit the fixed width, excess characters are dropped from the end so the written field never exceeds its width.
-- **`Error`**: Overflow on format is treated as an error instead of silent truncation — use when silent data loss is unacceptable.
-
-**Converters**
-
-New code should implement **`ISpanConverter<T>`** for zero-allocation span-based conversion. Legacy **`ConverterBase`** types remain supported for migration; the generator bridges them with `ConverterBaseAdapter<T>` (string-based internally). Examples and edge cases live under `tests/ModernLibs.FileHelpers.Tests/Phase25/` (e.g. `FixedWidthBuiltinConverterTests`, `FixedWidthCustomConverterTests`).
-
-**Intentional non-parity and limitations**
-
-- **CSV-first features** (advanced CSV dialects, dynamic `ClassBuilder`, etc.) are intentionally out of scope; use a CSV-focused library where that is the primary need.
-- **`FileHelperAsyncEngine`** streaming may not yet mirror every multi-line / `FieldInNewLine` behavior of the synchronous engine — validate async paths for your layout.
-- **Runtime `MultiRecordEngine` type discovery** is not revived; use the closed-set `MultiRecordEngine` API with explicit selectors (see above).
-
-### Example 3: Streaming Large Files
-
-```csharp
-// ========== BEFORE (FileHelpers 3.x) ==========
-using FileHelpers;
-
-var engine = new FileHelperAsyncEngine<Customer>();
-engine.BeginReadFile("largefile.csv");
-while (engine.ReadNext() is { } record)
-{
-    Process(record);
-}
-engine.Close();
-
-// ========== AFTER (ModernLibs.FileHelpers 4.x) ==========
-using ModernLibs.FileHelpers;  // Only change needed!
-
-var engine = new FileHelperAsyncEngine<Customer>();
-engine.BeginReadFile("largefile.csv");
-while (engine.ReadNext() is { } record)
-{
-    Process(record);
-}
-engine.Close();
-```
-
-### Example 4: Error Handling
-
-```csharp
-// ========== BEFORE (FileHelpers 3.x) ==========
-using FileHelpers;
-
-var engine = new FileHelperEngine<Customer>();
-engine.ErrorMode = ErrorMode.SaveAndContinue;
-var records = engine.ReadFile("data.csv");
-foreach (var error in engine.ErrorManager.Errors)
-    Console.WriteLine($"Line {error.LineNumber}: {error.Exception.Message}");
-
-// ========== AFTER (ModernLibs.FileHelpers 4.x) ==========
-using ModernLibs.FileHelpers;  // Only change needed!
-
-var engine = new FileHelperEngine<Customer>();
-engine.ErrorMode = ErrorMode.SaveAndContinue;
-var records = engine.ReadFile("data.csv");
-foreach (var error in engine.ErrorManager.Errors)
-    Console.WriteLine($"Line {error.LineNumber}: {error.Exception.Message}");
-```
-
-### Example 5: Event Handling
-
-```csharp
-// ========== BEFORE (FileHelpers 3.x) ==========
-using FileHelpers;
-
-var engine = new FileHelperEngine<Customer>();
-engine.BeforeReadRecord += (sender, e) =>
-{
-    if (e.RecordLine.StartsWith("#"))
-        e.SkipThisRecord = true;
-};
-
-// ========== AFTER (ModernLibs.FileHelpers 4.x) ==========
-using ModernLibs.FileHelpers;  // Only change needed!
-
-var engine = new FileHelperEngine<Customer>();
-engine.BeforeReadRecord += (sender, e) =>
-{
-    if (e.RecordLine.StartsWith("#"))
-        e.SkipThisRecord = true;
-};
-```
-
-### Example 6: INotifyRead/INotifyWrite Interface
-
-```csharp
-// ========== BEFORE (FileHelpers 3.x) ==========
-using FileHelpers;
-
-[DelimitedRecord(",")]
-public class ValidatedOrder : INotifyRead, INotifyWrite
-{
-    [FieldOrder(1)] public int OrderId;
-    [FieldOrder(2)] public decimal Amount;
-
-    public void BeforeRead(BeforeReadEventArgs e)
-    {
-        if (e.RecordLine.Contains("INVALID"))
-            e.SkipThisRecord = true;
-    }
-
-    public void AfterRead(AfterReadEventArgs e) { }
-    public void BeforeWrite(BeforeWriteEventArgs e) { }
-    public void AfterWrite(AfterWriteEventArgs e) { }
-}
-
-// ========== AFTER (ModernLibs.FileHelpers 4.x) ==========
-using ModernLibs.FileHelpers;  // Only change needed!
-
-[DelimitedRecord(",")]
-public class ValidatedOrder : INotifyRead<ValidatedOrder>, INotifyWrite<ValidatedOrder>
-{
-    [FieldOrder(1)] public int OrderId;
-    [FieldOrder(2)] public decimal Amount;
-
-    public void BeforeRead(BeforeReadEventArgs<ValidatedOrder> e)
-    {
-        if (e.RecordLine.Contains("INVALID"))
-            e.SkipThisRecord = true;
+        _trueText = trueText;
+        _falseText = falseText;
     }
 
-    public void AfterRead(AfterReadEventArgs<ValidatedOrder> e) { }
-    public void BeforeWrite(BeforeWriteEventArgs<ValidatedOrder> e) { }
-    public void AfterWrite(AfterWriteEventArgs<ValidatedOrder> e) { }
+    public override object? StringToField(string from) => from == _trueText;
+
+    public override string? FieldToString(object? from) => from is true ? _trueText : _falseText;
+}
+
+[DelimitedRecord(",")]
+public sealed class Flags
+{
+    [FieldConverter(typeof(TextBoolConverter), "ja", "nein")]
+    public bool Active;
 }
 ```
 
-**Note**: ModernLibs uses generic interfaces `INotifyRead<T>` and `INotifyWrite<T>` for type safety. The non-generic `INotifyRead`/`INotifyWrite` interfaces from FileHelpers 3.x are not available.
+Unlike 3.x, the arguments must be strings (3.x accepted `params object[]`).
 
-## Performance Considerations
+As in 3.x, a `ConverterBase` is not called for empty or blank input unless it overrides
+`CustomNullHandling` to return `true`; the empty value is then handled as described in
+[3.3](#33-empty-fields-and-conversion-errors). Arguments to the built-in converters
+(`[FieldConverter(ConverterKind.Date, "yyyy-MM-dd")]`, decimal separators, culture names) work as in
+3.x.
 
-### Benefits of Migrating
+### 3.9 Struct records and events
 
-1. **AOT Compilation**: ModernLibs is fully AOT-compatible. Publish with `PublishAot=true` for native binaries.
+3.x engines and events required `T : class`. Struct records work here, but `e.Record` in an event is a
+copy of a struct record, so an `AfterReadRecord` handler cannot change a struct record (it can change a
+class record's members). `RecycleRecords` has no effect for structs.
 
-2. **Zero Allocations**: For `record struct` types, parsing produces zero heap allocations per record.
+## 4. What is new
 
-3. **Span-Based Parsing**: ModernLibs uses `Span<T>` and `Memory<T>` throughout for efficient string handling.
+None of this is needed to migrate, but it is available once you have:
 
-4. **Source Generation**: No runtime reflection means faster startup and consistent performance.
+- **Source generation and AOT.** No reflection at run time; works with `PublishAot=true` and trimming.
+  Layout errors are reported at compile time ([diagnostics reference](diagnostics.md)).
+- **Structs and records.** `struct`, `record struct`, positional records, classes without a
+  parameterless constructor, and C# 11 `required` members. Value-type-only structs are read without per-record allocations through
+  callbacks and `ReadSync`.
+- **More field types.** `DateOnly`, `TimeOnly`, `DateTimeOffset`, `TimeSpan`, nullable value types and
+  enums without a custom converter.
+- **Span input and callbacks.** `ReadSpan(ReadOnlySpan<char>)`, callback overloads of `ReadFile`,
+  `ReadString` and `ReadSpan`, and by-reference callbacks (`SpanRecordCallback<T>`).
+- **Streaming.** `ReadSync` (`IEnumerable<T>`), `ReadAsync` (`IAsyncEnumerable<T>`) on both engines,
+  `ReadFileAsync` with a callback, and `MultiRecordAsyncEngine` / `MasterDetailAsyncEngine`.
+- **Parallel reads.** `ParallelReadFile` / `ParallelReadString` with sequential semantics.
+- **Record-level multiline switch.** `[DelimitedRecord(",", MultilineMode = ...)]` sets the multiline
+  mode of every quoted field at once.
+- **`BeforeReadEventArgs<T>.StopReading`** to end a read from an event handler.
+- **`ISpanConverter<T>`** for custom converters that work on spans without allocating strings.
+- **Error details.** `ErrorInfo.FieldName`, `ColumnIndex` and `RawFieldValue`.
 
-### Benchmark Example
+See [OPT-IN-FEATURES.md](OPT-IN-FEATURES.md) for examples.
 
-```csharp
-// ModernLibs is typically 2-5x faster than FileHelpers 3.x
-// and allocates significantly less memory
+## 5. Troubleshooting
 
-// FileHelpers 3.x: ~500 MB allocated for 1M records
-// ModernLibs: ~50 MB allocated for 1M records (class)
-// ModernLibs: ~0 MB allocated for 1M records (struct)
-```
+**`InvalidOperationException: No IRecordDescriptor<T> registered`.** The record type was not processed
+by the source generator; the message lists the likely causes. Check that it has `[DelimitedRecord]` or
+`[FixedLengthRecord]`, that the build shows no `MLFH` errors for it (with `RunAnalyzers=false` they are
+not reported; `MLFH017` and `MLFH026` are the usual ones here), and that the project references the
+`ModernLibs.FileHelpers` package (a project reference to the library source must also reference the
+generator as an analyzer).
+Records declared by another source generator are not seen by the FileHelpers generator; declare them
+in your own source files.
 
-## Troubleshooting
+**`BadUsageException`: "No descriptor was generated for '...' because the record has FileHelpers
+errors, which were hidden from the build".** `MLFH` errors that block the descriptor were hidden with
+`[SuppressMessage]` or `RunAnalyzers=false`. The message lists the errors; fix them (see
+[suppressing diagnostics](diagnostics.md#suppressing-diagnostics)).
 
-### Issue: "No descriptor registered for type T"
+**Columns are shifted, or a field you did not expect is read.** An `internal` (or
+`protected internal`) member is mapped, as in 3.x. Mark members that are not in the file
+`[FieldHidden]`; see [2.10](#210-record-layout-rules).
 
-**Cause**: The source generator didn't run or the record type lacks `[DelimitedRecord]` or `[FixedLengthRecord]`.
+**`MLFH028` on a `private` or `protected` field.** 3.x reads it as a column, but generated code
+cannot reach it, so it is not part of the layout. Make it `public` or `internal` if it is a column,
+or mark it `[FieldHidden]`; see [2.10](#210-record-layout-rules).
 
-**Solution**: Ensure the record has the required attribute:
+**A file written by an earlier 4.x milestone fails with "Delimiter '...' not found after field".**
+The record uses `[FieldDelimiter]`, which now follows its field as in 3.x. Move the attribute one
+field earlier; see [2.5](#25-attributes).
 
-```csharp
-[DelimitedRecord(",")]  // Required!
-public class MyRecord { }
-```
+**`MLFH023`, `MLFH024` or `MLFH025` on code that worked with an earlier 4.x milestone.** A `private`
+or `protected` member carries a field attribute, only some fields have `[FieldOrder]`, or a
+fixed-length field has `[FieldQuoted]`. 3.x rejected these layouts too; see
+[2.10](#210-record-layout-rules).
 
-### Issue: Compile-time errors with INotifyRead/INotifyWrite
+**`MLFH026` on every record type.** The project compiles with a C# version below 11. Remove the
+`<LangVersion>` setting (the .NET 10 default is C# 14) or set it to 11 or later.
 
-**Cause**: Using non-generic interfaces from FileHelpers 3.x.
+**`InvalidOperationException` from `FileHelperAsyncEngine<T>`** ("A BeginRead* session is open on
+this engine ..."). One engine instance runs one read or write session at a time. Call `Close()`
+first, or use a separate instance for the second read.
 
-**Solution**: Use generic interfaces:
+**`MLFH013` unsupported field type.** The field type has no built-in conversion. Add a custom converter
+with `[FieldConverter(typeof(...))]`.
 
-```csharp
-// Wrong
-public class MyRecord : INotifyRead { }
+**`MLFH006` or `MLFH022` on a custom converter.** The converter has no public constructor that matches
+the `[FieldConverter]` arguments: parameterless when there are none, otherwise one `string` parameter
+per argument (or `params string[]`). See [3.8](#38-custom-converters).
 
-// Right
-public class MyRecord : INotifyRead<MyRecord> { }
-```
+**A record type compiled with 3.x but reports `MLFH014` or `MLFH015`.** The generator could not find a
+way to create the record or assign a member. Records need a public or internal parameterless
+constructor, or a constructor whose parameter names match the fields; annotated members must be
+settable.
 
-### Issue: Different behavior with HeaderText/FooterText
+**`BadUsageException` about a quote** ("does not begin with the quote char", "unclosed quoted string",
+spaces before the quote char). The input does not match the field's `[FieldQuoted]` settings, exactly
+as in 3.x: use `QuoteMode.OptionalForRead` to allow unquoted values, `[FieldTrim(TrimMode.Both)]` to
+allow blanks around the quotes, or a `MultilineMode` that allows reading for values with line breaks.
 
-**Cause**: ModernLibs normalizes line endings to `\r\n` for cross-platform consistency.
-
-**Solution**: Set `NewLineForWrite` if needed:
-
-```csharp
-engine.NewLineForWrite = "\n";  // Unix-style
-```
-
-## Version Mapping
-
-| FileHelpers | ModernLibs | Compatibility |
-|-------------|------------|---------------|
-| 3.5.x | 4.0.x | 95%+ API compatible |
-| 3.4.x | 4.0.x | 95%+ API compatible |
-| 3.3.x | 4.0.x | 95%+ API compatible |
-
-## Getting Help
-
-- **GitHub Issues**: https://github.com/modernlibs/filehelpers/issues
-- **Documentation**: https://docs.modernlibs.dev/filehelpers
-- **Original FileHelpers**: https://www.filehelpers.net (for comparison)
-
-## Summary
-
-Migrating from FileHelpers 3.x to ModernLibs.FileHelpers 4.x is straightforward:
-
-1. ✅ Update `using FileHelpers;` to `using ModernLibs.FileHelpers;`
-2. ✅ Update package reference
-3. ✅ Set `engine.Encoding` if your files use a legacy encoding (default changed from ANSI to UTF-8)
-4. ✅ Replace non-generic `new FileHelperEngine(typeof(T))` with `new FileHelperEngine<T>()`
-5. ✅ Use generic `INotifyRead<T>`/`INotifyWrite<T>` if implementing interfaces
-6. ✅ Replace runtime ClassBuilder with source-generated types
-
-Most code requires **zero changes** beyond the namespace update.
+For every `MLFH` rule, see the [diagnostics reference](diagnostics.md).

@@ -67,8 +67,8 @@ The HTML report is written to `StrykerOutput/`.
 
 > **Currently informational only.** With Stryker.NET 5 and the xUnit v3 test project, coverage
 > capture does not work and every mutant is reported as survived, so the mutation score is not
-> meaningful. The CI step runs with `continue-on-error` until this is fixed; the mutation-target xUnit
-> suite itself must still pass.
+> meaningful. Stryker runs in its own workflow (`mutation.yml`, started manually and once a week) with
+> `continue-on-error` until this is fixed; CI still requires the mutation-target xUnit suite to pass.
 
 ### Fuzzing
 

@@ -69,22 +69,4 @@ jobs:
       - name: Run migration sample
         run: dotnet run --project samples/MigrationSamples --configuration Release --no-build
 
-      # Mutation testing via Stryker.NET — runs after unit tests pass.
-      # Informational only for now: with Stryker.NET 5.0 and the xUnit v3 project every mutant is
-      # reported as survived (score 0 %, coverage capture fails), so the break threshold cannot gate CI.
-      - name: Install Stryker.NET
-        run: dotnet tool install -g dotnet-stryker --version 5.0.0
-
-      - name: Mutation Test (Stryker.NET)
-        continue-on-error: true
-        run: dotnet stryker --config-file stryker-config.json
-        env:
-          DOTNET_ROOT: ${{ runner.tool_cache }}/dotnet
-
-      - name: Upload Mutation Report
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: mutation-report
-          path: StrykerOutput/
-          retention-days: 30
+      # Stryker.NET runs in mutation.yml (manual and weekly), not on every push.

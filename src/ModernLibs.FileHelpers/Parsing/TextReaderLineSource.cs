@@ -7,7 +7,7 @@ namespace ModernLibs.FileHelpers.Parsing;
 /// </summary>
 internal sealed class TextReaderLineSource : IDisposable
 {
-    private const int MinimumFill = 4096;
+    private const int MinimumFill = 16 * 1024;
 
     private readonly TextReader _reader;
     private readonly CharLineBuffer _buffer = new(2 * MinimumFill);

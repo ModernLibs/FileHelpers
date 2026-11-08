@@ -27,7 +27,7 @@ internal static class WriteFraming
     public static StreamWriter OpenAppender(string filePath, Encoding encoding, string newLine)
     {
         bool needsNewLine = !EndsWithLineTerminator(filePath, encoding);
-        var writer = new StreamWriter(filePath, append: true, encoding);
+        var writer = FileBuffers.OpenWriter(filePath, append: true, encoding);
         if (needsNewLine)
             writer.Write(newLine);
         return writer;

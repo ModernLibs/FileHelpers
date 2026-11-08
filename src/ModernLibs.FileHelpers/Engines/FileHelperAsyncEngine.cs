@@ -170,7 +170,7 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     {
         ArgumentNullException.ThrowIfNull(filePath);
         ThrowIfReaderOpen();
-        _reader = new StreamReader(filePath, Encoding, detectEncodingFromByteOrderMarks: true);
+        _reader = FileBuffers.OpenReader(filePath, Encoding);
         _ownsReader = true;
         OpenReaderCore();
     }
@@ -385,7 +385,7 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     {
         ArgumentNullException.ThrowIfNull(filePath);
         ThrowIfWriterOpen();
-        _writer = new StreamWriter(filePath, append: false, Encoding);
+        _writer = FileBuffers.OpenWriter(filePath, append: false, Encoding);
         _ownsWriter = true;
         InitWriteSession();
     }

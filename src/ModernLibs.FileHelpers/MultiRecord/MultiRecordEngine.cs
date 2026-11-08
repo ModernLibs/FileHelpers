@@ -45,7 +45,7 @@ public sealed class MultiRecordEngine
     /// <summary>Reads mixed records from a file.</summary>
     public object[] ReadFile(string filePath)
     {
-        using var reader = new StreamReader(filePath, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        using var reader = FileBuffers.OpenReader(filePath, Encoding.UTF8);
         return ReadStream(reader);
     }
 
@@ -87,7 +87,7 @@ public sealed class MultiRecordEngine
     /// <summary>Writes mixed records to a file.</summary>
     public void WriteFile(string filePath, IEnumerable<object> records)
     {
-        using var writer = new StreamWriter(filePath, append: false, Encoding.UTF8);
+        using var writer = FileBuffers.OpenWriter(filePath, append: false, Encoding.UTF8);
         WriteStream(writer, records);
     }
 

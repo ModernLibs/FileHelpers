@@ -361,7 +361,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     {
         ArgumentNullException.ThrowIfNull(filePath);
         ArgumentNullException.ThrowIfNull(callback);
-        using var sr = new StreamReader(filePath, Encoding, detectEncodingFromByteOrderMarks: true);
+        using var sr = FileBuffers.OpenReader(filePath, Encoding);
         return ReadStreaming(sr, callback, maxRecords: 0);
     }
 
@@ -370,7 +370,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     {
         ArgumentNullException.ThrowIfNull(filePath);
         ArgumentNullException.ThrowIfNull(callback);
-        using var sr = new StreamReader(filePath, Encoding, detectEncodingFromByteOrderMarks: true);
+        using var sr = FileBuffers.OpenReader(filePath, Encoding);
         return ReadStreaming(sr, callback, maxRecords);
     }
 
@@ -390,7 +390,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     {
         ArgumentNullException.ThrowIfNull(filePath);
         ArgumentNullException.ThrowIfNull(callback);
-        using var sr = new StreamReader(filePath, Encoding, detectEncodingFromByteOrderMarks: true, bufferSize: 4096);
+        using var sr = FileBuffers.OpenAsyncReader(filePath, Encoding);
         using var source = new TextReaderLineSource(sr);
         using var session = BeginSession(maxRecords, allowRecycle: true);
         try
@@ -552,7 +552,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     {
         ArgumentNullException.ThrowIfNull(filePath);
         ArgumentNullException.ThrowIfNull(records);
-        using var sw = new StreamWriter(filePath, append: false, Encoding);
+        using var sw = FileBuffers.OpenWriter(filePath, append: false, Encoding);
         WriteCore(sw, records, includeHeaderFooter: true);
     }
 

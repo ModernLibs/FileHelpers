@@ -70,7 +70,7 @@ public sealed class MasterDetailEngine<TMaster, TDetail>
     /// <summary>Reads grouped master/detail records from a file.</summary>
     public MasterDetails<TMaster, TDetail>[] ReadFile(string filePath)
     {
-        using var reader = new StreamReader(filePath, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        using var reader = FileBuffers.OpenReader(filePath, Encoding.UTF8);
         return ReadStream(reader);
     }
 
@@ -113,7 +113,7 @@ public sealed class MasterDetailEngine<TMaster, TDetail>
     /// <summary>Writes grouped master/detail records to a file.</summary>
     public void WriteFile(string filePath, IEnumerable<MasterDetails<TMaster, TDetail>> groups)
     {
-        using var writer = new StreamWriter(filePath, append: false, Encoding.UTF8);
+        using var writer = FileBuffers.OpenWriter(filePath, append: false, Encoding.UTF8);
         WriteStream(writer, groups);
     }
 

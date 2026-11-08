@@ -686,7 +686,12 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
         try
         {
             session.SetKnownLineCount(LineSplitter.CountLines(content));
-            sink.Initialize(session.DataLineCapacity);
+
+            // A read stops at maxRecords records, so a result never needs more slots, whatever the line count.
+            int capacity = session.DataLineCapacity;
+            if (maxRecords > 0 && maxRecords < capacity)
+                capacity = maxRecords;
+            sink.Initialize(capacity);
 
             var lines = new SpanLines(content);
             while (lines.TryRead(out var line, out var ending))

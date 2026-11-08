@@ -435,7 +435,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     {
         ArgumentNullException.ThrowIfNull(filePath);
 
-        using var stream = File.OpenRead(filePath);
+        using var stream = FileBuffers.OpenAsyncStream(filePath);
         var lineReader = new PipelineLineReader(stream, Encoding);
         await using var lineReaderScope = lineReader.ConfigureAwait(false);
         using var session = BeginSession(maxRecords: 0, allowRecycle: true);

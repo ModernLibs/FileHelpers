@@ -45,7 +45,7 @@ public sealed class FileBufferTests
         [new UTF8Encoding(encoderShouldEmitUTF8Identifier: true), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), new UnicodeEncoding(bigEndian: false, byteOrderMark: true)];
 
     [Test]
-    [DisplayName("ReadFile, ReadFile with a callback and ReadFileAsync read what ReadString reads (UTF-8 with and without BOM, UTF-16)")]
+    [DisplayName("ReadFile, ReadFile with a callback, ReadFileAsync and ReadAsync read what ReadString reads (UTF-8 with and without BOM, UTF-16)")]
     public async Task FileReads_MatchReadString()
     {
         var content = Content();
@@ -67,9 +67,12 @@ public sealed class FileBufferTests
                 engine.ReadFile(path, callback.Add);
                 var asyncCallback = new List<FbLine>();
                 await engine.ReadFileAsync(path, asyncCallback.Add);
+                var asyncEnumerated = new List<FbLine>();
+                await foreach (var record in engine.ReadAsync(path))
+                    asyncEnumerated.Add(record);
 
                 // Assert: the same records as ReadString
-                foreach (var actual in new[] { array, callback.ToArray(), asyncCallback.ToArray() })
+                foreach (var actual in new[] { array, callback.ToArray(), asyncCallback.ToArray(), asyncEnumerated.ToArray() })
                 {
                     await Assert.That(actual.Length).IsEqualTo(expected.Length);
                     for (int i = 0; i < expected.Length; i++)

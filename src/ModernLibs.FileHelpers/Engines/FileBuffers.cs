@@ -32,6 +32,14 @@ internal static class FileBuffers
     public static StreamReader OpenAsyncReader(string filePath, Encoding encoding) =>
         OpenReader(filePath, encoding, FileOptions.Asynchronous | FileOptions.SequentialScan);
 
+    /// <summary>
+    /// A stream over <paramref name="filePath"/> for a <see cref="Parsing.PipelineLineReader"/>: opened for
+    /// asynchronous I/O where the platform supports it, with the sharing of <see cref="File.OpenRead"/> and no
+    /// buffer of its own (the pipe buffers).
+    /// </summary>
+    public static FileStream OpenAsyncStream(string filePath) =>
+        new(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: 1, FileOptions.Asynchronous | FileOptions.SequentialScan);
+
     /// <summary>A writer to <paramref name="filePath"/>.</summary>
     public static StreamWriter OpenWriter(string filePath, bool append, Encoding encoding) =>
         new(filePath, append, encoding, bufferSize: Size);

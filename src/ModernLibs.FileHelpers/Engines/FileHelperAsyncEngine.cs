@@ -339,7 +339,7 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
 
     private async IAsyncEnumerable<T> StreamFileAsync(string filePath, int id, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        using var stream = File.OpenRead(filePath);
+        using var stream = FileBuffers.OpenAsyncStream(filePath);
         var lineReader = new PipelineLineReader(stream, Encoding);
         await using var lineReaderScope = lineReader.ConfigureAwait(false);
         using var session = BeginSession();

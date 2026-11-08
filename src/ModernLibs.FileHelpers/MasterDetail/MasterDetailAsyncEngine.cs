@@ -82,7 +82,7 @@ public sealed class MasterDetailAsyncEngine<TMaster, TDetail> : IAsyncDisposable
         string filePath,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        using var stream = File.OpenRead(filePath);
+        using var stream = FileBuffers.OpenAsyncStream(filePath);
         await foreach (var group in ReadFromStreamAsync(stream, cancellationToken).ConfigureAwait(false))
             yield return group;
     }

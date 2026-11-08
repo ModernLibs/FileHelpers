@@ -56,7 +56,7 @@ public sealed class MultiRecordAsyncEngine : IAsyncDisposable
         string filePath,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        using var stream = File.OpenRead(filePath);
+        using var stream = FileBuffers.OpenAsyncStream(filePath);
         await foreach (var record in ReadFromStreamAsync(stream, cancellationToken).ConfigureAwait(false))
             yield return record;
     }

@@ -50,7 +50,8 @@ internal sealed class PipelineLineReader : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(encoding);
 
-        _pipe = PipeReader.Create(stream, new StreamPipeReaderOptions(leaveOpen: true));
+        // Reads of 16 KB (the default is 4 KB): one system call every few records costs more than the copy.
+        _pipe = PipeReader.Create(stream, new StreamPipeReaderOptions(bufferSize: FileBuffers.Size, minimumReadSize: 4 * 1024, leaveOpen: true));
         _encoding = encoding;
     }
 

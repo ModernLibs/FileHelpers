@@ -120,10 +120,17 @@ internal sealed class RecordReadSession<T> : IDisposable
     public bool InHeader => _headerRemaining > 0;
 
     /// <summary>
-    /// After <see cref="Stopped"/>, the caller should keep pushing lines only when this is true
-    /// (known-length input with footer lines still to collect).
+    /// For an input of unknown length: after <see cref="Stopped"/>, keep the last <c>IgnoreLast</c> lines
+    /// pushed and publish them as the footer, as a read of the same input in memory does. Set by the reads
+    /// that return an array; the callback reads stop reading instead.
     /// </summary>
-    public bool WantsFooterLines => _knownDataEnd >= 0 && _footerLines > 0 && _physicalLines < _knownTotalLines;
+    public bool KeepFooterAfterStop { get; init; }
+
+    /// <summary>
+    /// After <see cref="Stopped"/>, the caller should keep pushing lines only when this is true
+    /// (footer lines still to collect).
+    /// </summary>
+    public bool WantsFooterLines => _footerLines > 0 && (_knownDataEnd >= 0 ? _physicalLines < _knownTotalLines : KeepFooterAfterStop);
 
     /// <summary>Upper bound of data lines (known-length input), for pre-sizing result buffers.</summary>
     public int DataLineCapacity { get; private set; } = -1;
@@ -167,7 +174,11 @@ internal sealed class RecordReadSession<T> : IDisposable
         }
 
         if (Stopped)
+        {
+            if (KeepFooterAfterStop && _footerLines > 0)
+                KeepFooterLine(line, physical + _lineOffset, ending);
             return false;
+        }
 
         if (_footerLines > 0)
             return PushThroughFooterRing(line, physical + _lineOffset, ending);
@@ -191,7 +202,7 @@ internal sealed class RecordReadSession<T> : IDisposable
             _host?.OnHeaderText(_header.ToString());
         }
 
-        if (!Stopped || _knownDataEnd >= 0)
+        if (!Stopped || _knownDataEnd >= 0 || KeepFooterAfterStop)
             PublishFooter();
 
         if (Stopped)
@@ -270,14 +281,7 @@ internal sealed class RecordReadSession<T> : IDisposable
     /// <summary>Holds back the last <c>IgnoreLast</c> raw lines; releases the oldest once the ring is full.</summary>
     private bool PushThroughFooterRing(ReadOnlySpan<char> line, int lineNumber, LineEnding ending)
     {
-        if (_ringText is null)
-        {
-            _ringText = new char[_footerLines][];
-            _ringLength = new int[_footerLines];
-            _ringLine = new int[_footerLines];
-            _ringEnding = new LineEnding[_footerLines];
-        }
-
+        EnsureRing();
         if (_ringCount < _footerLines)
         {
             int slot = (_ringStart + _ringCount) % _footerLines;
@@ -300,6 +304,32 @@ internal sealed class RecordReadSession<T> : IDisposable
             StoreInRing(oldest, line, lineNumber, ending);
             _ringStart = (_ringStart + 1) % _footerLines;
         }
+    }
+
+    /// <summary>After a stop: keeps <paramref name="line"/> as one of the last lines, dropping the oldest unprocessed.</summary>
+    private void KeepFooterLine(ReadOnlySpan<char> line, int lineNumber, LineEnding ending)
+    {
+        EnsureRing();
+        if (_ringCount < _footerLines)
+        {
+            StoreInRing((_ringStart + _ringCount) % _footerLines, line, lineNumber, ending);
+            _ringCount++;
+            return;
+        }
+
+        StoreInRing(_ringStart, line, lineNumber, ending);
+        _ringStart = (_ringStart + 1) % _footerLines;
+    }
+
+    [System.Diagnostics.CodeAnalysis.MemberNotNull(nameof(_ringText))]
+    private void EnsureRing()
+    {
+        if (_ringText is not null)
+            return;
+        _ringText = new char[_footerLines][];
+        _ringLength = new int[_footerLines];
+        _ringLine = new int[_footerLines];
+        _ringEnding = new LineEnding[_footerLines];
     }
 
     private void StoreInRing(int slot, ReadOnlySpan<char> line, int lineNumber, LineEnding ending)

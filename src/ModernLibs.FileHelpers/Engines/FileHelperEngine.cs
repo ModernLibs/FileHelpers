@@ -310,40 +310,44 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     }
 
     /// <summary>
-    /// Reads all content from <paramref name="reader"/> via
-    /// <see cref="TextReader.ReadToEnd"/> and parses. <paramref name="reader"/> is NOT disposed —
+    /// Reads <paramref name="reader"/> to its end and parses it; the records, errors, header and footer are
+    /// those of <see cref="ReadString(string)"/> for the same text. <paramref name="reader"/> is NOT disposed —
     /// the caller owns its lifetime (matches FileHelpers 3.x).
     /// </summary>
     public T[] ReadStream(TextReader reader)
     {
         ArgumentNullException.ThrowIfNull(reader);
-        return ReadToArray(reader.ReadToEnd().AsSpan(), maxRecords: 0);
+        return ReadToArray(reader, maxRecords: 0, readToEnd: true);
     }
 
-    /// <summary><see cref="ReadStream(TextReader)"/> with a record-count cap.</summary>
+    /// <summary>
+    /// <see cref="ReadStream(TextReader)"/> with a record-count cap. The reader is still read to its end, so
+    /// <see cref="FooterText"/> holds the last lines of the input.
+    /// </summary>
     public T[] ReadStream(TextReader reader, int maxRecords)
     {
         ArgumentNullException.ThrowIfNull(reader);
-        return ReadToArray(reader.ReadToEnd().AsSpan(), maxRecords);
+        return ReadToArray(reader, maxRecords, readToEnd: true);
     }
 
     /// <summary>
     /// Reads <paramref name="filePath"/> with the current <see cref="Encoding"/> (a byte order
-    /// mark wins) and parses the content in place.
+    /// mark wins) and parses it as it is read; the records, errors, header and footer are those of
+    /// <see cref="ReadString(string)"/> for the same text.
     /// </summary>
     public T[] ReadFile(string filePath)
     {
         ArgumentNullException.ThrowIfNull(filePath);
-        var content = File.ReadAllText(filePath, Encoding);
-        return ReadToArray(content.AsSpan(), maxRecords: 0);
+        using var reader = FileBuffers.OpenReader(filePath, Encoding);
+        return ReadToArray(reader, maxRecords: 0, readToEnd: false);
     }
 
     /// <summary><see cref="ReadFile(string)"/> with a record-count cap.</summary>
     public T[] ReadFile(string filePath, int maxRecords)
     {
         ArgumentNullException.ThrowIfNull(filePath);
-        var content = File.ReadAllText(filePath, Encoding);
-        return ReadToArray(content.AsSpan(), maxRecords);
+        using var reader = FileBuffers.OpenReader(filePath, Encoding);
+        return ReadToArray(reader, maxRecords, readToEnd: false);
     }
 
     // =========================================================================
@@ -640,7 +644,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     // =========================================================================
 
     /// <summary>Resets the read-side state and starts a session on the shared record pipeline.</summary>
-    private RecordReadSession<T> BeginSession(int maxRecords, bool allowRecycle)
+    private RecordReadSession<T> BeginSession(int maxRecords, bool allowRecycle, bool keepFooterAfterStop = false)
     {
         LineNumber = 0;
         TotalRecords = 0;
@@ -650,6 +654,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
         return new RecordReadSession<T>(_core, this, this, ErrorManager, NewLineForWrite, maxRecords)
         {
             AllowRecycle = allowRecycle && RecycleRecords,
+            KeepFooterAfterStop = keepFooterAfterStop,
         };
     }
 
@@ -676,6 +681,68 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
         var sink = new ArraySink();
         ReadBatch(content, maxRecords, allowRecycle: false, ref sink);
         return sink.ToArray();
+    }
+
+    /// <summary>
+    /// Parses <paramref name="reader"/> as it is read into a result array, with the outcome of
+    /// <see cref="ReadToArray(ReadOnlySpan{char}, int)"/> over its whole text: after a stop (max records or
+    /// <c>StopReading</c>) the lines are still read when <c>IgnoreLast</c> needs the footer.
+    /// </summary>
+    /// <param name="reader">The input; not disposed.</param>
+    /// <param name="maxRecords">Record cap; 0 or less reads every record.</param>
+    /// <param name="readToEnd">Leave the reader at its end afterwards, as <see cref="TextReader.ReadToEnd"/> did.</param>
+    private T[] ReadToArray(TextReader reader, int maxRecords, bool readToEnd)
+    {
+        var sink = new PooledArraySink();
+        sink.Initialize(maxRecords > 0 ? Math.Min(maxRecords, PooledArraySink.InitialCapacity) : PooledArraySink.InitialCapacity);
+        try
+        {
+            using var source = new TextReaderLineSource(reader);
+            using var session = BeginSession(maxRecords, allowRecycle: false, keepFooterAfterStop: true);
+            try
+            {
+                while (source.TryReadLine(out var line, out var ending))
+                {
+                    if (session.Push(line, ending))
+                    {
+                        SyncPosition(session);
+                        sink.Add(ref session.Current);
+                    }
+
+                    if (session.Stopped && !session.WantsFooterLines)
+                        break;
+                }
+
+                session.Complete();
+            }
+            finally
+            {
+                SyncPosition(session);
+            }
+
+            return sink.ToArray();
+        }
+        finally
+        {
+            sink.Dispose();
+            if (readToEnd)
+                SkipToEnd(reader);
+        }
+    }
+
+    private static void SkipToEnd(TextReader reader)
+    {
+        char[] buffer = ArrayPool<char>.Shared.Rent(4096);
+        try
+        {
+            while (reader.Read(buffer, 0, buffer.Length) > 0)
+            {
+            }
+        }
+        finally
+        {
+            ArrayPool<char>.Shared.Return(buffer);
+        }
     }
 
     /// <summary>Runs a complete in-memory input through the pipeline, delivering records to <paramref name="sink"/>.</summary>
@@ -764,6 +831,54 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
             if (_count == _buffer.Length)
                 return _buffer;
             return _buffer.AsSpan(0, _count).ToArray();
+        }
+    }
+
+    /// <summary>
+    /// Collects the records of an input of unknown length in a pooled buffer that doubles as records arrive;
+    /// <see cref="ToArray"/> copies them into the one array returned (as <c>Enumerable.ToArray</c> does).
+    /// </summary>
+    private struct PooledArraySink : IRecordSink, IDisposable
+    {
+        public const int InitialCapacity = 64;
+
+        private T[]? _buffer;
+        private int _count;
+
+        public void Initialize(int capacity) => _buffer = ArrayPool<T>.Shared.Rent(Math.Max(capacity, 1));
+
+        public void Add(ref T record)
+        {
+            if (_count == _buffer!.Length)
+                Grow();
+            _buffer[_count++] = record;
+        }
+
+        public readonly T[] ToArray() => _count == 0 ? [] : _buffer.AsSpan(0, _count).ToArray();
+
+        public void Dispose()
+        {
+            if (_buffer is null)
+                return;
+            Return(_buffer, _count);
+            _buffer = null;
+            _count = 0;
+        }
+
+        private void Grow()
+        {
+            var next = ArrayPool<T>.Shared.Rent(_buffer!.Length * 2);
+            _buffer.AsSpan(0, _count).CopyTo(next);
+            Return(_buffer, _count);
+            _buffer = next;
+        }
+
+        /// <summary>Clears the records first, so the pool does not keep them alive.</summary>
+        private static void Return(T[] buffer, int count)
+        {
+            if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+                buffer.AsSpan(0, count).Clear();
+            ArrayPool<T>.Shared.Return(buffer);
         }
     }
 

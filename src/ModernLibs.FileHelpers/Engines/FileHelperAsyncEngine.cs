@@ -48,7 +48,7 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     // ---- Writer state -------------------------------------------------------
     private TextWriter? _writer;
     private bool _ownsWriter;
-    private StringWriter? _stringWriter; // non-null only for BeginWriteString path
+    private PooledStringWriter? _stringWriter; // non-null only for BeginWriteString path
     private RentedBufferWriter? _writeBuf;
 
     private readonly ErrorManager _errorManager = new();
@@ -429,14 +429,14 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     }
 
     /// <summary>
-    /// Accumulates written records into an internal <see cref="StringWriter"/>.
+    /// Accumulates written records in memory.
     /// Retrieve the result via <see cref="EndWriteString"/> (which also calls <see cref="Close"/>).
     /// </summary>
     /// <exception cref="InvalidOperationException">Thrown when a write session is already open, or a read session (or <see cref="ReadAsync"/> enumeration) is open.</exception>
     public void BeginWriteString()
     {
         ThrowIfWriterOpen();
-        _stringWriter = new StringWriter();
+        _stringWriter = new PooledStringWriter();
         _writer = _stringWriter;
         _ownsWriter = true;
         InitWriteSession();
@@ -448,10 +448,24 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     /// </summary>
     public string EndWriteString()
     {
-        // Close() writes FooterText first; a disposed StringWriter still returns its content.
         var stringWriter = _stringWriter;
-        Close();
-        return stringWriter?.ToString() ?? string.Empty;
+        if (stringWriter is null)
+        {
+            Close();
+            return string.Empty;
+        }
+
+        // Close() writes FooterText first. It must not dispose the writer: that returns its buffers to the pool.
+        _ownsWriter = false;
+        try
+        {
+            Close();
+            return stringWriter.ToString();
+        }
+        finally
+        {
+            stringWriter.Dispose();
+        }
     }
 
     // =========================================================================

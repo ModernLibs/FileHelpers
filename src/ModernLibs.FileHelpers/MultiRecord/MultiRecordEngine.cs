@@ -79,7 +79,7 @@ public sealed class MultiRecordEngine
     /// <summary>Writes mixed records to a string.</summary>
     public string WriteString(IEnumerable<object> records)
     {
-        using var writer = new StringWriter();
+        using var writer = new PooledStringWriter();
         WriteStream(writer, records);
         return writer.ToString();
     }

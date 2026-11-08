@@ -105,7 +105,7 @@ public sealed class MasterDetailEngine<TMaster, TDetail>
     /// <summary>Writes grouped master/detail records to a string.</summary>
     public string WriteString(IEnumerable<MasterDetails<TMaster, TDetail>> groups)
     {
-        using var writer = new StringWriter();
+        using var writer = new PooledStringWriter();
         WriteStream(writer, groups);
         return writer.ToString();
     }

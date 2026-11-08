@@ -528,7 +528,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     public string WriteString(IEnumerable<T> records)
     {
         ArgumentNullException.ThrowIfNull(records);
-        using var sw = new StringWriter();
+        using var sw = new PooledStringWriter();
         WriteCore(sw, records, includeHeaderFooter: true);
         return sw.ToString();
     }

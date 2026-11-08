@@ -464,6 +464,13 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
         }
         finally
         {
+            if (ReferenceEquals(_stringWriter, stringWriter))
+            {
+                _writer = null;
+                _stringWriter = null;
+                _ownsWriter = false;
+            }
+
             stringWriter.Dispose();
         }
     }

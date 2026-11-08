@@ -30,6 +30,26 @@ public sealed class CbwoLongConverter : ConverterBase
     }
 }
 
+/// <summary>A legacy converter that writes a long text of another character.</summary>
+public sealed class CbwoOtherConverter : ConverterBase
+{
+    public override object? StringToField(string text) => text.Length;
+
+    public override string? FieldToString(object? field) => field is int length ? new string('y', length) : null;
+}
+
+[DelimitedRecord(",")]
+public sealed class CbwoTwoFields
+{
+    [FieldOrder(1)]
+    [FieldConverter(typeof(CbwoLongConverter))]
+    public int First { get; set; }
+
+    [FieldOrder(2)]
+    [FieldConverter(typeof(CbwoLongConverter))]
+    public int Second { get; set; }
+}
+
 [DelimitedRecord(",")]
 public sealed class CbwoRecord
 {
@@ -65,6 +85,70 @@ public sealed class ConverterBaseWriteOnceTests
         await Assert.That(CbwoLongConverter.Calls).IsEqualTo(lengths.Length);
         string expected = string.Concat(lengths.Select((length, i) => $"{i},{new string('x', length)}\r\n"));
         await Assert.That(text).IsEqualTo(expected);
+    }
+
+    [Test]
+    [NotInParallel(nameof(CbwoLongConverter))]
+    [DisplayName("Two fields with the same converter and the same long value each call FieldToString once")]
+    public async Task TwoFields_SameValue_CallOncePerField()
+    {
+        // Arrange
+        var engine = new FileHelperEngine<CbwoTwoFields>();
+        var records = new[] { new CbwoTwoFields { First = 300, Second = 300 }, new CbwoTwoFields { First = 5, Second = 300 } };
+        CbwoLongConverter.Calls = 0;
+
+        // Act
+        string text = engine.WriteString(records);
+
+        // Assert
+        await Assert.That(CbwoLongConverter.Calls).IsEqualTo(4);
+        string x300 = new('x', 300);
+        await Assert.That(text).IsEqualTo($"{x300},{x300}\r\nxxxxx,{x300}\r\n");
+    }
+
+    [Test]
+    [NotInParallel(nameof(CbwoLongConverter))]
+    [DisplayName("The text kept after a destination that is too small is used only by the same adapter")]
+    public async Task PendingText_BelongsToItsAdapter()
+    {
+        // Arrange: adapter x leaves a pending text for 10; adapter y formats the same value
+        var x = new ConverterBaseAdapter<int>(new CbwoLongConverter());
+        var y = new ConverterBaseAdapter<int>(new CbwoOtherConverter());
+        var large = new char[16];
+
+        // Act
+        bool tooSmall = x.TryFormat(10, new char[4], out _);
+        bool other = y.TryFormat(10, large, out int otherWritten);
+        string otherText = new(large, 0, otherWritten);
+        CbwoLongConverter.Calls = 0;
+        bool retried = x.TryFormat(10, large, out int retriedWritten);
+
+        // Assert: y writes its own text, and x calls its converter again (its pending text was not kept for y)
+        await Assert.That(tooSmall).IsFalse();
+        await Assert.That((other, otherText)).IsEqualTo((true, "yyyyyyyyyy"));
+        await Assert.That((retried, new string(large, 0, retriedWritten))).IsEqualTo((true, "xxxxxxxxxx"));
+        await Assert.That(CbwoLongConverter.Calls).IsLessThanOrEqualTo(1);
+    }
+
+    [Test]
+    [NotInParallel(nameof(CbwoLongConverter))]
+    [DisplayName("No text is kept for a destination of 1M characters, from which the writer does not retry")]
+    public async Task NoPendingText_AtRetryLimit()
+    {
+        // Arrange
+        var adapter = new ConverterBaseAdapter<int>(new CbwoLongConverter());
+        const int length = 0x100000 + 1;
+
+        // Act
+        bool atLimit = adapter.TryFormat(length, new char[0x100000], out _);
+        CbwoLongConverter.Calls = 0;
+        var larger = new char[length];
+        bool retried = adapter.TryFormat(length, larger, out int written);
+
+        // Assert: the larger destination gets a fresh text
+        await Assert.That(atLimit).IsFalse();
+        await Assert.That((retried, written)).IsEqualTo((true, length));
+        await Assert.That(CbwoLongConverter.Calls).IsEqualTo(1);
     }
 
     [Test]

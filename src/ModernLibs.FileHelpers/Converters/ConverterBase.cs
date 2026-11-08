@@ -92,6 +92,9 @@ public sealed class ConverterBaseAdapter<T> : ISpanConverter<T>
     [ThreadStatic]
     private static PendingText? t_pending;
 
+    /// <summary>The destination length from which the generated writer stops retrying.</summary>
+    private const int MaxRetriedDestination = 0x100000;
+
     private readonly ConverterBase _inner;
 
     /// <summary>Initializes a new adapter wrapping the given <see cref="ConverterBase"/> instance.</summary>
@@ -169,7 +172,8 @@ public sealed class ConverterBaseAdapter<T> : ISpanConverter<T>
         if (s is null) { charsWritten = 0; return true; }
         if (!s.AsSpan().TryCopyTo(destination))
         {
-            t_pending = new PendingText(this, value, s);
+            // The generated writer retries with a larger destination below 1M characters and throws above it.
+            t_pending = destination.Length < MaxRetriedDestination ? new PendingText(this, value, s) : null;
             charsWritten = 0;
             return false;
         }

@@ -31,6 +31,37 @@ public sealed class QpRecord
     public string? D { get; set; }
 }
 
+[DelimitedRecord(",")]
+[IgnoreEmptyLines]
+public sealed class QpDelimited
+{
+    [FieldOrder(1)]
+    [FieldDelimiter(";")]
+    [FieldQuoted('"', QuoteMode.OptionalForBoth, MultilineMode.AllowForBoth)]
+    public string A { get; set; } = string.Empty;
+
+    [FieldOrder(2)]
+    [FieldQuoted('"', QuoteMode.OptionalForBoth, MultilineMode.NotAllow)]
+    public string B { get; set; } = string.Empty;
+
+    [FieldOrder(3)]
+    [FieldOptional]
+    public string? C { get; set; }
+}
+
+[DelimitedRecord(",")]
+[IgnoreCommentedLines('#')]
+public sealed class QpCommented
+{
+    [FieldOrder(1)] public string A { get; set; } = string.Empty;
+
+    [FieldOrder(2)]
+    [FieldQuoted('"', QuoteMode.OptionalForBoth, MultilineMode.AllowForBoth)]
+    public string B { get; set; } = string.Empty;
+
+    [FieldOrder(3)] public string C { get; set; } = string.Empty;
+}
+
 /// <summary>
 /// The field count validation of a single-line record reuses the quote scan the line assembler made; the
 /// outcome (record or exception) is that of validating the text from scratch.
@@ -43,15 +74,20 @@ public sealed class QuotedPrescanTests
         "a", "b c", "\"q\"", "\"x,y\"", "\"\"", "\"a\"\"b\"", " \"t\"", "  \"u\" ", "\"open", "close\"", "\"", ",", ",", ",", " ", "x\"y",
     ];
 
-    private static string Describe(Func<object?> read)
+    private static readonly string[] DelimitedTokens =
+    [
+        "a", "\"q\"", "\"x;y\"", "\"x,y\"", "\"\"", "\"a\"\"b\"", "\"open", "close\"", "\"", ",", ",", ";", ";", " ", "x\"y",
+    ];
+
+    private static string Describe<T>(Func<object?> read, Func<T, string> show)
     {
         try
         {
             return read() switch
             {
-                QpRecord r => $"record [{r.A}|{r.B}|{r.C}|{r.D}]",
-                QpRecord[] { Length: 1 } rs => $"record [{rs[0].A}|{rs[0].B}|{rs[0].C}|{rs[0].D}]",
-                QpRecord[] rs => $"{rs.Length} records",
+                T r => $"record [{show(r)}]",
+                T[] { Length: 1 } rs => $"record [{show(rs[0])}]",
+                T[] rs => $"{rs.Length} records",
                 var other => other?.ToString() ?? "null",
             };
         }
@@ -63,10 +99,44 @@ public sealed class QuotedPrescanTests
 
     [Test]
     [DisplayName("Generated quoted lines: reading through the engine gives what validating and parsing the text from scratch gives")]
-    public async Task GeneratedLines_MatchValidationFromScratch()
+    public async Task GeneratedLines_MatchValidationFromScratch() =>
+        await CompareGeneratedLines<QpRecord>(Tokens, r => $"{r.A}|{r.B}|{r.C}|{r.D}");
+
+    [Test]
+    [DisplayName("Generated quoted lines with a per-field delimiter: the engine gives what validating the text from scratch gives")]
+    public async Task GeneratedLines_FieldDelimiter_MatchValidationFromScratch() =>
+        await CompareGeneratedLines<QpDelimited>(DelimitedTokens, r => $"{r.A}|{r.B}|{r.C}");
+
+    [Test]
+    [DisplayName("A comment line that opens a quote is skipped and does not change how the next record is validated")]
+    public async Task CommentLineOpeningQuote_IsSkipped()
+    {
+        // Arrange: each comment line ends inside a quote; the records after them are valid or have a wrong field count
+        const string input = "#,\"open\r\na,\"b\",c\r\n#\"x,y\r\nd,e,f\r\n# \"\r\ng,\"h,i\",j\r\n";
+        const string shortAfterQuote = "#,\"open\r\na,\"b\"\r\n";
+        const string shortAfterPlain = "# plain\r\na,\"b\"\r\n";
+
+        // Act
+        static string Show(QpCommented r) => $"{r.A}|{r.B}|{r.C}";
+        string fromString = string.Join(" ", new FileHelperEngine<QpCommented>().ReadString(input).Select(Show));
+        string fromReader = string.Join(" ", new FileHelperEngine<QpCommented>().ReadStream(new StringReader(input)).Select(Show));
+        string reference = Describe<QpCommented>(() => new FileHelperEngine<QpCommented>().ReadString(shortAfterPlain), Show);
+        string afterQuote = Describe<QpCommented>(() => new FileHelperEngine<QpCommented>().ReadString(shortAfterQuote), Show);
+        string afterQuoteReader = Describe<QpCommented>(() => new FileHelperEngine<QpCommented>().ReadStream(new StringReader(shortAfterQuote)), Show);
+
+        // Assert: the short record after a quote-opening comment fails as after a plain comment
+        await Assert.That(fromString).IsEqualTo("a|b|c d|e|f g|h,i|j");
+        await Assert.That(fromReader).IsEqualTo(fromString);
+        await Assert.That(reference).DoesNotStartWith("record");
+        await Assert.That(afterQuote).IsEqualTo(reference);
+        await Assert.That(afterQuoteReader).IsEqualTo(reference);
+    }
+
+    private static async Task CompareGeneratedLines<T>(string[] tokens, Func<T, string> show)
+        where T : class
     {
         // Arrange
-        var engine = new FileHelperEngine<QpRecord>();
+        var engine = new FileHelperEngine<T>();
         var core = engine.Core;
         var random = new Random(4242);
         int compared = 0, differences = 0;
@@ -77,7 +147,7 @@ public sealed class QuotedPrescanTests
             var line = new StringBuilder();
             int count = random.Next(1, 9);
             for (int t = 0; t < count; t++)
-                line.Append(Tokens[random.Next(Tokens.Length)]);
+                line.Append(tokens[random.Next(tokens.Length)]);
             string text = line.ToString();
 
             // Only lines that complete a record on their own (no multiline record opened)
@@ -85,9 +155,9 @@ public sealed class QuotedPrescanTests
                 continue;
 
             // Act
-            string expected = Describe(() => core.Parse(text, recycle: false));
+            string expected = Describe(() => core.Parse(text, recycle: false), show);
             // The engine adds the line number to the message ("Line: 1. " or "Line: 1 " before a column).
-            string actual = Describe(() => engine.ReadString(text))
+            string actual = Describe(() => engine.ReadString(text), show)
                 .Replace("Line: 1. ", string.Empty, StringComparison.Ordinal)
                 .Replace("Line: 1 ", string.Empty, StringComparison.Ordinal);
 

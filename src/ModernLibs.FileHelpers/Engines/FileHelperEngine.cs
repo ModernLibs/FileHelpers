@@ -695,6 +695,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     {
         var sink = new PooledArraySink();
         sink.Initialize(maxRecords > 0 ? Math.Min(maxRecords, PooledArraySink.InitialCapacity) : PooledArraySink.InitialCapacity);
+        bool completed = false;
         try
         {
             using var source = new TextReaderLineSource(reader);
@@ -720,14 +721,35 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
                 SyncPosition(session);
             }
 
-            return sink.ToArray();
+            var result = sink.ToArray();
+            completed = true;
+            if (readToEnd)
+                SkipToEnd(reader);
+            return result;
         }
         finally
         {
             sink.Dispose();
-            if (readToEnd)
-                SkipToEnd(reader);
+            if (readToEnd && !completed)
+                SkipToEndAfterFault(reader);
         }
+    }
+
+    /// <summary>
+    /// Leaves the reader at its end after the read failed. A fault of the reader itself while draining is
+    /// discarded, so the caller gets the exception of the read.
+    /// </summary>
+    private static void SkipToEndAfterFault(TextReader reader)
+    {
+        try
+        {
+            SkipToEnd(reader);
+        }
+#pragma warning disable CA1031, RCS1075 // The read already failed; its exception is the one the caller gets.
+        catch (Exception)
+        {
+        }
+#pragma warning restore CA1031, RCS1075
     }
 
     private static void SkipToEnd(TextReader reader)

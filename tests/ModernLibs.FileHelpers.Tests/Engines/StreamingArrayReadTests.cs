@@ -26,6 +26,51 @@ public sealed class SarFramed
     [FieldOrder(2)] public string Text { get; set; } = string.Empty;
 }
 
+[DelimitedRecord(",")]
+[IgnoreFirst(1)]
+[IgnoreLast(2)]
+public sealed class SarMultiline
+{
+    [FieldOrder(1)] public int Id { get; set; }
+
+    [FieldOrder(2)]
+    [FieldQuoted('"', QuoteMode.OptionalForBoth, MultilineMode.AllowForRead)]
+    public string Text { get; set; } = string.Empty;
+}
+
+[DelimitedRecord(",")]
+[IgnoreLast(1)]
+public sealed class SarNewLine
+{
+    [FieldOrder(1)] public int Id { get; set; }
+
+    [FieldOrder(2)]
+    [FieldInNewLine]
+    public string Text { get; set; } = string.Empty;
+}
+
+/// <summary>A reader that gives <c>text</c> up to <c>faultAt</c> characters and then throws <see cref="IOException"/>.</summary>
+internal sealed class SarFaultingReader(string text, int faultAt) : TextReader
+{
+    private int _position;
+
+    public override int Peek() => _position < text.Length ? text[_position] : -1;
+
+    public override int Read() => Read(new char[1], 0, 1) == 0 ? -1 : text[_position - 1];
+
+    public override int Read(char[] buffer, int index, int count) => Read(buffer.AsSpan(index, count));
+
+    public override int Read(Span<char> buffer)
+    {
+        if (_position >= faultAt)
+            throw new IOException("reader fault");
+        int n = Math.Min(Math.Min(buffer.Length, text.Length - _position), faultAt - _position);
+        text.AsSpan(_position, n).CopyTo(buffer);
+        _position += n;
+        return n;
+    }
+}
+
 /// <summary>
 /// <c>ReadFile(path)</c>, <c>ReadFile(path, maxRecords)</c>, <c>ReadStream(reader)</c> and
 /// <c>ReadStream(reader, maxRecords)</c> give what <c>ReadString</c> gives for the same text: records, errors,
@@ -66,13 +111,17 @@ public sealed class StreamingArrayReadTests
 
     private static readonly int[] MaxRecordValues = [0, 1, 2, 5, 4_000, 100_000];
 
-    private static async Task AssertSameAsReadString<T>(Func<FileHelperEngine<T>> create, Func<T, string> show)
+    private static Task AssertSameAsReadString<T>(Func<FileHelperEngine<T>> create, Func<T, string> show)
+        where T : class
+        => AssertSameAsReadString(create, show, Inputs(), MaxRecordValues);
+
+    private static async Task AssertSameAsReadString<T>(Func<FileHelperEngine<T>> create, Func<T, string> show, IEnumerable<string> inputs, int[] maxRecordValues)
         where T : class
     {
         int n = 0;
-        foreach (string input in Inputs())
+        foreach (string input in inputs)
         {
-            foreach (int maxRecords in MaxRecordValues)
+            foreach (int maxRecords in maxRecordValues)
             {
                 foreach (var mode in new[] { ErrorMode.SaveAndContinue, ErrorMode.IgnoreAndContinue })
                 {
@@ -120,6 +169,129 @@ public sealed class StreamingArrayReadTests
     [DisplayName("With IgnoreFirst(1) and IgnoreLast(2), file and reader reads match ReadString, FooterText included after a cap")]
     public async Task Framed_MatchesReadString() =>
         await AssertSameAsReadString(() => new FileHelperEngine<SarFramed>(), r => $"{r.Id}:{r.Text}");
+
+    [Test]
+    [DisplayName("A quoted field that spans lines, also in the last data record, reads from file and reader as from ReadString")]
+    public async Task MultilineQuoted_MatchesReadString()
+    {
+        // Arrange: the last data record (or the one at the cap) continues on the next lines; the footer follows it
+        string[] inputs =
+        [
+            "id,text\r\n1,\"a\r\nb\"\r\n2,\"c\r\nd\r\ne\"\r\nf1\r\nf2\r\n",
+            "id,text\r\n1,\"a\r\nb\"\r\n2,\"open\r\nf1\r\nf2",
+            "id,text\n1,plain\n2,\"x\ny\"\n3,\"z\"\"q\nw\"\nf1\nf2\n",
+            "id,text\r\n1,\"one\r\n\"\r\nf1\r\nf2\r\n",
+        ];
+
+        // Act / Assert
+        await AssertSameAsReadString(() => new FileHelperEngine<SarMultiline>(), r => $"{r.Id}:{r.Text}", inputs, [0, 1, 2, 3]);
+    }
+
+    [Test]
+    [DisplayName("A record with a FieldInNewLine field and a footer line reads from file and reader as from ReadString")]
+    public async Task FieldInNewLine_MatchesReadString()
+    {
+        // Arrange: two physical lines per record, one footer line; one input ends inside a record
+        string[] inputs =
+        [
+            "1\r\na\r\n2\r\nb\r\nfooter\r\n",
+            "1\na\n2\nb\n3\nfooter",
+            "1\r\na\r\nx\r\nb\r\n3\r\nc\r\nfooter\r\n",
+            "1\r\na\r\n2\r\nfooter\r\n",
+        ];
+
+        // Act / Assert
+        await AssertSameAsReadString(() => new FileHelperEngine<SarNewLine>(), r => $"{r.Id}:{r.Text}", inputs, [0, 1, 2, 3]);
+    }
+
+    [Test]
+    [DisplayName("With ThrowException, file and reader reads throw what ReadString throws and leave the same counters")]
+    public async Task ThrowException_MatchesReadString()
+    {
+        // Arrange: a bad record (line 3), a short record (line 3) and a framed input with a bad record after the header
+        (string Input, bool Framed)[] cases =
+        [
+            ("1,a\r\n2,b\r\nx,bad\r\n4,d\r\n", false),
+            ("1,a\n2,b\n3\n4,d\n", false),
+            ("id,text\r\n1,a\r\ny,bad\r\n3,c\r\nf1\r\nf2\r\n", true),
+        ];
+
+        foreach (var (input, framed) in cases)
+        {
+            foreach (int maxRecords in new[] { 0, 5 })
+            {
+                string label = $"'{input}', maxRecords {maxRecords}";
+                var path = Path.GetTempFileName();
+                try
+                {
+                    await File.WriteAllTextAsync(path, input);
+                    using var reader = new StringReader(input);
+
+                    // Act
+                    var (expected, file, stream) = framed
+                        ? (Throwing<SarFramed>(e => e.ReadString(input, maxRecords)),
+                           Throwing<SarFramed>(e => maxRecords == 0 ? e.ReadFile(path) : e.ReadFile(path, maxRecords)),
+                           Throwing<SarFramed>(e => maxRecords == 0 ? e.ReadStream(reader) : e.ReadStream(reader, maxRecords)))
+                        : (Throwing<SarPlain>(e => e.ReadString(input, maxRecords)),
+                           Throwing<SarPlain>(e => maxRecords == 0 ? e.ReadFile(path) : e.ReadFile(path, maxRecords)),
+                           Throwing<SarPlain>(e => maxRecords == 0 ? e.ReadStream(reader) : e.ReadStream(reader, maxRecords)));
+
+                    // Assert: the same exception and counters; the reader is at its end and the file is closed
+                    await Assert.That(expected).DoesNotStartWith("no exception").Because(label);
+                    await Assert.That(file).IsEqualTo(expected).Because("ReadFile, " + label);
+                    await Assert.That(stream).IsEqualTo(expected).Because("ReadStream, " + label);
+                    await Assert.That(reader.Peek()).IsEqualTo(-1).Because("reader position, " + label);
+                }
+                finally
+                {
+                    File.Delete(path);
+                }
+
+                await Assert.That(File.Exists(path)).IsFalse().Because("file deleted after the throw, " + label);
+            }
+        }
+    }
+
+    private static string Throwing<T>(Func<FileHelperEngine<T>, T[]> read)
+        where T : class
+    {
+        var engine = new FileHelperEngine<T> { ErrorMode = ErrorMode.ThrowException };
+        try
+        {
+            var records = read(engine);
+            return $"no exception, {records.Length} records";
+        }
+        catch (Exception ex)
+        {
+            return $"{ex.GetType().Name}: {ex.Message} (LineNumber {engine.LineNumber}, TotalRecords {engine.TotalRecords})";
+        }
+    }
+
+    [Test]
+    [DisplayName("A record error thrown by ReadStream is not replaced by a fault of the reader while it is read to its end")]
+    public async Task RecordError_WinsOverReaderFaultWhileDraining()
+    {
+        // Arrange: the bad record is in the first 16K-character block; the reader faults after it
+        string input = "x,bad\r\n" + string.Concat(Enumerable.Range(1, 5_000).Select(i => $"{i},t\r\n"));
+        var engine = new FileHelperEngine<SarPlain>();
+        using var reader = new SarFaultingReader(input, faultAt: 20_000);
+
+        // Act / Assert
+        await Assert.That(() => engine.ReadStream(reader)).Throws<ConvertException>();
+    }
+
+    [Test]
+    [DisplayName("A fault of the reader after all records were read propagates from ReadStream")]
+    public async Task ReaderFault_AfterRecords_Propagates()
+    {
+        // Arrange: the cap stops the read inside the first block; draining the rest of the reader faults
+        string input = string.Concat(Enumerable.Range(1, 5_000).Select(i => $"{i},t\r\n"));
+        var engine = new FileHelperEngine<SarPlain>();
+        using var reader = new SarFaultingReader(input, faultAt: 20_000);
+
+        // Act / Assert
+        await Assert.That(() => engine.ReadStream(reader, 10)).Throws<IOException>();
+    }
 
     [Test]
     [DisplayName("Callback reads of a string (with and without IgnoreLast) give the records, footer and counters of the array read")]

@@ -39,7 +39,11 @@ internal sealed class PooledStringWriter : TextWriter
 
     public override void Write(string? value) => Write(value.AsSpan());
 
-    public override void Write(char[] buffer, int index, int count) => Write(buffer.AsSpan(index, count));
+    public override void Write(char[] buffer, int index, int count)
+    {
+        ArgumentNullException.ThrowIfNull(buffer);
+        Write(buffer.AsSpan(index, count));
+    }
 
     public override void Write(ReadOnlySpan<char> buffer)
     {

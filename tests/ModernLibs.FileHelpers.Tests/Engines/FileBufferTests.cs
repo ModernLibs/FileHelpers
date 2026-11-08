@@ -114,6 +114,39 @@ public sealed class FileBufferTests
     }
 
     [Test]
+    [DisplayName("Reading a small file and appending one record allocate no large-object-heap buffers")]
+    public async Task SmallFileOperations_StayOffTheLargeObjectHeap()
+    {
+        // Arrange: a ten-line file; warm up both operations
+        var engine = new FileHelperEngine<FbLine>();
+        var path = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllTextAsync(path, string.Concat(Enumerable.Range(1, 10).Select(i => $"{i},text{i}\r\n")));
+            int count = 0;
+            engine.ReadFile(path, _ => count++);
+            engine.AppendToFile(path, new FbLine { Id = 11, Text = "x" });
+
+            // Act: allocation of one small read and one append
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            engine.ReadFile(path, _ => count++);
+            long read = GC.GetAllocatedBytesForCurrentThread() - before;
+            before = GC.GetAllocatedBytesForCurrentThread();
+            engine.AppendToFile(path, new FbLine { Id = 12, Text = "y" });
+            long append = GC.GetAllocatedBytesForCurrentThread() - before;
+
+            // Assert: the reader buffer is sized to the file (4.8.0: about 9 KB); the writer buffers stay below the
+            // 85,000-byte large object threshold (a 64 KB writer allocated 140 KB)
+            await Assert.That(read).IsLessThan(16 * 1024);
+            await Assert.That(append).IsLessThan(64 * 1024);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Test]
     [DisplayName("AppendToFile after a file without a final line terminator still starts a new line")]
     public async Task AppendToFile_MatchesWriteString()
     {

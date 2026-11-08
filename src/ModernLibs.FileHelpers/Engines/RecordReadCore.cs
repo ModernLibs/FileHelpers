@@ -251,9 +251,10 @@ internal sealed class RecordReadCore<T> : ILogicalLineRules
     /// A field whose multiline mode does not allow reading never opens a multiline record; its unclosed quote
     /// is reported by the generated parser (3.x: "unclosed quoted string").
     /// </remarks>
-    public bool OpensMultiline(ReadOnlySpan<char> line, int groupLine, out int openField)
+    public bool OpensMultiline(ReadOnlySpan<char> line, int groupLine, out int openField, out QuoteScan scan)
     {
         openField = 0;
+        scan = default;
         if (_segments is { } segments)
         {
             if (!Multiline)
@@ -267,8 +268,16 @@ internal sealed class RecordReadCore<T> : ILogicalLineRules
             return true;
         }
 
-        return Multiline
-            && QuoteBalanceScanner.EndsInsideQuotes(line, startsInsideQuotes: false, Delimiter, _quotes, _trimStart, ref openField, _scanDelimiters)
+        if (!Multiline)
+            return false;
+
+        bool endsInside = QuoteBalanceScanner.EndsInsideQuotes(line, startsInsideQuotes: false, Delimiter, _quotes, _trimStart, ref openField, _scanDelimiters);
+
+        // One line per record: these are the rules ValidateFieldCount scans with, so it can reuse the result.
+        if (LinesPerRecord == 1)
+            scan = new QuoteScan(Known: true, openField, endsInside);
+
+        return endsInside
             && (uint)openField < (uint)_multilineRead.Length
             && _multilineRead[openField];
     }
@@ -303,13 +312,16 @@ internal sealed class RecordReadCore<T> : ILogicalLineRules
     /// Validates the field count of a delimited record and parses it. Throws on any layout or
     /// conversion error; the caller routes the exception through <see cref="ErrorMode"/>.
     /// </summary>
-    public T Parse(ReadOnlySpan<char> logicalRecord, bool recycle)
+    /// <param name="logicalRecord">The record text.</param>
+    /// <param name="recycle">Reuse the recycled instance.</param>
+    /// <param name="scan">The assembler's quote scan of exactly this text (<see cref="LogicalLineAssembler.RecordScan"/>), if any.</param>
+    public T Parse(ReadOnlySpan<char> logicalRecord, bool recycle, QuoteScan scan = default)
     {
         if (_segments is not null)
             return ParseGroup(logicalRecord, target: default, hasTarget: false, recycle);
 
         if (_validateFieldCount)
-            ValidateFieldCount(logicalRecord);
+            ValidateFieldCount(logicalRecord, scan);
         return ParseValidated(logicalRecord, recycle);
     }
 
@@ -593,11 +605,11 @@ internal sealed class RecordReadCore<T> : ILogicalLineRules
             return ParseGroup(logicalRecord, target, hasTarget: true, recycle);
 
         if (_validateFieldCount)
-            ValidateFieldCount(logicalRecord);
+            ValidateFieldCount(logicalRecord, scan: default);
         return ParseIntoValidated(logicalRecord, target, recycle);
     }
 
-    private void ValidateFieldCount(ReadOnlySpan<char> logicalRecord)
+    private void ValidateFieldCount(ReadOnlySpan<char> logicalRecord, QuoteScan scan)
     {
         if (_plainFieldCount)
         {
@@ -608,8 +620,10 @@ internal sealed class RecordReadCore<T> : ILogicalLineRules
                 return;
         }
 
-        int lastField = 0;
-        bool unclosed = QuoteBalanceScanner.EndsInsideQuotes(logicalRecord, startsInsideQuotes: false, Delimiter, _quotes, _trimStart, ref lastField, _fieldDelimiters);
+        int lastField = scan.LastField;
+        bool unclosed = scan.Known
+            ? scan.EndsInside
+            : QuoteBalanceScanner.EndsInsideQuotes(logicalRecord, startsInsideQuotes: false, Delimiter, _quotes, _trimStart, ref lastField, _fieldDelimiters);
         int found = lastField + 1;
         if (unclosed && found <= FieldCount)
         {

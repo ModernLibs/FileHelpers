@@ -153,9 +153,10 @@ internal sealed class MultiRecordReader : IDisposable
 
         public int LinesPerRecord => 1;
 
-        public bool OpensMultiline(ReadOnlySpan<char> line, int groupLine, out int openField)
+        public bool OpensMultiline(ReadOnlySpan<char> line, int groupLine, out int openField, out QuoteScan scan)
         {
             openField = 0;
+            scan = default;
             return false;
         }
 

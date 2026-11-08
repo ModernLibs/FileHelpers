@@ -363,10 +363,10 @@ internal sealed class RecordReadSession<T> : IDisposable
         var assembler = _assembler;
         if (!assembler.Push(line, ending, lineNumber, _core, out var record))
             return false;
-        return ProcessRecord(record, assembler.StartLine, assembler.EndLine, assembler.FirstLineLength, assembler.AllLinesEmpty);
+        return ProcessRecord(record, assembler.StartLine, assembler.EndLine, assembler.FirstLineLength, assembler.AllLinesEmpty, assembler.RecordScan);
     }
 
-    private bool ProcessRecord(ReadOnlySpan<char> record, int startLine, int endLine, int firstLineLength, bool allLinesEmpty)
+    private bool ProcessRecord(ReadOnlySpan<char> record, int startLine, int endLine, int firstLineLength, bool allLinesEmpty, QuoteScan scan = default)
     {
         if (_core.IsFiltered(record[..firstLineLength], allLinesEmpty))
             return false;
@@ -381,12 +381,13 @@ internal sealed class RecordReadSession<T> : IDisposable
             if (recordText is null)
                 return false;
             record = recordText.AsSpan();
+            scan = default; // the handler may have replaced the text
         }
 
         T parsed;
         try
         {
-            parsed = hasTarget ? _core.ParseInto(record, target!, AllowRecycle) : _core.Parse(record, AllowRecycle);
+            parsed = hasTarget ? _core.ParseInto(record, target!, AllowRecycle) : _core.Parse(record, AllowRecycle, scan);
         }
         catch (Exception ex)
         {

@@ -5,6 +5,16 @@ using ModernLibs.FileHelpers.Parsing;
 
 namespace ModernLibs.FileHelpers;
 
+/// <summary>
+/// The quote scan of a whole single-line record, made while checking whether the line opens a multiline
+/// record: the field the line ends in and whether it ends inside an open quoted value. The field count
+/// validation of the same text would make the same scan.
+/// </summary>
+/// <param name="Known">A scan was made; <see langword="false"/> (the default) means the validation scans itself.</param>
+/// <param name="LastField">Index of the field the line ends in.</param>
+/// <param name="EndsInside">The line ends inside an open quoted value.</param>
+internal readonly record struct QuoteScan(bool Known, int LastField, bool EndsInside);
+
 /// <summary>Per-record-type rules the <see cref="LogicalLineAssembler"/> needs.</summary>
 internal interface ILogicalLineRules
 {
@@ -21,7 +31,11 @@ internal interface ILogicalLineRules
     /// have one line per group of fields).
     /// </param>
     /// <param name="openField">Index of the open field.</param>
-    bool OpensMultiline(ReadOnlySpan<char> line, int groupLine, out int openField);
+    /// <param name="scan">
+    /// The scan of <paramref name="line"/> as a whole record, when the rules made one that the field count
+    /// validation can reuse; otherwise <c>default</c>.
+    /// </param>
+    bool OpensMultiline(ReadOnlySpan<char> line, int groupLine, out int openField, out QuoteScan scan);
 
     /// <summary>
     /// A continuation line leaves the open quoted field still open. <paramref name="openField"/> is the index
@@ -81,6 +95,9 @@ internal sealed class LogicalLineAssembler : IDisposable
     /// <summary>Every assembled line of the record is empty.</summary>
     public bool AllLinesEmpty { get; private set; }
 
+    /// <summary>The quote scan of the completed record when it is one physical line the rules scanned; otherwise <c>default</c>.</summary>
+    public QuoteScan RecordScan { get; private set; }
+
     /// <summary>
     /// Adds a physical line. <paramref name="rules"/> applies when no record is in progress; otherwise the rules
     /// of the record in progress are used. Returns <see langword="true"/> when a logical record is complete;
@@ -109,7 +126,7 @@ internal sealed class LogicalLineAssembler : IDisposable
         }
 
         // A comment line never opens a multiline record (its quotes are not data).
-        if (active.OpensMultiline(line, _groupCount, out int openField) && !(_groupCount == 0 && active.IsComment(line)))
+        if (active.OpensMultiline(line, _groupCount, out int openField, out var scan) && !(_groupCount == 0 && active.IsComment(line)))
         {
             _multiline ??= new PooledCharBuilder();
             _multiline.Clear();
@@ -121,7 +138,11 @@ internal sealed class LogicalLineAssembler : IDisposable
             return false;
         }
 
-        return AddAssembledLine(active, line, lineNumber, lineNumber, out record);
+        if (!AddAssembledLine(active, line, lineNumber, lineNumber, out record))
+            return false;
+        if (active.LinesPerRecord <= 1)
+            RecordScan = scan;
+        return true;
     }
 
     /// <summary>
@@ -162,6 +183,7 @@ internal sealed class LogicalLineAssembler : IDisposable
 
     private bool AddAssembledLine(ILogicalLineRules rules, ReadOnlySpan<char> line, int startLine, int endLine, out ReadOnlySpan<char> record)
     {
+        RecordScan = default;
         int linesPerRecord = rules.LinesPerRecord;
         if (linesPerRecord <= 1)
         {

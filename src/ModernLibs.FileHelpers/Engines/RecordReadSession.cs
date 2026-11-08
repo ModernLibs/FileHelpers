@@ -360,7 +360,8 @@ internal sealed class RecordReadSession<T> : IDisposable
         }
         catch (Exception ex)
         {
-            string text = recordText ?? record.ToString();
+            // Copied before Hold, which can reuse the buffer the record is in; IgnoreAndContinue has no use for it.
+            string? text = ReportsRecordText ? recordText ?? record.ToString() : null;
             int errorLine = startLine;
             if (ex is FileHelpersException located)
             {
@@ -454,14 +455,21 @@ internal sealed class RecordReadSession<T> : IDisposable
         return false;
     }
 
-    private void ReportError(int lineNumber, string recordText, Exception ex)
+    /// <summary>The error mode throws or saves errors, so it needs the text of a failing record.</summary>
+    private bool ReportsRecordText => _errors.ErrorMode is ErrorMode.ThrowException or ErrorMode.SaveAndContinue;
+
+    /// <summary>Throws, saves or ignores a record error, as the error mode says.</summary>
+    /// <param name="lineNumber">Line of the error.</param>
+    /// <param name="recordText">Text of the failing record; <see langword="null"/> only when <see cref="ReportsRecordText"/> is false.</param>
+    /// <param name="ex">The error.</param>
+    private void ReportError(int lineNumber, string? recordText, Exception ex)
     {
         switch (_errors.ErrorMode)
         {
             case ErrorMode.ThrowException:
-                throw RecordErrors.ForThrow(lineNumber, recordText, ex);
+                throw RecordErrors.ForThrow(lineNumber, recordText!, ex);
             case ErrorMode.SaveAndContinue:
-                _errors.AddError(RecordErrors.ToErrorInfo(lineNumber, recordText, ex));
+                _errors.AddError(RecordErrors.ToErrorInfo(lineNumber, recordText!, ex));
                 break;
         }
     }

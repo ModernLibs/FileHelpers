@@ -91,7 +91,7 @@ internal sealed class MultiRecordReader : IDisposable
             }
 
             // The error first, then the lines after the failing one (3.x).
-            ReportError(errorLine, record.ToString(), ex);
+            ReportError(errorLine, record, ex);
             ResumePending();
         }
     }
@@ -118,10 +118,20 @@ internal sealed class MultiRecordReader : IDisposable
         catch (Exception ex)
         {
             // 3.x: "Selector failed to process correctly", routed through ErrorMode.
-            ReportError(lineNumber, line.ToString(), new FileHelpersException("Selector failed to process correctly", ex));
+            ReportError(lineNumber, line, new FileHelpersException("Selector failed to process correctly", ex));
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// <see cref="ReportError(int, string, Exception)"/> for a record still in a line buffer: its text is copied
+    /// only for the error modes that report it.
+    /// </summary>
+    private void ReportError(int lineNumber, ReadOnlySpan<char> record, Exception ex)
+    {
+        if (_errors.ErrorMode is ErrorMode.ThrowException or ErrorMode.SaveAndContinue)
+            ReportError(lineNumber, record.ToString(), ex);
     }
 
     private void ReportError(int lineNumber, string recordText, Exception ex)

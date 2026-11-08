@@ -105,7 +105,7 @@ internal sealed class MasterDetailReader<TMaster, TDetail> : IDisposable
             }
 
             // The error first, then the lines after the failing one (3.x).
-            ReportError(errorLine, record.ToString(), ex);
+            ReportError(errorLine, record, ex);
             ResumePending();
         }
     }
@@ -164,9 +164,19 @@ internal sealed class MasterDetailReader<TMaster, TDetail> : IDisposable
         catch (Exception ex)
         {
             // 3.x: "Supplied Record selector failed to process record", routed through ErrorMode.
-            ReportError(lineNumber, line.ToString(), new FileHelpersException("Supplied Record selector failed to process record", ex));
+            ReportError(lineNumber, line, new FileHelpersException("Supplied Record selector failed to process record", ex));
             return RecordAction.Skip;
         }
+    }
+
+    /// <summary>
+    /// <see cref="ReportError(int, string, Exception)"/> for a record still in a line buffer: its text is copied
+    /// only for the error modes that report it.
+    /// </summary>
+    private void ReportError(int lineNumber, ReadOnlySpan<char> record, Exception ex)
+    {
+        if (_errors.ErrorMode is ErrorMode.ThrowException or ErrorMode.SaveAndContinue)
+            ReportError(lineNumber, record.ToString(), ex);
     }
 
     private void ReportError(int lineNumber, string recordText, Exception ex)

@@ -23,6 +23,10 @@ allocates about 2.5 times more than Sep or Sylvan because it loads the whole fil
 streaming `ReadFile(path, callback)` overload allocates the same as Sep. The results page lists the
 caveats (WSL2, what each library does per row).
 
+**[docs/benchmarks/v4.8.1.md](docs/benchmarks/v4.8.1.md)** compares 4.8.1 with 4.8.0 on the same
+machine: reads are 8 to 26 % faster and `WriteFile` 12 to 18 % faster, with the same allocation per
+record. The other results above still apply.
+
 Performance depends heavily on hardware, record shape and field types, so run the suite on a machine
 like your production one.
 

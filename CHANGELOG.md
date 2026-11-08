@@ -19,6 +19,39 @@ file.
 
 ## [Unreleased]
 
+## [4.8.1] - 2026-11-08
+
+Performance release. The public API and the behaviour are the same as in 4.8.0. Measurements against
+4.8.0 on the same machine are in [docs/benchmarks/v4.8.1.md](docs/benchmarks/v4.8.1.md).
+
+### Changed
+
+- **Faster reads of records without quoted fields.** When a record type has no `[FieldQuoted]` field
+  and no per-field delimiters, the field count is checked by counting delimiters instead of scanning
+  the record. Reads are 8 to 26 % faster (100K rows: `ReadString` with a callback 77 ms instead of
+  92 ms). The error messages for a wrong field count are unchanged.
+- **Larger file buffers.** The file-path overloads (`ReadFile`, `ReadFileAsync`, `WriteFile`,
+  `AppendToFile`, the async engine's `BeginReadFile`, `BeginWriteFile` and `BeginAppendFile`, and the
+  multi-record and master/detail file reads and writes) use 16 KB buffers instead of the framework
+  defaults. A reader of a file smaller than 16 KB gets a buffer of the file's size. `WriteFile` of 1M
+  records takes 637 ms instead of 758 ms; each `WriteFile` call allocates about 85 KB instead of about
+  10 KB. All buffers stay below the large object heap threshold.
+- `FileHelperAsyncEngine.BeginWriteFile` and `BeginAppendFile` now buffer up to 16K characters before
+  writing to the file. `Close` or `Dispose` writes them, as before; other readers of the file see
+  the records later than with 4.8.0.
+- `ReadFileAsync` opens the file for asynchronous I/O. On Windows its reads are overlapped I/O instead
+  of synchronous reads on the thread pool. The async callback reads are about 20 % faster.
+- Enum fields are written with `Enum.TryFormat` and no longer allocate a string per value.
+- `ReadString`, `ReadFile` and the other in-memory reads with `maxRecords` size their result list for at
+  most `maxRecords` records instead of for every line of the input.
+- With `ErrorMode.IgnoreAndContinue`, a record that fails is no longer copied to a string.
+- Package icon and logo replaced with the new brand artwork.
+
+### Fixed
+
+- A number field with a sign separated from the digits by blanks (`"-  42"`) longer than 128
+  characters now returns its pooled buffer when a custom format provider throws.
+
 ## [4.8.0] - 2026-10-20
 
 First NuGet release.

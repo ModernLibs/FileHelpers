@@ -927,52 +927,8 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
         int count = 0;
         foreach (var record in records)
         {
-            // BeforeWriteRecord event, then INotifyWrite<T>.BeforeWrite
-            if (BeforeWriteRecord is not null || _implementsNotifyWrite)
-            {
-                var beforeArgs = new BeforeWriteEventArgs<T>(this, record, count + 1);
-
-                if (BeforeWriteRecord is not null)
-                {
-                    BeforeWriteRecord.Invoke(this, beforeArgs);
-                    if (beforeArgs.SkipThisRecord)
-                        continue;
-                }
-
-                if (_implementsNotifyWrite && record is INotifyWrite<T> notifyWrite)
-                {
-                    notifyWrite.BeforeWrite(beforeArgs);
-                    if (beforeArgs.SkipThisRecord)
-                        continue;
-                }
-            }
-
-            buf.Reset();
-            buf.NewLine = NewLineForWrite;
-            _descriptor.Format(record, buf);
-
-            // AfterWriteRecord event, then INotifyWrite<T>.AfterWrite
-            if (AfterWriteRecord is not null || _implementsNotifyWrite)
-            {
-                string formattedLine = buf.WrittenSpan.ToString();
-                var afterArgs = new AfterWriteEventArgs<T>(this, record, count + 1, formattedLine);
-
-                if (AfterWriteRecord is not null)
-                {
-                    AfterWriteRecord.Invoke(this, afterArgs);
-                }
-
-                if (_implementsNotifyWrite && record is INotifyWrite<T> notifyWrite)
-                {
-                    notifyWrite.AfterWrite(afterArgs);
-                }
-
-                writer.Write(afterArgs.RecordLine);
-            }
-            else
-            {
-                writer.Write(buf.WrittenSpan);
-            }
+            if (!WriteRecordText(writer, record, count + 1, buf))
+                continue;
             writer.Write(NewLineForWrite); // The engine, not the descriptor, writes the record terminator.
             count++;
         }
@@ -984,4 +940,68 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
         TotalRecords = count;
     }
 #pragma warning restore MA0051
+
+    /// <summary>
+    /// Writes one record for <see cref="MultiRecordEngine"/>: the text of <c>WriteString([record])</c> without its
+    /// terminator (nothing when an event skips the record). Each record is record number 1, as it was when the
+    /// multi-record engine wrote every record with its own <c>WriteString</c> call.
+    /// </summary>
+    internal void WriteMultiRecordText(TextWriter writer, T record, RentedBufferWriter buffer) =>
+        WriteRecordText(writer, record, recordNumber: 1, buffer);
+
+    /// <summary>
+    /// Raises the write events and writes the formatted <paramref name="record"/> without its terminator;
+    /// <see langword="false"/> when an event skipped it.
+    /// </summary>
+    private bool WriteRecordText(TextWriter writer, T record, int recordNumber, RentedBufferWriter buf)
+    {
+        // BeforeWriteRecord event, then INotifyWrite<T>.BeforeWrite
+        if (BeforeWriteRecord is not null || _implementsNotifyWrite)
+        {
+            var beforeArgs = new BeforeWriteEventArgs<T>(this, record, recordNumber);
+
+            if (BeforeWriteRecord is not null)
+            {
+                BeforeWriteRecord.Invoke(this, beforeArgs);
+                if (beforeArgs.SkipThisRecord)
+                    return false;
+            }
+
+            if (_implementsNotifyWrite && record is INotifyWrite<T> notifyWrite)
+            {
+                notifyWrite.BeforeWrite(beforeArgs);
+                if (beforeArgs.SkipThisRecord)
+                    return false;
+            }
+        }
+
+        buf.Reset();
+        buf.NewLine = NewLineForWrite;
+        _descriptor.Format(record, buf);
+
+        // AfterWriteRecord event, then INotifyWrite<T>.AfterWrite
+        if (AfterWriteRecord is not null || _implementsNotifyWrite)
+        {
+            string formattedLine = buf.WrittenSpan.ToString();
+            var afterArgs = new AfterWriteEventArgs<T>(this, record, recordNumber, formattedLine);
+
+            if (AfterWriteRecord is not null)
+            {
+                AfterWriteRecord.Invoke(this, afterArgs);
+            }
+
+            if (_implementsNotifyWrite && record is INotifyWrite<T> notifyWrite)
+            {
+                notifyWrite.AfterWrite(afterArgs);
+            }
+
+            writer.Write(afterArgs.RecordLine);
+        }
+        else
+        {
+            writer.Write(buf.WrittenSpan);
+        }
+
+        return true;
+    }
 }

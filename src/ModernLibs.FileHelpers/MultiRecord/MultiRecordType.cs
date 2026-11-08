@@ -36,15 +36,22 @@ internal sealed class MultiRecordType<T>(MultiRecordSelector selector) : IMultiR
 
     public bool CanFormat(object record) => record is T;
 
-    public string Format(object record) => Format(record, "\r\n");
+    public string Format(object record)
+    {
+        if (record is not T typed)
+            throw new ArgumentException($"Record is not a {typeof(T).Name}.", nameof(record));
 
-    public string Format(object record, string newLine)
+        _engine.NewLineForWrite = "\r\n";
+        string formatted = _engine.WriteString([typed]);
+        return formatted.EndsWith("\r\n", StringComparison.Ordinal) ? formatted[..^2] : formatted;
+    }
+
+    public void Write(object record, TextWriter writer, string newLine, RentedBufferWriter buffer)
     {
         if (record is not T typed)
             throw new ArgumentException($"Record is not a {typeof(T).Name}.", nameof(record));
 
         _engine.NewLineForWrite = newLine;
-        string formatted = _engine.WriteString([typed]);
-        return formatted.EndsWith(newLine, StringComparison.Ordinal) ? formatted[..^newLine.Length] : formatted;
+        _engine.WriteMultiRecordText(writer, typed, buffer);
     }
 }

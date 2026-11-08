@@ -97,6 +97,8 @@ public sealed class MultiRecordEngine
         ArgumentNullException.ThrowIfNull(writer);
         ArgumentNullException.ThrowIfNull(records);
 
+        // One formatting buffer for every record (each record type used to write through its own WriteString).
+        using var buffer = new RentedBufferWriter(4096);
         foreach (var record in records)
         {
             IMultiRecordType? recordType = null;
@@ -115,7 +117,10 @@ public sealed class MultiRecordEngine
                 throw new ArgumentException($"Record type {record.GetType().Name} is not part of this multi-record engine. Available types: {availableTypes}.", nameof(records));
             }
 
-            writer.Write(recordType is IMultiRecordTypeWriter typed ? typed.Format(record, NewLineForWrite) : recordType.Format(record));
+            if (recordType is IMultiRecordTypeWriter typed)
+                typed.Write(record, writer, NewLineForWrite, buffer);
+            else
+                writer.Write(recordType.Format(record));
             writer.Write(NewLineForWrite);
         }
     }

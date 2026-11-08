@@ -119,6 +119,9 @@ internal sealed class RecordReadSession<T> : IDisposable
     /// <summary>Header lines are still expected.</summary>
     public bool InHeader => _headerRemaining > 0;
 
+    /// <summary>The read holds back footer lines (<c>IgnoreLast</c>).</summary>
+    public bool HasFooterLines => _footerLines > 0;
+
     /// <summary>
     /// For an input of unknown length: after <see cref="Stopped"/>, keep the last <c>IgnoreLast</c> lines
     /// pushed and publish them as the footer, as a read of the same input in memory does. Set by the reads

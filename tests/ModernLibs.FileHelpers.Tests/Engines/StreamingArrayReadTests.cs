@@ -122,6 +122,49 @@ public sealed class StreamingArrayReadTests
         await AssertSameAsReadString(() => new FileHelperEngine<SarFramed>(), r => $"{r.Id}:{r.Text}");
 
     [Test]
+    [DisplayName("Callback reads of a string (with and without IgnoreLast) give the records, footer and counters of the array read")]
+    public async Task StringCallbackReads_MatchArrayRead()
+    {
+        int n = 0;
+        foreach (string input in Inputs())
+        {
+            foreach (int maxRecords in MaxRecordValues)
+            {
+                n++;
+                foreach (bool framed in new[] { false, true })
+                {
+                    string label = $"input {n}, maxRecords {maxRecords}, framed {framed}";
+
+                    // Arrange / Act: the array read is the reference
+                    (Outcome Array, Outcome Callback, Outcome Span) Run<T>(Func<T, string> show)
+                        where T : class
+                    {
+                        var arrayEngine = new FileHelperEngine<T> { ErrorMode = ErrorMode.SaveAndContinue };
+                        var array = Capture(arrayEngine, arrayEngine.ReadString(input, maxRecords), show);
+                        var callbackEngine = new FileHelperEngine<T> { ErrorMode = ErrorMode.SaveAndContinue };
+                        var collected = new List<T>();
+                        callbackEngine.ReadString(input, collected.Add, maxRecords);
+                        var callback = Capture(callbackEngine, collected.ToArray(), show);
+                        var spanEngine = new FileHelperEngine<T> { ErrorMode = ErrorMode.SaveAndContinue };
+                        var spanCollected = new List<string>();
+                        spanEngine.ReadSpan(input.AsSpan(), (ref T r) => spanCollected.Add(show(r)), maxRecords);
+                        var span = Capture(spanEngine, [], show) with { Records = string.Join("|", spanCollected) };
+                        return (array, callback, span);
+                    }
+
+                    var (expected, callbackOutcome, spanOutcome) = framed
+                        ? Run<SarFramed>(r => $"{r.Id}:{r.Text}")
+                        : Run<SarPlain>(r => $"{r.Id}:{r.Text}");
+
+                    // Assert
+                    await Assert.That(callbackOutcome).IsEqualTo(expected).Because("Action callback, " + label);
+                    await Assert.That(spanOutcome).IsEqualTo(expected).Because("span callback, " + label);
+                }
+            }
+        }
+    }
+
+    [Test]
     [DisplayName("StopReading from BeforeReadRecord on record 3 leaves the same counters, header and footer as ReadString")]
     public async Task StopReading_MatchesReadString()
     {

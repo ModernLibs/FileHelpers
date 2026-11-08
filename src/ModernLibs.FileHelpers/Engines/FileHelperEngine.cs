@@ -752,7 +752,11 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
         using var session = BeginSession(maxRecords, allowRecycle);
         try
         {
-            session.SetKnownLineCount(LineSplitter.CountLines(content));
+            // The line count sizes the result array and finds the footer without buffering lines. A callback
+            // read without footer lines needs neither, so it does not pay for a pass over the whole input
+            // (which a record cap would otherwise not read).
+            if (typeof(TSink) == typeof(ArraySink) || session.HasFooterLines)
+                session.SetKnownLineCount(LineSplitter.CountLines(content));
 
             // A read stops at maxRecords records, so a result never needs more slots, whatever the line count.
             int capacity = session.DataLineCapacity;

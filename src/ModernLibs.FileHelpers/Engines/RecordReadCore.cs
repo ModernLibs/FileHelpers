@@ -13,6 +13,10 @@ internal sealed class RecordReadCore<T> : ILogicalLineRules
 {
     private readonly bool _validateFieldCount;
 
+    // No field can be quoted and every field is followed by the record delimiter, so the field count of a record
+    // is its delimiter count + 1 (see ValidateFieldCount).
+    private readonly bool _plainFieldCount;
+
     // Quote rules for multiline assembly of physical lines (uniform for [FieldInNewLine] records without
     // segments, i.e. hand-written descriptors whose line count does not match their fields).
     private readonly char[] _quotes;
@@ -81,6 +85,8 @@ internal sealed class RecordReadCore<T> : ILogicalLineRules
                 _validateFieldCount = false;
             }
         }
+
+        _plainFieldCount = _validateFieldCount && _fieldDelimiters.Length == 0 && !_quotes.AsSpan().ContainsAnyExcept('\0');
     }
 
     /// <summary>
@@ -593,6 +599,15 @@ internal sealed class RecordReadCore<T> : ILogicalLineRules
 
     private void ValidateFieldCount(ReadOnlySpan<char> logicalRecord)
     {
+        if (_plainFieldCount)
+        {
+            // Without quoted fields the scan below counts the delimiter occurrences without overlap, which is what
+            // Count does, vectorised. A count out of range falls through to the scan, which builds the error.
+            int count = (Delimiter.Length == 1 ? logicalRecord.Count(Delimiter[0]) : logicalRecord.Count(Delimiter.AsSpan())) + 1;
+            if (count >= MandatoryFieldCount && count <= FieldCount)
+                return;
+        }
+
         int lastField = 0;
         bool unclosed = QuoteBalanceScanner.EndsInsideQuotes(logicalRecord, startsInsideQuotes: false, Delimiter, _quotes, _trimStart, ref lastField, _fieldDelimiters);
         int found = lastField + 1;

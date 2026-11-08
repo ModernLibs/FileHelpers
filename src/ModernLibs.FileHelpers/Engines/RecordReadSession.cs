@@ -360,7 +360,7 @@ internal sealed class RecordReadSession<T> : IDisposable
         }
         catch (Exception ex)
         {
-            // Copied before Hold, which can reuse the buffer the record is in; IgnoreAndContinue has no use for it.
+            // The text of the failing record, for the error modes that report it (IgnoreAndContinue does not).
             string? text = ReportsRecordText ? recordText ?? record.ToString() : null;
             int errorLine = startLine;
             if (ex is FileHelpersException located)

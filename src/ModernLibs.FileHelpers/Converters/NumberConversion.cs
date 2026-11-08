@@ -77,12 +77,18 @@ internal static class NumberConversion
         Span<char> joined = length <= StackallocLimit
             ? stackalloc char[StackallocLimit]
             : (rented = ArrayPool<char>.Shared.Rent(length));
-        joined[0] = span[0];
-        digits.CopyTo(joined[1..]);
-        bool ok = T.TryParse(joined[..length], styles, provider, out value);
-        if (rented is not null)
-            ArrayPool<char>.Shared.Return(rented);
-        return ok;
+        try
+        {
+            joined[0] = span[0];
+            digits.CopyTo(joined[1..]);
+            return T.TryParse(joined[..length], styles, provider, out value);
+        }
+        finally
+        {
+            // A custom format provider can throw; the buffer still goes back to the pool.
+            if (rented is not null)
+                ArrayPool<char>.Shared.Return(rented);
+        }
     }
 
     /// <summary>Powers of ten exactly representable as <see cref="double"/> (Clinger fast path).</summary>

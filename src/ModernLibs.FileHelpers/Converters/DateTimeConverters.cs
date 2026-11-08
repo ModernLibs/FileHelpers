@@ -21,6 +21,9 @@ public sealed class DateTimeConverter : ISpanConverter<DateTime>
     private readonly string? _format;
     private readonly IFormatProvider _culture;
 
+    /// <summary>The fast-path plan of the format last used; replaced when the default format changes.</summary>
+    private DatePlan? _plan;
+
     /// <summary>Initializes a new instance with an optional custom format and culture.</summary>
     /// <param name="format">
     /// Exact format string (3.x <c>[FieldConverter(ConverterKind.Date, format)]</c>);
@@ -40,11 +43,23 @@ public sealed class DateTimeConverter : ISpanConverter<DateTime>
 
     /// <inheritdoc/>
     public bool TryParse(ReadOnlySpan<char> span, out DateTime value)
-        => DateTime.TryParseExact(span.Trim(), Format, _culture, DateTimeStyles.None, out value);
+    {
+        string format = Format;
+        var plan = _plan;
+        if (plan is null || !ReferenceEquals(plan.Format, format))
+            _plan = plan = new DatePlan(format, FixedDateFormat.TryCreate(format, _culture));
+
+        var trimmed = span.Trim();
+        return (plan.Fixed is not null && plan.Fixed.TryParse(trimmed, out value))
+            || DateTime.TryParseExact(trimmed, format, _culture, DateTimeStyles.None, out value);
+    }
 
     /// <inheritdoc/>
     public bool TryFormat(DateTime value, Span<char> destination, out int charsWritten)
         => value.TryFormat(destination, out charsWritten, Format, _culture);
+
+    /// <summary>A format and its fast-path plan (<see langword="null"/> when it has none), swapped as one reference.</summary>
+    private sealed record DatePlan(string Format, FixedDateFormat? Fixed);
 }
 
 /// <summary>
@@ -125,6 +140,9 @@ public sealed class DateMultiFormatConverter : ISpanConverter<DateTime>
     private readonly string[] _formats;
     private readonly IFormatProvider _culture;
 
+    /// <summary>The fast-path plan of each format, or <see langword="null"/> when it has none.</summary>
+    private readonly FixedDateFormat?[] _fixed;
+
     /// <summary>
     /// Initializes a new instance with the given format strings and optional culture.
     /// </summary>
@@ -141,15 +159,19 @@ public sealed class DateMultiFormatConverter : ISpanConverter<DateTime>
 
         _formats = (string[])formats.Clone();
         _culture = culture ?? CultureInfo.InvariantCulture;
+        _fixed = Array.ConvertAll(_formats, format => FixedDateFormat.TryCreate(format, _culture));
     }
 
     /// <inheritdoc/>
     public bool TryParse(ReadOnlySpan<char> span, out DateTime value)
     {
         ReadOnlySpan<char> trimmed = span.Trim();
-        foreach (string fmt in _formats)
+        for (int i = 0; i < _formats.Length; i++)
         {
-            if (DateTime.TryParseExact(trimmed, fmt, _culture, DateTimeStyles.None, out value))
+            // Each format is decided before the next one is tried: the first match wins, as in 3.x.
+            var plan = _fixed[i];
+            if ((plan is not null && plan.TryParse(trimmed, out value))
+                || DateTime.TryParseExact(trimmed, _formats[i], _culture, DateTimeStyles.None, out value))
                 return true;
         }
         value = default;

@@ -85,6 +85,13 @@ public abstract class ConverterBase
 [EditorBrowsable(EditorBrowsableState.Never)]
 public sealed class ConverterBaseAdapter<T> : ISpanConverter<T>
 {
+    /// <summary>
+    /// The text of the last value of this thread that did not fit its destination. The writer retries the same
+    /// value with a larger destination at once, and gets this text instead of a second converter call.
+    /// </summary>
+    [ThreadStatic]
+    private static PendingText? t_pending;
+
     private readonly ConverterBase _inner;
 
     /// <summary>Initializes a new adapter wrapping the given <see cref="ConverterBase"/> instance.</summary>
@@ -140,13 +147,36 @@ public sealed class ConverterBaseAdapter<T> : ISpanConverter<T>
     }
 
     /// <inheritdoc/>
-    /// <remarks>Allocates one string per call (ConverterBase returns string).</remarks>
+    /// <remarks>
+    /// Allocates one string per call (ConverterBase returns string). When the text does not fit
+    /// <paramref name="destination"/>, it is kept for the retry of the same value with a larger destination,
+    /// so <see cref="ConverterBase.FieldToString"/> runs once per written value.
+    /// </remarks>
     public bool TryFormat(T value, Span<char> destination, out int charsWritten)
     {
-        string? s = _inner.FieldToString(value);     // one allocation (or null)
+        string? s;
+        var pending = t_pending;
+        if (pending is not null && ReferenceEquals(pending.Owner, this) && EqualityComparer<T>.Default.Equals(pending.Value, value))
+        {
+            s = pending.Text;
+            t_pending = null;
+        }
+        else
+        {
+            s = _inner.FieldToString(value);     // one allocation (or null)
+        }
+
         if (s is null) { charsWritten = 0; return true; }
-        if (!s.AsSpan().TryCopyTo(destination)) { charsWritten = 0; return false; }
+        if (!s.AsSpan().TryCopyTo(destination))
+        {
+            t_pending = new PendingText(this, value, s);
+            charsWritten = 0;
+            return false;
+        }
+
         charsWritten = s.Length;
         return true;
     }
+
+    private sealed record PendingText(ConverterBaseAdapter<T> Owner, T Value, string Text);
 }

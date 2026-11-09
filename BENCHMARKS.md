@@ -25,7 +25,14 @@ caveats (WSL2, what each library does per row).
 
 **[docs/benchmarks/v4.8.1.md](docs/benchmarks/v4.8.1.md)** compares 4.8.1 with 4.8.0 on the same
 machine: reads are 8 to 26 % faster and `WriteFile` 12 to 18 % faster, with the same allocation per
-record. The other results above still apply.
+record.
+
+**[docs/benchmarks/v4.9.0.md](docs/benchmarks/v4.9.0.md)** compares 4.9.0 with 4.8.1 on all suites.
+`ReadFile(path)` to an array no longer loads the file into a string: it is 29 to 56 % faster and
+allocates as much as Sep and Sylvan (100K rows of the 25-column file: 119 ms and 76 MB, instead of
+187 ms and 186 MB). `WriteString` is 17 to 40 % faster with half the allocation. In these runs the
+25-column read is slightly faster than Sep and within 10 % of Sylvan; Sep and Sylvan still read the
+quoted file faster. The 4.8.0 numbers above are kept as the baseline against FileHelpers 3.5.2.
 
 Performance depends heavily on hardware, record shape and field types, so run the suite on a machine
 like your production one.

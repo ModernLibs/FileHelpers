@@ -29,9 +29,11 @@ the same machine are in [docs/benchmarks/v4.9.0.md](docs/benchmarks/v4.9.0.md).
 ### Changed
 
 - **`ReadFile(path)` and `ReadStream(reader)` parse records as they read.** They no longer load the
-  whole input into one string first. `ReadFile` to an array is 29 to 56 % faster and allocates 2.5
-  times less (100K rows: 119 ms and 76 MB instead of 187 ms and 186 MB), as much as `ReadString` of
-  the same text. Two effects are visible:
+  whole input into one string first. `ReadFile` to an array is 28 to 52 % faster and allocates about
+  60 % less (100K rows: about 154 ms and 76 MB instead of 216 to 243 ms and 186 MB), as much as
+  `ReadString` of the same text. Fixed-width reads allocate 43 to 45 % less; class records are 17 to
+  43 % faster, struct records 11 to 14 % faster at 10K rows and 14 % slower at 100K rows. Two effects
+  are visible:
   - `ReadFile` keeps the file open (shared for reading, as before) until the read ends. A
     `BeforeReadRecord` or `AfterReadRecord` handler, an `INotifyRead` record or a converter that
     deletes or rewrites the same file now gets an `IOException` on Windows.
@@ -42,17 +44,26 @@ the same machine are in [docs/benchmarks/v4.9.0.md](docs/benchmarks/v4.9.0.md).
   `dd`, `HH`, `mm`, `ss` and the separators `-`, `/`, `:`, `.`, `T`, `_` or a space (for example the
   default `ddMMyyyy`, `yyyy-MM-dd` or `s`), with the invariant culture, is parsed without
   `DateTime.TryParseExact`. Any other value and any other format still go through `TryParseExact`,
-  so the accepted values are the same. With two dates per record, `ReadString` to an array is 18 to
-  32 % faster and the callback reads 32 to 39 % faster.
-- **`WriteString` is 17 to 40 % faster and allocates half as much.** The text is collected in pooled
+  so the accepted values are the same. With two dates per record, `ReadString` to an array is 17 to
+  31 % faster and the callback reads 31 to 40 % faster, together with the other changes of the release.
+- **`WriteString` is 17 to 30 % faster and allocates about 50 % less (46 % at 1M rows).** The text is collected in pooled
   chunks and copied once into the result string. `FileHelperAsyncEngine.BeginWriteString` and the
   multi-record and master/detail `WriteString` work the same way.
-- **Multi-record writes format every record through one shared buffer.** Writing 10K records
-  allocates less than 0.4 MB instead of 2.9 MB.
+- **Multi-record writes format every record through one shared buffer.** In the test suite, writing
+  10K records stays below 0.4 MB of allocation (about 2.9 MB in 4.8.1).
 - A quoted record that fits on one line is scanned once instead of twice.
+- **The quote scan of delimited records is vectorised.** When all quoted fields use one quote
+  character and no field has its own `[FieldDelimiter]`, a line without the quote character skips the
+  scan. With, in addition, a single-character delimiter and no trim before the opening quote, the scan
+  jumps between delimiter and quote positions found with vector search instead of reading every
+  character. Other rules use the full scan as before; the result is the same for every line. On its
+  own it made the quoted-fields read about 10 % faster in an earlier run; with the single scan and
+  the streaming file read, that read is 27 to 44 % faster than in 4.8.1 (100K rows: 46 ms instead of
+  64 ms) and allocates about half as much.
 - `ReadString` and `ReadSpan` with a callback skip the line count pass when the record type has no
   `[IgnoreLast]`.
-- `ReadAsync(path)` reads through an asynchronous file stream with 16 KB reads: 22 to 30 % faster.
+- `ReadAsync(path)` reads through an asynchronous file stream with 16 KB reads: up to 11 % faster in
+  the multi-record benchmark.
 - A `ConverterBase` whose text is longer than the first formatting buffer is called once per written
   field instead of once per buffer size tried.
 

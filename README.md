@@ -231,15 +231,18 @@ the test suite.
 
 The repository contains a BenchmarkDotNet suite that compares this library with FileHelpers 3.5.2,
 Sep, Sylvan.Data.Csv and CsvHelper. In the
-[4.8.0 results](https://github.com/ModernLibs/FileHelpers/blob/main/docs/benchmarks/v4.8.0.md)
-(Ryzen 9 5900X, WSL2, .NET 10, 100K rows):
+[4.9.0 results](https://github.com/ModernLibs/FileHelpers/blob/main/docs/benchmarks/v4.9.0.md)
+(AMD EPYC 7763 virtual machine, Ubuntu 24.04, .NET 10, 100K rows):
 
-- Reading a 25-column delimited file into objects: 182 ms, against 344 ms for FileHelpers 3.5.2 and
-  352 ms for CsvHelper. Sylvan (107 ms) and Sep (122 ms) are faster, and allocate about 2.5 times less
-  than `ReadFile(path)`, which loads the whole file into a string (the streaming
-  `ReadFile(path, callback)` overload allocates as little as Sep).
-- Reading a fixed-width file: 53 ms, against 84 ms for FileHelpers 3.5.2 (which allocates 16 % less).
-- Writing the same records to a string: 70 ms, against 75 ms for Sep and 173 ms for CsvHelper.
+- Reading a 25-column delimited file into objects with `ReadFile(path)`: about 155 ms and 76 MB,
+  against 459 ms for FileHelpers 3.5.2, 165 ms for CsvHelper 34 and 171 ms for Sep. Sylvan is faster
+  (131 ms) and allocates the same.
+- Reading a fixed-width file: 48 to 51 ms, against 111 ms for FileHelpers 3.5.2 and 54 ms for
+  CsvHelper 34, with a third less allocation than FileHelpers 3.5.2.
+- Reading a file with quoted fields: 46 ms. Sep (29 ms), CsvHelper (28 ms) and Sylvan (38 ms) are
+  faster.
+- Writing the same 25-column records to a string: 68 to 70 ms, against 102 ms for Sep and 58 ms for
+  CsvHelper 34.
 
 Results depend on hardware and record shape; see
 [BENCHMARKS.md](https://github.com/ModernLibs/FileHelpers/blob/main/BENCHMARKS.md) to run the suite on

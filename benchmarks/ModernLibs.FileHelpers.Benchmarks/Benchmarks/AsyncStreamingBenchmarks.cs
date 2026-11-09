@@ -32,8 +32,7 @@ public class AsyncStreamingBenchmarks : IAsyncDisposable
     [Params(10_000, 100_000)]
     public int Rows { get; set; }
 
-    [GlobalSetup]
-    public void Setup()
+    private void Prepare()
     {
         var dataDir = Path.Combine(Path.GetDirectoryName(typeof(AsyncStreamingBenchmarks).Assembly.Location)!, "Data");
         Directory.CreateDirectory(dataDir);
@@ -57,15 +56,33 @@ public class AsyncStreamingBenchmarks : IAsyncDisposable
                 writer.WriteLine(string.Create(CultureInfo.InvariantCulture, $"D|{i}|{i * 1.5m}"));
             }
         }
+    }
 
-        // Correctness guard: every benchmark must read every record of the file it measures.
+    // Correctness guard: every benchmark must read every record of the file it measures. Each setup runs only
+    // the guard of its own benchmark, so no other read runs in the measured process (see FixedWidthParseBenchmarks).
+    [GlobalSetup(Target = nameof(ReadSync_MultiRecord))]
+    public void SetupSync()
+    {
+        Prepare();
         var records = ReadSync_MultiRecord();
         DataCheck.Equal(2 * Rows, records.Length, "sync record count");
         DataCheck.That(records[0] is AsyncHeaderRecord { Kind: "H", Batch: "BATCH0" }, "first record must be header H|BATCH0");
         var last = Rows - 1;
         DataCheck.That(records[^1] is AsyncDetailRecord { Kind: "D" } d && d.Id == last && d.Amount == last * 1.5m,
             $"last record must be detail D|{last}|{last * 1.5m}, got {records[^1]}");
+    }
+
+    [GlobalSetup(Target = nameof(ReadAsync_MultiRecord))]
+    public void SetupAsync()
+    {
+        Prepare();
         DataCheck.Equal(2 * Rows, ReadAsync_MultiRecord().GetAwaiter().GetResult(), "async record count");
+    }
+
+    [GlobalSetup(Target = nameof(ReadAsync_MultiRecord_WithCancellation))]
+    public void SetupAsyncWithCancellation()
+    {
+        Prepare();
         DataCheck.Equal(2 * Rows, ReadAsync_MultiRecord_WithCancellation().GetAwaiter().GetResult(), "async (cancellable) record count");
     }
 

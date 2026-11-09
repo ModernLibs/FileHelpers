@@ -42,19 +42,46 @@ public class QuotedFieldsBenchmarks
     [Params(10_000, 100_000)]
     public int Rows { get; set; }
 
-    [GlobalSetup]
-    public void Setup()
+    private void Prepare()
     {
         var dataDir = Path.Combine(Path.GetDirectoryName(typeof(QuotedFieldsBenchmarks).Assembly.Location)!, "Data");
         Directory.CreateDirectory(dataDir);
         _filePath = DatasetGenerator.EnsureQuotedFields(dataDir, Rows);
         _engine = new FileHelperEngine<QuotedRecord>();
+    }
 
-        // Correctness guard: every benchmark must unquote the file it measures.
+    private void CheckCompetitor(string name, IReadOnlyList<QuotedCompetitorRow> rows) =>
+        DataCheck.QuotedFields(name, Rows, rows.Count, i => (rows[i].Id, rows[i].Description, rows[i].Notes, rows[i].Category));
+
+    // Correctness guard: every benchmark must unquote the file it measures. Each setup runs only the guard of
+    // its own benchmark, so no other reader runs in the measured process (see FixedWidthParseBenchmarks).
+    [GlobalSetup(Target = nameof(ReadAllRows_FileHelpers))]
+    public void SetupFileHelpers()
+    {
+        Prepare();
         var fh = ReadAllRows_FileHelpers();
         DataCheck.QuotedFields("FileHelpers", Rows, fh.Length, i => (fh[i].Id, fh[i].Description, fh[i].Notes, fh[i].Category));
-        foreach (var (name, rows) in new[] { ("Sylvan", ReadAllRows_Sylvan()), ("CsvHelper", ReadAllRows_CsvHelper()), ("Sep", ReadAllRows_Sep()) })
-            DataCheck.QuotedFields(name, Rows, rows.Count, i => (rows[i].Id, rows[i].Description, rows[i].Notes, rows[i].Category));
+    }
+
+    [GlobalSetup(Target = nameof(ReadAllRows_Sylvan))]
+    public void SetupSylvan()
+    {
+        Prepare();
+        CheckCompetitor("Sylvan", ReadAllRows_Sylvan());
+    }
+
+    [GlobalSetup(Target = nameof(ReadAllRows_CsvHelper))]
+    public void SetupCsvHelper()
+    {
+        Prepare();
+        CheckCompetitor("CsvHelper", ReadAllRows_CsvHelper());
+    }
+
+    [GlobalSetup(Target = nameof(ReadAllRows_Sep))]
+    public void SetupSep()
+    {
+        Prepare();
+        CheckCompetitor("Sep", ReadAllRows_Sep());
     }
 
     [Benchmark(Baseline = true)]

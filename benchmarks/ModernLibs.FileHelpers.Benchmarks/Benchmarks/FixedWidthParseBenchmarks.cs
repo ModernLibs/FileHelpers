@@ -75,23 +75,46 @@ public class FixedWidthParseBenchmarks
     [Params(10_000, 100_000)]
     public int Rows { get; set; }
 
-    [GlobalSetup]
-    public void Setup()
+    private void Prepare()
     {
         var dataDir = Path.Combine(Path.GetDirectoryName(typeof(FixedWidthParseBenchmarks).Assembly.Location)!, "Data");
         Directory.CreateDirectory(dataDir);
         _filePath = DatasetGenerator.EnsureFixedWidth(dataDir, Rows);
         _classEngine = new FileHelperEngine<FixedRecord>();
         _structEngine = new FileHelperEngine<FixedRecordStruct>();
+    }
 
-        // Correctness guard: every benchmark must parse the file it measures.
-        var lines = DataCheck.DataLines(_filePath, hasHeader: false);
+    // Correctness guard: every benchmark must parse the file it measures. BenchmarkDotNet runs each benchmark
+    // in its own process, and each setup runs only the guard of its own benchmark: no other reader (nor the
+    // buffers it leaves in the shared array pools) is in the process being measured, which shifts GC timing.
+    [GlobalSetup(Target = nameof(ReadAllRows_Class))]
+    public void SetupClass()
+    {
+        Prepare();
         var cls = ReadAllRows_Class();
-        DataCheck.FixedWidth("class", lines, cls.Length, i => FixedRecordText.Of(cls[i]));
+        DataCheck.FixedWidth("class", DataCheck.DataLines(_filePath, hasHeader: false), cls.Length, i => FixedRecordText.Of(cls[i]));
+    }
+
+    [GlobalSetup(Target = nameof(ReadAllRows_Struct))]
+    public void SetupStruct()
+    {
+        Prepare();
         var str = ReadAllRows_Struct();
-        DataCheck.FixedWidth("struct", lines, str.Length, i => FixedRecordText.Of(str[i]));
+        DataCheck.FixedWidth("struct", DataCheck.DataLines(_filePath, hasHeader: false), str.Length, i => FixedRecordText.Of(str[i]));
+    }
+
+    [GlobalSetup(Target = nameof(ReadAllRows_CsvHelper))]
+    public void SetupCsvHelper()
+    {
+        Prepare();
         var csvHelper = ReadAllRows_CsvHelper();
-        DataCheck.FixedWidth("CsvHelper", lines, csvHelper.Count, i => FixedRecordText.Of(csvHelper[i]));
+        DataCheck.FixedWidth("CsvHelper", DataCheck.DataLines(_filePath, hasHeader: false), csvHelper.Count, i => FixedRecordText.Of(csvHelper[i]));
+    }
+
+    [GlobalSetup(Target = nameof(SliceAllFields_SpanSlicer))]
+    public void SetupSlicer()
+    {
+        Prepare();
         DataCheck.Equal(Rows, SliceAllFields_SpanSlicer(), "slicer line count");
     }
 

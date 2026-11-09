@@ -94,27 +94,65 @@ public class DelimitedParseBenchmarks
     [Params(10_000, 100_000, 1_000_000)]
     public int Rows { get; set; }
 
-    [GlobalSetup]
-    public void Setup()
+    private void Prepare()
     {
         var dataDir = Path.Combine(Path.GetDirectoryName(typeof(DelimitedParseBenchmarks).Assembly.Location)!, "Data");
         Directory.CreateDirectory(dataDir);
         _filePath = DatasetGenerator.EnsurePackageAssets(dataDir, Rows);
         _engine = new FileHelperEngine<PackageAsset>();
+    }
 
-        // Correctness guard: every benchmark must parse the file it measures.
-        var lines = DataCheck.DataLines(_filePath, hasHeader: true);
+    private void CheckFirstColumn(string name, int[] ids)
+    {
+        DataCheck.Equal(Rows, ids.Length, name + " first-column count");
+        DataCheck.Equal(Rows - 1, ids[^1], name + " last Id");
+    }
+
+    // Correctness guard: every benchmark must parse the file it measures. Each setup runs only the guard of
+    // its own benchmark, so no other reader runs in the measured process (see FixedWidthParseBenchmarks).
+    [GlobalSetup(Target = nameof(ReadAllRows_FileHelpers))]
+    public void SetupAllRowsFileHelpers()
+    {
+        Prepare();
         var fh = ReadAllRows_FileHelpers();
-        DataCheck.PackageAssets("FileHelpers", lines, fh.Length, i => PackageAssetColumns.Of(fh[i]));
+        DataCheck.PackageAssets("FileHelpers", DataCheck.DataLines(_filePath, hasHeader: true), fh.Length, i => PackageAssetColumns.Of(fh[i]));
+    }
+
+    [GlobalSetup(Target = nameof(ReadAllRows_Sylvan))]
+    public void SetupAllRowsSylvan()
+    {
+        Prepare();
         var sylvan = ReadAllRows_Sylvan();
-        DataCheck.PackageAssets("Sylvan", lines, sylvan.Count, i => PackageAssetColumns.Of(sylvan[i]));
+        DataCheck.PackageAssets("Sylvan", DataCheck.DataLines(_filePath, hasHeader: true), sylvan.Count, i => PackageAssetColumns.Of(sylvan[i]));
+    }
+
+    [GlobalSetup(Target = nameof(ReadAllRows_CsvHelper))]
+    public void SetupAllRowsCsvHelper()
+    {
+        Prepare();
         var csvHelper = ReadAllRows_CsvHelper();
-        DataCheck.PackageAssets("CsvHelper", lines, csvHelper.Count, i => PackageAssetColumns.Of(csvHelper[i]));
-        foreach (var (name, ids) in new[] { ("FileHelpers", ReadFirstColumn_FileHelpers()), ("Sylvan", ReadFirstColumn_Sylvan()), ("CsvHelper", ReadFirstColumn_CsvHelper()) })
-        {
-            DataCheck.Equal(Rows, ids.Length, name + " first-column count");
-            DataCheck.Equal(Rows - 1, ids[^1], name + " last Id");
-        }
+        DataCheck.PackageAssets("CsvHelper", DataCheck.DataLines(_filePath, hasHeader: true), csvHelper.Count, i => PackageAssetColumns.Of(csvHelper[i]));
+    }
+
+    [GlobalSetup(Target = nameof(ReadFirstColumn_FileHelpers))]
+    public void SetupFirstColumnFileHelpers()
+    {
+        Prepare();
+        CheckFirstColumn("FileHelpers", ReadFirstColumn_FileHelpers());
+    }
+
+    [GlobalSetup(Target = nameof(ReadFirstColumn_Sylvan))]
+    public void SetupFirstColumnSylvan()
+    {
+        Prepare();
+        CheckFirstColumn("Sylvan", ReadFirstColumn_Sylvan());
+    }
+
+    [GlobalSetup(Target = nameof(ReadFirstColumn_CsvHelper))]
+    public void SetupFirstColumnCsvHelper()
+    {
+        Prepare();
+        CheckFirstColumn("CsvHelper", ReadFirstColumn_CsvHelper());
     }
 
     [Benchmark(Baseline = true)]

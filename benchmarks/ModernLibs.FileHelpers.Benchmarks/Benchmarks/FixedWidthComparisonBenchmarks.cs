@@ -36,8 +36,7 @@ public class FixedWidthComparisonBenchmarks
     [Params(10_000, 100_000)]
     public int Rows { get; set; }
 
-    [GlobalSetup]
-    public void Setup()
+    private void Prepare()
     {
         var dataDir = Path.Combine(Path.GetDirectoryName(typeof(FixedWidthComparisonBenchmarks).Assembly.Location)!, "Data");
         Directory.CreateDirectory(dataDir);
@@ -45,15 +44,32 @@ public class FixedWidthComparisonBenchmarks
         _modernClassEngine = new FileHelperEngine<FixedRecord>();
         _modernStructEngine = new FileHelperEngine<FixedRecordStruct>();
         _oldEngine = new Legacy.FileHelperEngine<OldFixedRecord>();
+    }
 
-        // Correctness guard: every benchmark must parse the file it measures.
-        var lines = DataCheck.DataLines(_filePath, hasHeader: false);
+    // Correctness guard: every benchmark must parse the file it measures. Each setup runs only the guard of
+    // its own benchmark, so no other reader runs in the measured process (see FixedWidthParseBenchmarks).
+    [GlobalSetup(Target = nameof(ReadAllRows_ModernClass))]
+    public void SetupModernClass()
+    {
+        Prepare();
         var cls = ReadAllRows_ModernClass();
-        DataCheck.FixedWidth("ModernLibs class", lines, cls.Length, i => FixedRecordText.Of(cls[i]));
+        DataCheck.FixedWidth("ModernLibs class", DataCheck.DataLines(_filePath, hasHeader: false), cls.Length, i => FixedRecordText.Of(cls[i]));
+    }
+
+    [GlobalSetup(Target = nameof(ReadAllRows_ModernStruct))]
+    public void SetupModernStruct()
+    {
+        Prepare();
         var str = ReadAllRows_ModernStruct();
-        DataCheck.FixedWidth("ModernLibs struct", lines, str.Length, i => FixedRecordText.Of(str[i]));
+        DataCheck.FixedWidth("ModernLibs struct", DataCheck.DataLines(_filePath, hasHeader: false), str.Length, i => FixedRecordText.Of(str[i]));
+    }
+
+    [GlobalSetup(Target = nameof(ReadAllRows_Legacy))]
+    public void SetupLegacy()
+    {
+        Prepare();
         var legacy = ReadAllRows_Legacy();
-        DataCheck.FixedWidth("FileHelpers 3.x", lines, legacy.Length, i =>
+        DataCheck.FixedWidth("FileHelpers 3.x", DataCheck.DataLines(_filePath, hasHeader: false), legacy.Length, i =>
         {
             var r = legacy[i];
             return string.Concat(r.Id, r.Name, r.NumericField, r.Description, r.DecimalField, r.Code, r.Suffix);

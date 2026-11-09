@@ -26,30 +26,52 @@ public class WriteBenchmarks
     private PackageAsset[] _records = null!;
     private FileHelperEngine<PackageAsset> _engine = null!;
     private string _outputPath = "";
+    private string _sourceFile = "";
 
     [Params(10_000, 100_000, 1_000_000)]
     public int Rows { get; set; }
 
-    [GlobalSetup]
-    public void Setup()
+    /// <summary>
+    /// Loads the records the writers write. The callback read collects them without the pooled record buffer
+    /// of the array read, so no such buffer stays in the process being measured.
+    /// </summary>
+    private void Prepare()
     {
         var dataDir = Path.Combine(Path.GetDirectoryName(typeof(WriteBenchmarks).Assembly.Location)!, "Data");
         Directory.CreateDirectory(dataDir);
-        var sourceFile = DatasetGenerator.EnsurePackageAssets(dataDir, Rows);
+        _sourceFile = DatasetGenerator.EnsurePackageAssets(dataDir, Rows);
 
         _engine = new FileHelperEngine<PackageAsset>();
-        _records = _engine.ReadFile(sourceFile);
+        var records = new List<PackageAsset>(Rows);
+        _engine.ReadFile(_sourceFile, records.Add);
+        _records = records.ToArray();
         _outputPath = Path.Combine(dataDir, "output_write.csv");
+        DataCheck.PackageAssets("FileHelpers read", DataCheck.DataLines(_sourceFile, hasHeader: true), _records.Length, i => PackageAssetColumns.Of(_records[i]));
+    }
 
-        // Correctness guard: every writer must write the records back exactly as the generator wrote the
-        // file, header line included (FileHelpers writes back the header it skipped on read).
-        var lines = DataCheck.DataLines(sourceFile, hasHeader: true);
-        DataCheck.PackageAssets("FileHelpers read", lines, _records.Length, i => PackageAssetColumns.Of(_records[i]));
-        var fileLines = DataCheck.DataLines(sourceFile, hasHeader: false);
-        DataCheck.WrittenPackageAssets("FileHelpers WriteString", fileLines, WriteString_FileHelpers());
+    // Correctness guard: every writer must write the records back exactly as the generator wrote the file,
+    // header line included (FileHelpers writes back the header it skipped on read). Each setup runs only the
+    // guard of its own benchmark, so no other writer runs in the measured process (see FixedWidthParseBenchmarks).
+    [GlobalSetup(Target = nameof(WriteString_FileHelpers))]
+    public void SetupWriteString()
+    {
+        Prepare();
+        DataCheck.WrittenPackageAssets("FileHelpers WriteString", DataCheck.DataLines(_sourceFile, hasHeader: false), WriteString_FileHelpers());
+    }
+
+    [GlobalSetup(Target = nameof(WriteFile_FileHelpers))]
+    public void SetupWriteFile()
+    {
+        Prepare();
         WriteFile_FileHelpers();
-        DataCheck.WrittenPackageAssets("FileHelpers WriteFile", fileLines, File.ReadAllText(_outputPath));
-        DataCheck.WrittenPackageAssets("CsvHelper", fileLines, WriteString_CsvHelper());
+        DataCheck.WrittenPackageAssets("FileHelpers WriteFile", DataCheck.DataLines(_sourceFile, hasHeader: false), File.ReadAllText(_outputPath));
+    }
+
+    [GlobalSetup(Target = nameof(WriteString_CsvHelper))]
+    public void SetupCsvHelper()
+    {
+        Prepare();
+        DataCheck.WrittenPackageAssets("CsvHelper", DataCheck.DataLines(_sourceFile, hasHeader: false), WriteString_CsvHelper());
     }
 
     [Benchmark(Baseline = true)]

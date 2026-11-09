@@ -56,21 +56,31 @@ public class DelimitedComparisonBenchmarks
     [Params(10_000, 100_000)]
     public int Rows { get; set; }
 
-    [GlobalSetup]
-    public void Setup()
+    private void Prepare()
     {
         var dataDir = Path.Combine(Path.GetDirectoryName(typeof(DelimitedComparisonBenchmarks).Assembly.Location)!, "Data");
         Directory.CreateDirectory(dataDir);
         _filePath = DatasetGenerator.EnsurePackageAssets(dataDir, Rows);
         _modernEngine = new FileHelperEngine<PackageAsset>();
         _oldEngine = new Legacy.FileHelperEngine<OldPackageAsset>();
+    }
 
-        // Correctness guard: both libraries must parse the file they are measured on.
-        var lines = DataCheck.DataLines(_filePath, hasHeader: true);
+    // Correctness guard: both libraries must parse the file they are measured on. Each setup runs only the
+    // guard of its own benchmark, so no other reader runs in the measured process (see FixedWidthParseBenchmarks).
+    [GlobalSetup(Target = nameof(ReadAllRows_Modern))]
+    public void SetupModern()
+    {
+        Prepare();
         var modern = ReadAllRows_Modern();
-        DataCheck.PackageAssets("ModernLibs.FileHelpers", lines, modern.Length, i => PackageAssetColumns.Of(modern[i]));
+        DataCheck.PackageAssets("ModernLibs.FileHelpers", DataCheck.DataLines(_filePath, hasHeader: true), modern.Length, i => PackageAssetColumns.Of(modern[i]));
+    }
+
+    [GlobalSetup(Target = nameof(ReadAllRows_Legacy))]
+    public void SetupLegacy()
+    {
+        Prepare();
         var legacy = ReadAllRows_Legacy();
-        DataCheck.PackageAssets("FileHelpers 3.x", lines, legacy.Length, i =>
+        DataCheck.PackageAssets("FileHelpers 3.x", DataCheck.DataLines(_filePath, hasHeader: true), legacy.Length, i =>
         {
             var r = legacy[i];
             return DataCheck.PackageColumns(r.Id, r.Version, r.DownloadCount, r.MinClientVersion, r.IsPrerelease,

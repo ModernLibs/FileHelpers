@@ -51,8 +51,7 @@ public class OptimizedParseBenchmarks
     [Params(10_000, 100_000)]
     public int Rows { get; set; }
 
-    [GlobalSetup]
-    public void Setup()
+    private void Prepare()
     {
         var dataDir = Path.Combine(Path.GetDirectoryName(typeof(OptimizedParseBenchmarks).Assembly.Location)!, "Data");
         Directory.CreateDirectory(dataDir);
@@ -60,30 +59,61 @@ public class OptimizedParseBenchmarks
         _engine = new FileHelperEngine<BenchmarkAsset>();
         _content = File.ReadAllText(_filePath);
         _contentBuffer = _content.ToCharArray();
-
-        // Correctness guard: every benchmark must parse the data it measures.
-        var lines = DataCheck.DataLines(_filePath, hasHeader: true);
-        foreach (var (name, records) in new[] { ("ReadFile", ReadFile()), ("ReadString", ReadString()), ("ReadSpan", ReadSpan()), ("ReadSpan_CharArray", ReadSpan_CharArray()) })
-        {
-            DataCheck.PackageAssets(name, lines, records.Length, i =>
-            {
-                var r = records[i];
-                return DataCheck.PackageColumns(r.Id, r.Version, r.DownloadCount, r.MinClientVersion, r.IsPrerelease,
-                    r.Published, r.LastUpdated, r.PackageSize, r.RepositoryType, r.RequireLicenseAcceptance);
-            });
-        }
-
-        foreach (var (name, count) in new[]
-        {
-            ("ReadString_Callback", ReadString_Callback()), ("ReadSpan_Callback", ReadSpan_Callback()),
-            ("ReadSpan_Callback_ProcessAndDiscard", ReadSpan_Callback_ProcessAndDiscard()),
-            ("ReadFile_Callback", ReadFile_Callback()), ("ReadFile_Callback_ProcessAndDiscard", ReadFile_Callback_ProcessAndDiscard()),
-            ("ReadFileAsync_Callback", ReadFileAsync_Callback()), ("ReadFileAsync_Callback_ProcessAndDiscard", ReadFileAsync_Callback_ProcessAndDiscard()),
-        })
-        {
-            DataCheck.Equal(Rows, count, name + " record count");
-        }
     }
+
+    // Correctness guard: every benchmark must parse the data it measures. Each setup runs only the guard of
+    // its own benchmark, so no other read (nor the buffers it leaves in the shared array pools) is in the
+    // measured process (see FixedWidthParseBenchmarks).
+    private void CheckRecords(string name, Func<BenchmarkAsset[]> read)
+    {
+        Prepare();
+        var records = read();
+        DataCheck.PackageAssets(name, DataCheck.DataLines(_filePath, hasHeader: true), records.Length, i =>
+        {
+            var r = records[i];
+            return DataCheck.PackageColumns(r.Id, r.Version, r.DownloadCount, r.MinClientVersion, r.IsPrerelease,
+                r.Published, r.LastUpdated, r.PackageSize, r.RepositoryType, r.RequireLicenseAcceptance);
+        });
+    }
+
+    private void CheckCount(string name, Func<int> read)
+    {
+        Prepare();
+        DataCheck.Equal(Rows, read(), name + " record count");
+    }
+
+    [GlobalSetup(Target = nameof(ReadFile))]
+    public void SetupReadFile() => CheckRecords(nameof(ReadFile), ReadFile);
+
+    [GlobalSetup(Target = nameof(ReadString))]
+    public void SetupReadString() => CheckRecords(nameof(ReadString), ReadString);
+
+    [GlobalSetup(Target = nameof(ReadSpan))]
+    public void SetupReadSpan() => CheckRecords(nameof(ReadSpan), ReadSpan);
+
+    [GlobalSetup(Target = nameof(ReadSpan_CharArray))]
+    public void SetupReadSpanCharArray() => CheckRecords(nameof(ReadSpan_CharArray), ReadSpan_CharArray);
+
+    [GlobalSetup(Target = nameof(ReadString_Callback))]
+    public void SetupReadStringCallback() => CheckCount(nameof(ReadString_Callback), ReadString_Callback);
+
+    [GlobalSetup(Target = nameof(ReadSpan_Callback))]
+    public void SetupReadSpanCallback() => CheckCount(nameof(ReadSpan_Callback), ReadSpan_Callback);
+
+    [GlobalSetup(Target = nameof(ReadSpan_Callback_ProcessAndDiscard))]
+    public void SetupReadSpanCallbackProcess() => CheckCount(nameof(ReadSpan_Callback_ProcessAndDiscard), ReadSpan_Callback_ProcessAndDiscard);
+
+    [GlobalSetup(Target = nameof(ReadFile_Callback))]
+    public void SetupReadFileCallback() => CheckCount(nameof(ReadFile_Callback), ReadFile_Callback);
+
+    [GlobalSetup(Target = nameof(ReadFile_Callback_ProcessAndDiscard))]
+    public void SetupReadFileCallbackProcess() => CheckCount(nameof(ReadFile_Callback_ProcessAndDiscard), ReadFile_Callback_ProcessAndDiscard);
+
+    [GlobalSetup(Target = nameof(ReadFileAsync_Callback))]
+    public void SetupReadFileAsyncCallback() => CheckCount(nameof(ReadFileAsync_Callback), ReadFileAsync_Callback);
+
+    [GlobalSetup(Target = nameof(ReadFileAsync_Callback_ProcessAndDiscard))]
+    public void SetupReadFileAsyncCallbackProcess() => CheckCount(nameof(ReadFileAsync_Callback_ProcessAndDiscard), ReadFileAsync_Callback_ProcessAndDiscard);
 
     // Baseline: ReadFile (string path, existing API)
     [Benchmark(Baseline = true)]

@@ -20,24 +20,59 @@ public class SepComparisonBenchmarks
     [Params(10_000, 100_000, 1_000_000)]
     public int Rows { get; set; }
 
-    [GlobalSetup]
-    public void Setup()
+    private void Prepare()
     {
         var dataDir = Path.Combine(Path.GetDirectoryName(typeof(SepComparisonBenchmarks).Assembly.Location)!, "Data");
         Directory.CreateDirectory(dataDir);
         _filePath = DatasetGenerator.EnsurePackageAssets(dataDir, Rows);
         _engine = new FileHelperEngine<PackageAsset>();
-        _records = _engine.ReadFile(_filePath);
+    }
 
-        // Correctness guard: both readers must parse the file, and both writers must write it back exactly
-        // as the generator wrote it (header line, same date format), so the two sides do the same work.
-        var lines = DataCheck.DataLines(_filePath, hasHeader: true);
-        DataCheck.PackageAssets("FileHelpers", lines, _records.Length, i => PackageAssetColumns.Of(_records[i]));
+    /// <summary>
+    /// Loads the records the writers write. The callback read collects them without the pooled record buffer
+    /// of the array read, so no such buffer stays in the process being measured.
+    /// </summary>
+    private void PrepareRecords()
+    {
+        Prepare();
+        var records = new List<PackageAsset>(Rows);
+        _engine.ReadFile(_filePath, records.Add);
+        _records = records.ToArray();
+        DataCheck.PackageAssets("FileHelpers records", DataCheck.DataLines(_filePath, hasHeader: true), _records.Length, i => PackageAssetColumns.Of(_records[i]));
+    }
+
+    // Correctness guard: both readers must parse the file, and both writers must write it back exactly as the
+    // generator wrote it (header line, same date format), so the two sides do the same work. Each setup runs
+    // only the guard of its own benchmark, so no other reader or writer runs in the measured process (see
+    // FixedWidthParseBenchmarks).
+    [GlobalSetup(Target = nameof(ReadAllRows_FileHelpers))]
+    public void SetupReadFileHelpers()
+    {
+        Prepare();
+        var fh = ReadAllRows_FileHelpers();
+        DataCheck.PackageAssets("FileHelpers", DataCheck.DataLines(_filePath, hasHeader: true), fh.Length, i => PackageAssetColumns.Of(fh[i]));
+    }
+
+    [GlobalSetup(Target = nameof(ReadAllRows_Sep))]
+    public void SetupReadSep()
+    {
+        Prepare();
         var sep = ReadAllRows_Sep();
-        DataCheck.PackageAssets("Sep", lines, sep.Count, i => PackageAssetColumns.Of(sep[i]));
-        var fileLines = DataCheck.DataLines(_filePath, hasHeader: false);
-        DataCheck.WrittenPackageAssets("FileHelpers", fileLines, WriteString_FileHelpers());
-        DataCheck.WrittenPackageAssets("Sep", fileLines, WriteString_Sep());
+        DataCheck.PackageAssets("Sep", DataCheck.DataLines(_filePath, hasHeader: true), sep.Count, i => PackageAssetColumns.Of(sep[i]));
+    }
+
+    [GlobalSetup(Target = nameof(WriteString_FileHelpers))]
+    public void SetupWriteFileHelpers()
+    {
+        PrepareRecords();
+        DataCheck.WrittenPackageAssets("FileHelpers", DataCheck.DataLines(_filePath, hasHeader: false), WriteString_FileHelpers());
+    }
+
+    [GlobalSetup(Target = nameof(WriteString_Sep))]
+    public void SetupWriteSep()
+    {
+        PrepareRecords();
+        DataCheck.WrittenPackageAssets("Sep", DataCheck.DataLines(_filePath, hasHeader: false), WriteString_Sep());
     }
 
     [Benchmark(Baseline = true)]

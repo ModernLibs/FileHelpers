@@ -81,6 +81,38 @@ public static class ExtendedFuzzRunner
         return _failed;
     }
 
+    // Rules for the differential check of the planned quote scan: vectorised (single quote, one-char
+    // delimiter, no trim before quotes), quote-free shortcut only (trim, multi-char delimiter), and none.
+    private static readonly (string Delimiter, string Quotes, string?[] TrimStart)[] _planRules =
+    [
+        (",", "\0\"\"\"\0", []),
+        (",", "\"\"\"", []),
+        ("|", "\0\"", []),
+        (",", "\"\0\"", [" \t", null, null]),
+        ("::", "\"\"\0\"", []),
+        (",", "\"'\"", []),
+    ];
+
+    /// <summary>The scan with the shortcuts of <see cref="QuoteBalanceScanner.Plan"/> gives what the full scan gives.</summary>
+    private static void CheckPlannedScan(ReadOnlySpan<char> line)
+    {
+        foreach (var (delimiter, quotes, trimStart) in _planRules)
+        {
+            var plan = QuoteBalanceScanner.Plan(delimiter, quotes, trimStart, default);
+            foreach (bool startsInside in (ReadOnlySpan<bool>)[false, true])
+            {
+                for (int startField = 0; startField < 3; startField++)
+                {
+                    int full = startField, planned = startField;
+                    bool fullInside = QuoteBalanceScanner.EndsInsideQuotes(line, startsInside, delimiter, quotes, trimStart, ref full);
+                    bool plannedInside = QuoteBalanceScanner.EndsInsideQuotes(line, startsInside, delimiter, quotes, trimStart, ref planned, default, plan);
+                    if (fullInside != plannedInside || full != planned)
+                        throw new InvalidOperationException($"Planned scan differs ({delimiter} {quotes.Replace('\0', '0')} inside={startsInside} field={startField}): full ({fullInside}, {full}), planned ({plannedInside}, {planned})");
+                }
+            }
+        }
+    }
+
     private static void RunAllTargets(string input)
     {
         if (input.Length == 0) return;
@@ -97,6 +129,7 @@ public static class ExtendedFuzzRunner
             int scanField = 0;
             _ = QuoteBalanceScanner.EndsInsideQuotes(line, startsInsideQuotes: false, ",", "\"\0\"", [" \t", null, " \t"], ref scanField);
             _ = QuoteBalanceScanner.CountFields(line, ",", "\"\"'", [null, " \t"]);
+            CheckPlannedScan(line);
 
             // FixedLengthSlicer
             var slicer = new FixedLengthSlicer(line);

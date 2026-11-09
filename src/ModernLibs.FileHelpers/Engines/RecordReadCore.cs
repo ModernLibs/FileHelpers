@@ -24,6 +24,11 @@ internal sealed class RecordReadCore<T> : ILogicalLineRules
     private readonly bool[] _multilineRead;
     private readonly string?[] _scanDelimiters;
 
+    // Shortcuts of the quote scan with (_quotes, _trimStart, _scanDelimiters) and with (_quotes, _trimStart,
+    // _fieldDelimiters), the rules of multiline assembly and of the field-count check.
+    private readonly QuoteScanPlan _scanPlan;
+    private readonly QuoteScanPlan _countPlan;
+
     // Per-field quote rules, the delimiter that follows each field ([FieldDelimiter], 3.x; empty when no field
     // has one), and the physical lines of a delimited [FieldInNewLine] record (null otherwise).
     private readonly char[] _fieldQuotes;
@@ -87,6 +92,11 @@ internal sealed class RecordReadCore<T> : ILogicalLineRules
         }
 
         _plainFieldCount = _validateFieldCount && _fieldDelimiters.Length == 0 && !_quotes.AsSpan().ContainsAnyExcept('\0');
+        if (delimited)
+        {
+            _scanPlan = QuoteBalanceScanner.Plan(Delimiter, _quotes, _trimStart, _scanDelimiters);
+            _countPlan = QuoteBalanceScanner.Plan(Delimiter, _quotes, _trimStart, _fieldDelimiters);
+        }
     }
 
     /// <summary>
@@ -271,7 +281,7 @@ internal sealed class RecordReadCore<T> : ILogicalLineRules
         if (!Multiline)
             return false;
 
-        bool endsInside = QuoteBalanceScanner.EndsInsideQuotes(line, startsInsideQuotes: false, Delimiter, _quotes, _trimStart, ref openField, _scanDelimiters);
+        bool endsInside = QuoteBalanceScanner.EndsInsideQuotes(line, startsInsideQuotes: false, Delimiter, _quotes, _trimStart, ref openField, _scanDelimiters, _scanPlan);
 
         // One line per record: these are the rules ValidateFieldCount scans with, so it can reuse the result.
         if (LinesPerRecord == 1)
@@ -294,7 +304,7 @@ internal sealed class RecordReadCore<T> : ILogicalLineRules
             return inside;
         }
 
-        return QuoteBalanceScanner.EndsInsideQuotes(line, startsInsideQuotes: true, Delimiter, _quotes, _trimStart, ref openField, _scanDelimiters);
+        return QuoteBalanceScanner.EndsInsideQuotes(line, startsInsideQuotes: true, Delimiter, _quotes, _trimStart, ref openField, _scanDelimiters, _scanPlan);
     }
 
     /// <summary>Quote scan of one line of a [FieldInNewLine] record against the fields of that line only.</summary>
@@ -623,7 +633,7 @@ internal sealed class RecordReadCore<T> : ILogicalLineRules
         int lastField = scan.LastField;
         bool unclosed = scan.Known
             ? scan.EndsInside
-            : QuoteBalanceScanner.EndsInsideQuotes(logicalRecord, startsInsideQuotes: false, Delimiter, _quotes, _trimStart, ref lastField, _fieldDelimiters);
+            : QuoteBalanceScanner.EndsInsideQuotes(logicalRecord, startsInsideQuotes: false, Delimiter, _quotes, _trimStart, ref lastField, _fieldDelimiters, _countPlan);
         int found = lastField + 1;
         if (unclosed && found <= FieldCount)
         {

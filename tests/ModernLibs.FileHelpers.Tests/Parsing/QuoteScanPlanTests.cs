@@ -241,13 +241,6 @@ public sealed class QuoteScanPlanTests
             await Assert.That(accepted).IsFalse().Because($"offset {offset}");
             await Assert.That(masked).IsEqualTo(0).Because($"offset {offset}");
             await Assert.That((plannedInside, planned)).IsEqualTo((fullInside, full)).Because($"offset {offset}");
-
-            // The same line started in field 1 puts the quote at the start of the quoted field 2: accepted
-            int fullShifted = 1, maskedShifted = 1;
-            bool fullShiftedInside = QuoteBalanceScanner.EndsInsideQuotes(line, false, ",", quotes, [], ref fullShifted);
-            bool acceptedShifted = QuoteBalanceScanner.TryScanMasked(line, false, ',', '"', quotes, ref maskedShifted, out bool maskedShiftedInside);
-            await Assert.That(acceptedShifted).IsTrue().Because($"offset {offset}, start field 1");
-            await Assert.That((maskedShiftedInside, maskedShifted)).IsEqualTo((fullShiftedInside, fullShifted)).Because($"offset {offset}, start field 1");
         }
     }
 

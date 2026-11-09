@@ -13,7 +13,8 @@ name: Publish
 # create it - see the fallback note at the end of this file.
 #
 # Triggers:
-#   - push of a tag v*        -> validate, build, test, pack, publish, create the GitHub release
+#   - push of a tag v*        -> validate, build, test, pack, publish, create the GitHub release with
+#                                the version's CHANGELOG.md section as notes
 #   - workflow_dispatch (tag) -> same for an existing tag; dry_run (default) stops after packing
 #
 # Every action is pinned to a full commit SHA (tags are mutable); the trailing comment names the
@@ -97,6 +98,18 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Release $VERSION (tag $TAG, prerelease=$PRERELEASE)"
 
+      # The release notes are the CHANGELOG.md section of the version. Generated here, before
+      # anything is published, so a version without a changelog section fails the run.
+      - name: Release notes from CHANGELOG.md
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          .github/scripts/release-notes.sh "$VERSION" "$TAG" > release/notes.md
+          cat release/notes.md
+
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
@@ -161,6 +174,13 @@ jobs:
           path: nupkgs/
           retention-days: 30
 
+      - name: Upload release notes
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-notes
+          path: release/notes.md
+          retention-days: 30
+
   publish:
     name: Publish to nuget.org
     needs: pack
@@ -179,6 +199,12 @@ jobs:
         with:
           name: nuget-packages
           path: nupkgs
+
+      - name: Download release notes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-notes
+          path: release
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -203,12 +229,14 @@ jobs:
           --source https://api.nuget.org/v3/index.json
           --skip-duplicate
 
+      # The body is the CHANGELOG.md section; the generated notes add the compare link below it.
       - name: Create GitHub release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ needs.pack.outputs.tag }}
           files: nupkgs/*.nupkg
           prerelease: ${{ needs.pack.outputs.prerelease }}
+          body_path: release/notes.md
           generate_release_notes: true
 
       # Fallback (long-lived API key) - only if Trusted Publishing is unavailable. Creating the

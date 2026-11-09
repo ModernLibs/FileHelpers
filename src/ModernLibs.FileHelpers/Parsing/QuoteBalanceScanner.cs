@@ -134,7 +134,8 @@ internal static class QuoteBalanceScanner
     /// escapes the quote before it; returns <see langword="false"/> (and leaves <paramref name="field"/>)
     /// when a quote anywhere else is literal text under the 3.x rules, for <see cref="ScanSingleQuote"/>.
     /// </summary>
-    private static bool TryScanMasked(ReadOnlySpan<char> line, bool startsInsideQuotes, char delimiter, char quote, ReadOnlySpan<char> quotes, ref int field, out bool endsInside)
+    [SkipLocalsInit]
+    internal static bool TryScanMasked(ReadOnlySpan<char> line, bool startsInsideQuotes, char delimiter, char quote, ReadOnlySpan<char> quotes, ref int field, out bool endsInside)
     {
         var state = new MaskState(field, startsInsideQuotes && QuoteOf(quotes, field) != '\0');
         Span<char> tail = stackalloc char[64];
@@ -150,8 +151,8 @@ internal static class QuoteBalanceScanner
             else
             {
                 // Padding with '\0' adds no quote and no delimiter.
-                tail.Clear();
                 line.Slice(start, count).CopyTo(tail);
+                tail.Slice(count).Clear();
                 block = tail;
             }
 

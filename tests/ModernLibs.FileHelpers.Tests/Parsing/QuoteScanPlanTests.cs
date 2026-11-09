@@ -189,6 +189,62 @@ public sealed class QuoteScanPlanTests
     }
 
     [Test]
+    [DisplayName("The 64-char block scan accepts well-formed quoted lines and gives the full scan's result")]
+    public async Task MaskedScan_AcceptsWellFormedLines()
+    {
+        // Arrange: valid 3.x quoting, so no quote is literal text and the block scan must not fall back
+        string quotes = "\0\"\"\0";
+        (string Line, bool StartsInside)[] cases =
+        [
+            ("1,\"a\",\"b\",x", false),
+            ("1,\"a,b\"\"c\",\"\",x", false),
+            (new string('p', 70) + ",\"" + new string('q', 80) + "\"\",\",\"z\",tail", false),
+            ("1,\"" + new string('v', 200), false),
+            ("1,\"\"\"\"\"\",\"x\"", false),
+            // Continuations of the quoted field 1 opened on the line before
+            ("b\"\"c,d\",\"z\",x", true),
+            ("\",\"z\"", true),
+            (new string('v', 63) + "\"\"" + new string('w', 70) + "\",x", true),
+        ];
+
+        foreach (var (line, startsInside) in cases)
+        {
+            // Act
+            int full = startsInside ? 1 : 0, masked = full;
+            bool fullInside = QuoteBalanceScanner.EndsInsideQuotes(line, startsInside, ",", quotes, [], ref full);
+            bool accepted = QuoteBalanceScanner.TryScanMasked(line, startsInside, ',', '"', quotes, ref masked, out bool maskedInside);
+
+            // Assert
+            await Assert.That(accepted).IsTrue().Because($"'{line}' inside {startsInside}");
+            await Assert.That((maskedInside, masked)).IsEqualTo((fullInside, full)).Because($"'{line}' inside {startsInside}");
+        }
+    }
+
+    [Test]
+    [DisplayName("A quote at the start of an unquoted field falls back on both sides of the 64- and 128-char block edges")]
+    public async Task UnquotedFieldQuoteAtBlockEdge_FallsBack()
+    {
+        // Arrange: field 1 is not quoted, so its leading quote is literal text and the block scan must refuse
+        string quotes = "\0\0\"";
+        var plan = QuoteBalanceScanner.Plan(",", quotes, [], default);
+        for (int offset = 50; offset <= 140; offset++)
+        {
+            string line = new string('p', offset) + ",\"a\",b";
+
+            // Act
+            int full = 0, planned = 0, masked = 0;
+            bool fullInside = QuoteBalanceScanner.EndsInsideQuotes(line, false, ",", quotes, [], ref full);
+            bool plannedInside = QuoteBalanceScanner.EndsInsideQuotes(line, false, ",", quotes, [], ref planned, default, plan);
+            bool accepted = QuoteBalanceScanner.TryScanMasked(line, false, ',', '"', quotes, ref masked, out _);
+
+            // Assert
+            await Assert.That(accepted).IsFalse().Because($"offset {offset}");
+            await Assert.That(masked).IsEqualTo(0).Because($"offset {offset}");
+            await Assert.That((plannedInside, planned)).IsEqualTo((fullInside, full)).Because($"offset {offset}");
+        }
+    }
+
+    [Test]
     [DisplayName("Long quoted values with escaped quotes across block boundaries scan as the full scan does")]
     public async Task LongQuotedValues_MatchFullScan()
     {

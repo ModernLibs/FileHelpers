@@ -232,17 +232,20 @@ the test suite.
 The repository contains a BenchmarkDotNet suite that compares this library with FileHelpers 3.5.2,
 Sep, Sylvan.Data.Csv and CsvHelper. In the
 [4.9.0 results](https://github.com/ModernLibs/FileHelpers/blob/main/docs/benchmarks/v4.9.0.md)
-(AMD EPYC 7763 virtual machine, Ubuntu 24.04, .NET 10, 100K rows):
+(AMD EPYC 7763 virtual machine, Ubuntu 24.04, .NET 10.0.13, BenchmarkDotNet default job), time and
+allocation for 100K rows:
 
-- Reading a 25-column delimited file into objects with `ReadFile(path)`: about 155 ms and 76 MB,
-  against 459 ms for FileHelpers 3.5.2, 165 ms for CsvHelper 34 and 171 ms for Sep. Sylvan is faster
-  (131 ms) and allocates the same.
-- Reading a fixed-width file: 48 to 51 ms, against 111 ms for FileHelpers 3.5.2 and 54 ms for
-  CsvHelper 34, with a third less allocation than FileHelpers 3.5.2.
-- Reading a file with quoted fields: 46 ms. Sep (29 ms), CsvHelper (28 ms) and Sylvan (38 ms) are
-  faster.
-- Writing the same 25-column records to a string: 68 to 70 ms, against 102 ms for Sep and 58 ms for
-  CsvHelper 34.
+| Scenario | ModernLibs.FileHelpers 4.9.0 | FileHelpers 3.5.2 | Sep 0.17.1 | Sylvan.Data.Csv 1.4.4 | CsvHelper 34.0.0 |
+|---|---:|---:|---:|---:|---:|
+| Read a 25-column delimited file into objects | 155 ms, 75.7 MB | 459 ms, 230.7 MB | 171 ms, 75.6 MB | 131 ms, 75.7 MB | 165 ms, 76.9 MB |
+| Read a fixed-width file (7 fields, class records) | 48 to 51 ms, 39.7 MB | 111 ms, 59.5 MB | - | - | 54 ms, 40.9 MB |
+| Read a file with quoted fields | 46 ms, 22.8 MB | - | 29 ms, 20.5 MB | 38 ms, 22.8 MB | 28 ms, 21.7 MB |
+| Write the 25-column records to a string | 68 to 70 ms, 55.4 MB | - | 102 ms, 110.6 MB | - | 58 ms, 110.8 MB |
+
+A dash means the suite does not measure that library. ModernLibs.FileHelpers and FileHelpers 3.5.2
+produce typed records through their attributes and converters; the other libraries are measured with
+the row-to-object code written in each benchmark. Where a cell has a range, two suites measured the
+same operation.
 
 Results depend on hardware and record shape; see
 [BENCHMARKS.md](https://github.com/ModernLibs/FileHelpers/blob/main/BENCHMARKS.md) to run the suite on

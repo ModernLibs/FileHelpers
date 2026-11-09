@@ -2,6 +2,7 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
+using System.Runtime.Intrinsics.X86;
 
 namespace ModernLibs.FileHelpers.Parsing;
 
@@ -83,6 +84,8 @@ internal static class QuoteBalanceScanner
 
             if (plan.Vectorized)
             {
+                if (delimiter[0] != '\0' && TryScanMasked(line, startsInsideQuotes, delimiter[0], plan.Quote, quotes, ref field, out bool masked))
+                    return masked;
                 field = ScanSingleQuote(line, startsInsideQuotes, delimiter[0], plan.Quote, quotes, field, out bool inside);
                 return inside;
             }
@@ -120,6 +123,154 @@ internal static class QuoteBalanceScanner
             return default;
 
         return new QuoteScanPlan(quote, Vectorized: delimiter.Length == 1 && delimiter[0] != quote && !skipsTrim);
+    }
+
+    /// <summary>
+    /// <see cref="Scan"/> for one single-character delimiter (not <c>'\0'</c>), one quote character and no trim
+    /// characters before opening quotes, 64 characters at a time without visiting each delimiter: the quote
+    /// characters toggle the quote state, so the prefix XOR of the quote mask is the mask of the positions
+    /// inside quoted values, and the delimiters outside it end fields. A doubled quote toggles twice and
+    /// stays inside. That holds when every quote opens a value at the start of a quoted field, closes one, or
+    /// escapes the quote before it; returns <see langword="false"/> (and leaves <paramref name="field"/>)
+    /// when a quote anywhere else is literal text under the 3.x rules, for <see cref="ScanSingleQuote"/>.
+    /// </summary>
+    private static bool TryScanMasked(ReadOnlySpan<char> line, bool startsInsideQuotes, char delimiter, char quote, ReadOnlySpan<char> quotes, ref int field, out bool endsInside)
+    {
+        var state = new MaskState(field, startsInsideQuotes && QuoteOf(quotes, field) != '\0');
+        Span<char> tail = stackalloc char[64];
+        int length = line.Length;
+        for (int start = 0; start < length; start += 64)
+        {
+            int count = Math.Min(64, length - start);
+            scoped ReadOnlySpan<char> block;
+            if (count == 64)
+            {
+                block = line.Slice(start, 64);
+            }
+            else
+            {
+                // Padding with '\0' adds no quote and no delimiter.
+                tail.Clear();
+                line.Slice(start, count).CopyTo(tail);
+                block = tail;
+            }
+
+            var (quoteBits, delimiterBits) = Masks(block, quote, delimiter);
+            if (!state.Advance(quoteBits, delimiterBits, quotes))
+            {
+                endsInside = false;
+                return false;
+            }
+        }
+
+        field = state.Field;
+        endsInside = state.Inside;
+        return true;
+    }
+
+    /// <summary>The quote state of <see cref="TryScanMasked"/> between two 64-character blocks.</summary>
+    private struct MaskState(int field, bool inside)
+    {
+        /// <summary>The field the scan is in.</summary>
+        public int Field = field;
+
+        /// <summary>Inside a quoted value after the last block.</summary>
+        public bool Inside = inside;
+
+        // Bit 0 of a block sees the last character of the block before: a delimiter outside quotes (the line
+        // start outside a quoted value counts as one) or a closing quote.
+        private ulong _carryFieldStart = inside ? 0UL : 1UL;
+        private ulong _carryClose;
+
+        /// <summary>Applies one block; <see langword="false"/> when one of its quotes is literal text under the 3.x rules.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public bool Advance(ulong quoteBits, ulong delimiterBits, ReadOnlySpan<char> quotes)
+        {
+            ulong insideBits = PrefixXor(quoteBits) ^ (Inside ? ulong.MaxValue : 0UL);
+            ulong opens = quoteBits & insideBits;
+            ulong closes = quoteBits & ~insideBits;
+            ulong fieldEnds = delimiterBits & ~insideBits;
+            ulong fieldStarts = (fieldEnds << 1) | _carryFieldStart;
+            ulong afterClose = (closes << 1) | _carryClose;
+
+            // An opening toggle is an opening quote at a field start or the second quote of a doubled quote;
+            // anywhere else the quote is literal text, which the toggles do not model.
+            if ((opens & ~(fieldStarts | afterClose)) != 0)
+                return false;
+
+            // A quote at the start of a field opens a value only when the field is quoted.
+            ulong openings = opens & fieldStarts;
+            while (openings != 0)
+            {
+                int at = BitOperations.TrailingZeroCount(openings);
+                openings &= openings - 1;
+                if (QuoteOf(quotes, Field + BitOperations.PopCount(fieldEnds & ((1UL << at) - 1))) == '\0')
+                    return false;
+            }
+
+            Field += BitOperations.PopCount(fieldEnds);
+            Inside = (insideBits >> 63) != 0;
+            _carryFieldStart = fieldEnds >> 63;
+            _carryClose = closes >> 63;
+            return true;
+        }
+    }
+
+    /// <summary>Bit <c>i</c>: the XOR of bits 0 to <c>i</c> of <paramref name="bits"/>.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static ulong PrefixXor(ulong bits)
+    {
+        if (Pclmulqdq.IsSupported)
+            return Pclmulqdq.CarrylessMultiply(Vector128.CreateScalar(bits), Vector128.Create(ulong.MaxValue), 0).ToScalar();
+
+        bits ^= bits << 1;
+        bits ^= bits << 2;
+        bits ^= bits << 4;
+        bits ^= bits << 8;
+        bits ^= bits << 16;
+        bits ^= bits << 32;
+        return bits;
+    }
+
+    /// <summary>The positions of <paramref name="quote"/> and <paramref name="delimiter"/> in a 64-character block.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static (ulong Quotes, ulong Delimiters) Masks(ReadOnlySpan<char> block, char quote, char delimiter)
+    {
+        ref ushort first = ref Unsafe.As<char, ushort>(ref MemoryMarshal.GetReference(block));
+        ulong quoteBits = 0, delimiterBits = 0;
+        if (Vector256.IsHardwareAccelerated)
+        {
+            var quotes = Vector256.Create((ushort)quote);
+            var delimiters = Vector256.Create((ushort)delimiter);
+            for (int k = 0; k < 64; k += Vector256<ushort>.Count)
+            {
+                var chars = Vector256.LoadUnsafe(ref first, (nuint)k);
+                quoteBits |= (ulong)Vector256.Equals(chars, quotes).ExtractMostSignificantBits() << k;
+                delimiterBits |= (ulong)Vector256.Equals(chars, delimiters).ExtractMostSignificantBits() << k;
+            }
+        }
+        else if (Vector128.IsHardwareAccelerated)
+        {
+            var quotes = Vector128.Create((ushort)quote);
+            var delimiters = Vector128.Create((ushort)delimiter);
+            for (int k = 0; k < 64; k += Vector128<ushort>.Count)
+            {
+                var chars = Vector128.LoadUnsafe(ref first, (nuint)k);
+                quoteBits |= (ulong)Vector128.Equals(chars, quotes).ExtractMostSignificantBits() << k;
+                delimiterBits |= (ulong)Vector128.Equals(chars, delimiters).ExtractMostSignificantBits() << k;
+            }
+        }
+        else
+        {
+            for (int k = 0; k < 64; k++)
+            {
+                char c = block[k];
+                quoteBits |= (c == quote ? 1UL : 0UL) << k;
+                delimiterBits |= (c == delimiter ? 1UL : 0UL) << k;
+            }
+        }
+
+        return (quoteBits, delimiterBits);
     }
 
     /// <summary>

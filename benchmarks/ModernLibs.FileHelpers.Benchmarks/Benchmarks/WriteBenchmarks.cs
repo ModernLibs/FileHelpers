@@ -9,6 +9,17 @@ using ModernLibs.FileHelpers.Benchmarks.Data;
 
 namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks;
 
+/// <summary>
+/// The CsvHelper 34 record writer for <see cref="PackageAsset"/> writes its dates in the "s" format that
+/// FileHelpers writes. The class only carries the attributes; it is never created.
+/// </summary>
+[CsvHelper.CsvRecordMap(typeof(PackageAsset))]
+internal sealed partial class PackageAssetCsvMap
+{
+    [CsvHelper.CsvFormat(DatasetGenerator.DateFormat)] public DateTime Published { get; set; }
+    [CsvHelper.CsvFormat(DatasetGenerator.DateFormat)] public DateTime LastUpdated { get; set; }
+}
+
 [MemoryDiagnoser]
 public class WriteBenchmarks
 {
@@ -50,11 +61,10 @@ public class WriteBenchmarks
     [Benchmark]
     public string WriteString_CsvHelper()
     {
-        using var writer = new System.IO.StringWriter();
-        using var csv = new CsvHelper.CsvWriter(writer, CultureInfo.InvariantCulture);
-        // Dates in the "s" format FileHelpers writes (CsvHelper's default is the culture's general format).
-        csv.Context.TypeConverterOptionsCache.GetOptions<DateTime>().Formats = [DatasetGenerator.DateFormat];
-        csv.WriteRecords(_records);
+        using var writer = new System.IO.StringWriter(CultureInfo.InvariantCulture);
+        // Dates in the "s" format FileHelpers writes: see PackageAssetCsvMap.
+        using (var csv = CsvHelper.CsvWriter.Create(writer, CsvHelper.CsvWriterOptions.Default, leaveOpen: true))
+            csv.WriteRecords(_records);
         return writer.ToString();
     }
 }

@@ -42,7 +42,9 @@ public sealed class PackageAsset
 }
 
 // Full 25-field row for fair competitor comparison
-public sealed class PackageAssetRow
+// CsvHelper 34 maps a [CsvRecord] type with source-generated code (columns by header name).
+[CsvHelper.CsvRecord]
+public sealed partial class PackageAssetRow
 {
     public int Id { get; set; }
     public string Version { get; set; } = "";
@@ -160,8 +162,7 @@ public class DelimitedParseBenchmarks
     [Benchmark]
     public IReadOnlyList<PackageAssetRow> ReadAllRows_CsvHelper()
     {
-        using var reader = new System.IO.StreamReader(_filePath);
-        using var csv = new CsvHelper.CsvReader(reader, System.Globalization.CultureInfo.InvariantCulture);
+        using var csv = CsvHelper.CsvReader.FromFile(_filePath, CsvHelper.CsvReaderOptions.Default);
         return csv.GetRecords<PackageAssetRow>().ToList();
     }
 
@@ -189,13 +190,12 @@ public class DelimitedParseBenchmarks
     [Benchmark]
     public int[] ReadFirstColumn_CsvHelper()
     {
-        using var reader = new System.IO.StreamReader(_filePath);
-        using var csv = new CsvHelper.CsvReader(reader, System.Globalization.CultureInfo.InvariantCulture);
-        csv.Read();
+        using var csv = CsvHelper.CsvReader.FromFile(_filePath, CsvHelper.CsvReaderOptions.Default);
         csv.ReadHeader();
+        int id = csv.GetFieldIndex("Id");
         var ids = new List<int>(Rows);
         while (csv.Read())
-            ids.Add(csv.GetField<int>("Id"));
+            ids.Add(csv.Parse<int>(id));
         return ids.ToArray();
     }
 }

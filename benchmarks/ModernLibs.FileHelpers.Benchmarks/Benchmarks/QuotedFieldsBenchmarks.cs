@@ -23,7 +23,8 @@ public sealed class QuotedRecord
     [FieldOrder(5), FieldQuoted] public string Category { get; set; } = "";
 }
 
-public sealed class QuotedCompetitorRow
+[CsvHelper.CsvRecord]
+public sealed partial class QuotedCompetitorRow
 {
     public int Id { get; set; }
     public string Name { get; set; } = "";
@@ -81,8 +82,7 @@ public class QuotedFieldsBenchmarks
     [Benchmark]
     public IReadOnlyList<QuotedCompetitorRow> ReadAllRows_CsvHelper()
     {
-        using var reader = new System.IO.StreamReader(_filePath);
-        using var csv = new CsvHelper.CsvReader(reader, System.Globalization.CultureInfo.InvariantCulture);
+        using var csv = CsvHelper.CsvReader.FromFile(_filePath, CsvHelper.CsvReaderOptions.Default);
         return csv.GetRecords<QuotedCompetitorRow>().ToList();
     }
 

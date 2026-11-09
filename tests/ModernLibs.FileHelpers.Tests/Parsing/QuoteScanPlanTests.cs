@@ -26,11 +26,14 @@ public sealed class QuoteScanPlanTests
         (",", "\"\0\"", [" \t", null, null], '"', false),
         ("::", "\"\"\0\"", [], '"', false),
         (",", "\"\"", [], '"', true),
+        // Non-ASCII delimiter and quote: the walk compares whole UTF-16 code units, as IndexOf does.
+        ("§", "\0««", [], '«', true),
     ];
 
     private static readonly string[] Pieces =
     [
         "a", "bc", " ", ",", ",", "|", ";", ":", "::", "\"", "\"", "\"\"", "'", "''", "x\"y", "\t", "long text without separators",
+        "é", "€", "\U0001F600", "§", "«", "««", "Ĭ", "Ⱒ",
     ];
 
     [Test]

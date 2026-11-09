@@ -861,6 +861,15 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     }
 
     /// <summary>
+    /// Whether a record buffer of <paramref name="length"/> elements goes back to the shared pool after a
+    /// read: only up to 1 MB. The shared pool keeps returned arrays for a minute or longer, so a larger
+    /// buffer would keep that memory in use, and with references in the records every full collection in
+    /// that time would also mark through all of its (cleared) slots.
+    /// </summary>
+    /// <param name="length">The number of records the buffer holds.</param>
+    internal static bool PoolsRecordBuffer(int length) => (long)length * Unsafe.SizeOf<T>() <= 1024 * 1024;
+
+    /// <summary>
     /// Collects the records of an input of unknown length in a pooled buffer that doubles as records arrive;
     /// <see cref="ToArray"/> copies them into the one array returned (as <c>Enumerable.ToArray</c> does).
     /// </summary>
@@ -899,9 +908,14 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
             _buffer = next;
         }
 
-        /// <summary>Clears the records first, so the pool does not keep them alive.</summary>
+        /// <summary>
+        /// Returns a buffer that <see cref="PoolsRecordBuffer"/> accepts to the shared pool, after clearing
+        /// its records so the pool does not keep them alive; a larger one is left to the garbage collector.
+        /// </summary>
         private static void Return(T[] buffer, int count)
         {
+            if (!PoolsRecordBuffer(buffer.Length))
+                return;
             if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
                 buffer.AsSpan(0, count).Clear();
             ArrayPool<T>.Shared.Return(buffer);

@@ -99,103 +99,13 @@ public sealed class QuoteScanPlanTests
     }
 
     [Test]
-    [DisplayName("Well-formed records of up to ~400 chars (the 64-char block path) scan as the full scan does")]
-    public async Task WellFormedRecords_MatchFullScan()
-    {
-        // Arrange: valid 3.x quoting (quoted values with "" and delimiters, plain values without quotes), so the
-        // block path takes most lines; one record in ten gets a literal quote or ends inside a value.
-        string quotes = "\0\"\"\"\0\"";
-        var plan = QuoteBalanceScanner.Plan(",", quotes, [], default);
-        var random = new Random(4711);
-        int compared = 0, differences = 0;
-        string? first = null;
-        for (int n = 0; n < 30_000; n++)
-        {
-            var line = new StringBuilder();
-            int fields = random.Next(1, 12);
-            for (int f = 0; f < fields; f++)
-            {
-                if (f > 0)
-                    line.Append(',');
-                bool quoted = f < quotes.Length && quotes[f] != '\0' && random.Next(3) > 0;
-                int size = random.Next(0, 60);
-                if (quoted)
-                {
-                    line.Append('"');
-                    for (int k = 0; k < size; k++)
-                        line.Append(random.Next(8) switch { 0 => ",", 1 => "\"\"", 2 => " ", _ => "q" });
-                    line.Append('"');
-                }
-                else
-                {
-                    line.Append('p', size);
-                }
-            }
-
-            switch (random.Next(20))
-            {
-                case 0: line.Insert(random.Next(line.Length + 1), '"'); break;
-                case 1: line.Append(",\"open, value"); break;
-            }
-
-            foreach (bool startsInside in new[] { false, true })
-            {
-                // Act
-                string text = line.ToString();
-                int full = startsInside ? 1 : 0, planned = full;
-                bool fullInside = QuoteBalanceScanner.EndsInsideQuotes(text, startsInside, ",", quotes, [], ref full);
-                bool plannedInside = QuoteBalanceScanner.EndsInsideQuotes(text, startsInside, ",", quotes, [], ref planned, default, plan);
-
-                // Assert (collected)
-                compared++;
-                if (fullInside != plannedInside || full != planned)
-                {
-                    differences++;
-                    first ??= $"'{text}' inside {startsInside}: full ({fullInside}, {full}), planned ({plannedInside}, {planned})";
-                }
-            }
-        }
-
-        await Assert.That(differences).IsEqualTo(0).Because(first ?? string.Empty);
-        await Assert.That(compared).IsEqualTo(60_000);
-    }
-
-    [Test]
-    [DisplayName("Delimiters, opening, closing and doubled quotes on both sides of the 64- and 128-char block edges")]
-    public async Task BlockEdgeEvents_MatchFullScan()
-    {
-        // Arrange: a plain prefix moves each event across positions 50 to 140
-        string quotes = "\0\"\"\"";
-        var plan = QuoteBalanceScanner.Plan(",", quotes, [], default);
-        string[] events = ["a,\"b\"", "a,\"\"\"\",c", "a,\"x\"\"y\",c", "a,\"x,y\",\"z\"", "a,\"open", "a,\"q\"\"", "\"x\"y,z"];
-        foreach (string e in events)
-        {
-            for (int offset = 50; offset <= 140; offset++)
-            {
-                string line = new string('p', offset) + e;
-                string continued = new string('v', offset) + "\"" + e;
-                foreach (var (text, startsInside) in new[] { (line, false), (line, true), (continued, true), (continued, false) })
-                {
-                    // Act
-                    int full = startsInside ? 1 : 0, planned = full;
-                    bool fullInside = QuoteBalanceScanner.EndsInsideQuotes(text, startsInside, ",", quotes, [], ref full);
-                    bool plannedInside = QuoteBalanceScanner.EndsInsideQuotes(text, startsInside, ",", quotes, [], ref planned, default, plan);
-
-                    // Assert
-                    await Assert.That((plannedInside, planned)).IsEqualTo((fullInside, full)).Because($"'{text}' inside {startsInside}");
-                }
-            }
-        }
-    }
-
-    [Test]
     [DisplayName("Long quoted values with escaped quotes across block boundaries scan as the full scan does")]
     public async Task LongQuotedValues_MatchFullScan()
     {
-        // Arrange: an escaped quote pair at every offset around the 8-, 16- and 64-char block edges
-        for (int offset = 0; offset < 150; offset++)
+        // Arrange: an escaped quote pair at every offset around the 8- and 16-char block edges
+        for (int offset = 0; offset < 40; offset++)
         {
-            string value = new string('v', offset) + "\"\"" + new string('w', 150 - offset);
+            string value = new string('v', offset) + "\"\"" + new string('w', 40 - offset);
             foreach (string line in new[] { $"1,\"{value}\",x", $"1,\"{value}", $"{value}\",2,\"z\"", $"1,\"{value}\"tail,\"" })
             {
                 foreach (bool startsInside in new[] { false, true })

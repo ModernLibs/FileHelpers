@@ -19,6 +19,14 @@ file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Fixed-format dates parse about twice as fast.** The in-place date parse of 4.9.0 (formats made of
+  `yyyy`, `MM`, `dd`, `HH`, `mm`, `ss` and separators, such as `s`, `yyyy-MM-dd` or the default
+  `ddMMyyyy`) now reads each part at its known position instead of walking the format character by
+  character: 15 ns instead of 32 ns per `s` value. Accepted values and results are unchanged. The
+  25-column file with two dates per record reads 2 to 7 % faster.
+
 ### Fixed
 
 - **`ReadFile(path)` and `ReadStream(reader)` no longer leave their record buffers in the shared

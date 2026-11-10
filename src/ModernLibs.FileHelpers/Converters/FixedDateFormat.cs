@@ -31,10 +31,23 @@ internal sealed class FixedDateFormat
     /// <summary>The pattern; its character at each <see cref="Literal"/> position is the expected one.</summary>
     private readonly string _literals;
 
+    /// <summary>Indexes of the <see cref="Literal"/> characters.</summary>
+    private readonly int[] _literalPositions;
+
+    /// <summary>First index of each part in a matching value; -1 for a time part the format does not have.</summary>
+    private readonly int _yearAt, _monthAt, _dayAt, _hourAt, _minuteAt, _secondAt;
+
     private FixedDateFormat(byte[] parts, string literals)
     {
         _parts = parts;
         _literals = literals;
+        _literalPositions = Enumerable.Range(0, parts.Length).Where(i => parts[i] == Literal).ToArray();
+        _yearAt = Array.IndexOf(parts, Year);
+        _monthAt = Array.IndexOf(parts, Month);
+        _dayAt = Array.IndexOf(parts, Day);
+        _hourAt = Array.IndexOf(parts, Hour);
+        _minuteAt = Array.IndexOf(parts, Minute);
+        _secondAt = Array.IndexOf(parts, Second);
     }
 
     /// <summary>
@@ -104,43 +117,51 @@ internal sealed class FixedDateFormat
     internal bool TryParse(ReadOnlySpan<char> text, out DateTime value)
     {
         value = default;
-        byte[] parts = _parts;
-        if (text.Length != parts.Length)
+        if (text.Length != _parts.Length)
             return false;
 
-        int year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0;
         string literals = _literals;
-        for (int i = 0; i < parts.Length; i++)
+        foreach (int i in _literalPositions)
         {
-            char c = text[i];
-            byte part = parts[i];
-            if (part == Literal)
-            {
-                if (c != literals[i])
-                    return false;
-                continue;
-            }
-
-            uint digit = (uint)(c - '0');
-            if (digit > 9)
+            if (text[i] != literals[i])
                 return false;
-
-            switch (part)
-            {
-                case Year: year = (year * 10) + (int)digit; break;
-                case Month: month = (month * 10) + (int)digit; break;
-                case Day: day = (day * 10) + (int)digit; break;
-                case Hour: hour = (hour * 10) + (int)digit; break;
-                case Minute: minute = (minute * 10) + (int)digit; break;
-                default: second = (second * 10) + (int)digit; break;
-            }
         }
 
-        if (year < 1 || month is < 1 or > 12 || day < 1 || day > DateTime.DaysInMonth(year, month)
+        if (!TryDigits4(text, _yearAt, out int year) || !TryDigits2(text, _monthAt, out int month)
+            || !TryDigits2(text, _dayAt, out int day))
+            return false;
+
+        int hour = 0, minute = 0, second = 0;
+        if ((_hourAt >= 0 && !TryDigits2(text, _hourAt, out hour))
+            || (_minuteAt >= 0 && !TryDigits2(text, _minuteAt, out minute))
+            || (_secondAt >= 0 && !TryDigits2(text, _secondAt, out second)))
+            return false;
+
+        if (year < 1 || month is < 1 or > 12 || day < 1 || (day > 28 && day > DateTime.DaysInMonth(year, month))
             || hour > 23 || minute > 59 || second > 59)
             return false;
 
         value = new DateTime(year, month, day, hour, minute, second, DateTimeKind.Unspecified);
         return true;
+    }
+
+    /// <summary>The two ASCII digits at <paramref name="at"/>; <see langword="false"/> when either is not one.</summary>
+    private static bool TryDigits2(ReadOnlySpan<char> text, int at, out int value)
+    {
+        uint tens = (uint)(text[at] - '0');
+        uint ones = (uint)(text[at + 1] - '0');
+        value = (int)((tens * 10) + ones);
+        return tens <= 9 && ones <= 9;
+    }
+
+    /// <summary>The four ASCII digits at <paramref name="at"/>; <see langword="false"/> when any is not one.</summary>
+    private static bool TryDigits4(ReadOnlySpan<char> text, int at, out int value)
+    {
+        uint d0 = (uint)(text[at] - '0');
+        uint d1 = (uint)(text[at + 1] - '0');
+        uint d2 = (uint)(text[at + 2] - '0');
+        uint d3 = (uint)(text[at + 3] - '0');
+        value = (int)((d0 * 1000) + (d1 * 100) + (d2 * 10) + d3);
+        return d0 <= 9 && d1 <= 9 && d2 <= 9 && d3 <= 9;
     }
 }

@@ -49,6 +49,13 @@ public sealed class SarNewLine
     public string Text { get; set; } = string.Empty;
 }
 
+[DelimitedRecord(",")]
+public record struct SarStruct
+{
+    [FieldOrder(1)] public int Id { get; set; }
+    [FieldOrder(2)] public string Text { get; set; }
+}
+
 /// <summary>A reader that gives <c>text</c> up to <c>faultAt</c> characters and then throws <see cref="IOException"/>.</summary>
 internal sealed class SarFaultingReader(string text, int faultAt) : TextReader
 {
@@ -393,6 +400,38 @@ public sealed class StreamingArrayReadTests
         finally
         {
             File.Delete(path);
+        }
+    }
+
+    [Test]
+    [DisplayName("ReadStream of struct and class records gives the ReadString records at every chunk edge and past the pooled-bytes limit")]
+    public async Task RecordCounts_AtChunkEdges_MatchReadString()
+    {
+        // Arrange: counts around the first chunk (64), the largest chunk (4096 structs of 16 bytes, 8192 references)
+        // and past the 1 MB the sink gives back to the pool (65,536 structs, 131,072 references)
+        int[] counts = [0, 1, 63, 64, 65, 4_095, 4_096, 4_097, 8_191, 8_192, 8_193, 70_000, 140_000];
+        int[] caps = [0, 64, 4_097, 100_000];
+        var structEngine = new FileHelperEngine<SarStruct>();
+        var classEngine = new FileHelperEngine<SarPlain>();
+
+        foreach (int count in counts)
+        {
+            string input = string.Concat(Enumerable.Range(1, count).Select(i => $"{i},t{i}\n"));
+            foreach (int maxRecords in caps)
+            {
+                string label = $"{count} records, maxRecords {maxRecords}";
+
+                // Act
+                var expectedStructs = structEngine.ReadString(input, maxRecords);
+                var structs = structEngine.ReadStream(new StringReader(input), maxRecords);
+                var expectedClasses = classEngine.ReadString(input, maxRecords).Select(r => $"{r.Id}:{r.Text}").ToArray();
+                var classes = classEngine.ReadStream(new StringReader(input), maxRecords).Select(r => $"{r.Id}:{r.Text}").ToArray();
+
+                // Assert
+                await Assert.That(structs.Length).IsEqualTo(maxRecords > 0 ? Math.Min(count, maxRecords) : count).Because(label);
+                await Assert.That(structs.SequenceEqual(expectedStructs)).IsTrue().Because("structs, " + label);
+                await Assert.That(classes.SequenceEqual(expectedClasses)).IsTrue().Because("classes, " + label);
+            }
         }
     }
 

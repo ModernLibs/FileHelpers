@@ -693,8 +693,8 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     /// <param name="readToEnd">Leave the reader at its end afterwards, as <see cref="TextReader.ReadToEnd"/> did.</param>
     private T[] ReadToArray(TextReader reader, int maxRecords, bool readToEnd)
     {
-        var sink = new PooledArraySink();
-        sink.Initialize(maxRecords > 0 ? Math.Min(maxRecords, PooledArraySink.InitialCapacity) : PooledArraySink.InitialCapacity);
+        var sink = new ChunkedArraySink();
+        sink.Initialize(maxRecords > 0 ? Math.Min(maxRecords, ChunkedArraySink.InitialCapacity) : ChunkedArraySink.InitialCapacity);
         bool completed = false;
         try
         {
@@ -861,50 +861,104 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     }
 
     /// <summary>
-    /// Collects the records of an input of unknown length in a pooled buffer that doubles as records arrive;
-    /// <see cref="ToArray"/> copies them into the one array returned (as <c>Enumerable.ToArray</c> does).
+    /// Collects the records of an input of unknown length in chunks rented from <see cref="ArrayPool{T}"/>, so a
+    /// record is never copied when the buffer grows; <see cref="ToArray"/> copies each record once into the array
+    /// returned. Chunks start at the initial capacity and double up to <see cref="MaxChunkBytes"/>, below the large
+    /// object heap. <see cref="Dispose"/> returns chunks to the pool only up to <see cref="MaxPooledBytes"/> and
+    /// leaves the rest to the GC, so a large read does not leave megabytes of records' worth of arrays in the
+    /// shared pool after it ends.
     /// </summary>
-    private struct PooledArraySink : IRecordSink, IDisposable
+    private struct ChunkedArraySink : IRecordSink, IDisposable
     {
         public const int InitialCapacity = 64;
 
-        private T[]? _buffer;
-        private int _count;
+        /// <summary>Largest chunk, in bytes; arrays of 85,000 bytes or more go to the large object heap.</summary>
+        private const int MaxChunkBytes = 64 * 1024;
 
-        public void Initialize(int capacity) => _buffer = ArrayPool<T>.Shared.Rent(Math.Max(capacity, 1));
+        /// <summary>Most chunk bytes given back to the pool when the read ends.</summary>
+        private const int MaxPooledBytes = 1024 * 1024;
+
+        private T[][]? _chunks;
+        private int _chunkCount;
+        private T[] _current;
+        private int _used; // records in _current
+        private int _count; // records in all chunks
+
+        public void Initialize(int capacity)
+        {
+            _chunks = new T[8][];
+            _current = ArrayPool<T>.Shared.Rent(Math.Max(capacity, 1));
+            _chunks[0] = _current;
+            _chunkCount = 1;
+        }
 
         public void Add(ref T record)
         {
-            if (_count == _buffer!.Length)
-                Grow();
-            _buffer[_count++] = record;
+            if (_used == _current.Length)
+                NextChunk();
+            _current[_used++] = record;
+            _count++;
         }
 
-        public readonly T[] ToArray() => _count == 0 ? [] : _buffer.AsSpan(0, _count).ToArray();
+        public readonly T[] ToArray()
+        {
+            if (_count == 0)
+                return [];
+
+            var result = GC.AllocateUninitializedArray<T>(_count);
+            var destination = result.AsSpan();
+            for (int i = 0; i < _chunkCount; i++)
+            {
+                var chunk = _chunks![i];
+                int length = i == _chunkCount - 1 ? _used : chunk.Length;
+                chunk.AsSpan(0, length).CopyTo(destination);
+                destination = destination[length..];
+            }
+
+            return result;
+        }
 
         public void Dispose()
         {
-            if (_buffer is null)
+            if (_chunks is null)
                 return;
-            Return(_buffer, _count);
-            _buffer = null;
+
+            long pooledBytes = 0;
+            int elementSize = Unsafe.SizeOf<T>();
+            for (int i = 0; i < _chunkCount; i++)
+            {
+                var chunk = _chunks[i];
+                long bytes = (long)chunk.Length * elementSize;
+                if (pooledBytes + bytes > MaxPooledBytes)
+                    continue; // Not returned: the GC reclaims it with the records it holds.
+
+                pooledBytes += bytes;
+                // Clears the records first, so the pool does not keep them alive.
+                if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+                    chunk.AsSpan(0, i == _chunkCount - 1 ? _used : chunk.Length).Clear();
+                ArrayPool<T>.Shared.Return(chunk);
+            }
+
+            _chunks = null;
+            _chunkCount = 0;
+            _current = null!;
+            _used = 0;
             _count = 0;
         }
 
-        private void Grow()
+        private void NextChunk()
         {
-            var next = ArrayPool<T>.Shared.Rent(_buffer!.Length * 2);
-            _buffer.AsSpan(0, _count).CopyTo(next);
-            Return(_buffer, _count);
-            _buffer = next;
-        }
+            int maxLength = Math.Max(InitialCapacity, MaxChunkBytes / Unsafe.SizeOf<T>());
+            int length = Math.Min(_current.Length * 2, maxLength);
+            if (length < _current.Length)
+                length = _current.Length; // A first chunk larger than the cap (a capacity hint) keeps its size.
 
-        /// <summary>Clears the records first, so the pool does not keep them alive.</summary>
-        private static void Return(T[] buffer, int count)
-        {
-            if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
-                buffer.AsSpan(0, count).Clear();
-            ArrayPool<T>.Shared.Return(buffer);
+            if (_chunkCount == _chunks!.Length)
+                Array.Resize(ref _chunks, _chunkCount * 2);
+
+            _current = ArrayPool<T>.Shared.Rent(length);
+            _chunks[_chunkCount++] = _current;
+            _used = 0;
         }
     }
 

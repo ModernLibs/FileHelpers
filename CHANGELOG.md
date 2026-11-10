@@ -19,6 +19,19 @@ file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`ReadFile(path)` and `ReadStream(reader)` no longer leave their record buffers in the shared
+  array pool.** In 4.9.0 the read collected records in a buffer from `ArrayPool<T>.Shared` that
+  doubled as it grew, and gave every buffer back when it ended. The pool then kept about twice the
+  size of the result for each record type until the runtime trimmed it: after reading 1M records,
+  64 MB for a 32-byte struct and 16 MB for a class. Records are now collected in chunks of at most
+  64 KB, which are never copied as the read grows, and at most 1 MB of them goes back to the pool.
+  With 1M rows, struct reads now hold 1.0 MB afterwards instead of 64 MB, and class reads 1.0 MB
+  instead of 16 MB. Allocation of a large read goes up by the chunks that are not pooled (100K
+  fixed-width struct records: 41.8 MB instead of 37.4 MB). Code that runs in the same process after
+  a large read no longer has its garbage collections shifted by those buffers.
+
 ## [4.9.0] - 2026-11-10
 
 Performance release. The public API is the same as in 4.8.1, and records, errors, `HeaderText`,

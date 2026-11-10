@@ -19,6 +19,12 @@ file.
 
 ## [Unreleased]
 
+## [4.9.1] - 2026-11-11
+
+Runtime-only patch: the public API and the generated code are the same as in 4.9.0, so libraries
+compiled against 4.8 or 4.9 need no rebuild. Records, errors, `HeaderText`, `FooterText`,
+`LineNumber` and `TotalRecords` are the same for every input.
+
 ### Changed
 
 - **Fixed-format dates parse about twice as fast.** The in-place date parse of 4.9.0 (formats made of
@@ -587,7 +593,8 @@ Milestone, not published to NuGet. The first milestone, including the project fo
   `AfterReadRecord`, `BeforeWriteRecord` and `AfterWriteRecord` events.
 - TUnit test suite on Microsoft.Testing.Platform.
 
-[Unreleased]: https://github.com/ModernLibs/FileHelpers/compare/v4.9.0...HEAD
+[Unreleased]: https://github.com/ModernLibs/FileHelpers/compare/v4.9.1...HEAD
+[4.9.1]: https://github.com/ModernLibs/FileHelpers/releases/tag/v4.9.1
 [4.9.0]: https://github.com/ModernLibs/FileHelpers/releases/tag/v4.9.0
 [4.8.1]: https://github.com/ModernLibs/FileHelpers/releases/tag/v4.8.1
 [4.8.0]: https://github.com/ModernLibs/FileHelpers/releases/tag/v4.8.0

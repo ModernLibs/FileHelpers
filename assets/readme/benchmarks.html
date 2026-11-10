@@ -1,0 +1,89 @@
+<!doctype html>
+<!-- Source of assets/readme/benchmarks.png (1000x740 CSS px, rendered at 2x).
+     Numbers: docs/benchmarks/v4.9.0.md, 4.9.0 runs, 100K rows. Fixed-width: ModernLibs.FileHelpers and
+     FileHelpers 3.5.2 from FixedWidthComparison (50.85 / 110.75 ms), CsvHelper 34 from FixedWidthParse
+     (54.47 ms, where ModernLibs.FileHelpers is 48.13 ms). Delimited: DelimitedParse, Sep from SepComparison. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=JetBrains+Mono:wght@400;600&display=block" rel="stylesheet">
+<style>
+  :root {
+    --ground: #EEF2F5;
+    --ink: #1D2B36;
+    --ink-2: #4A5F70;
+    --muted: #5C7182;
+    --slate: #466C89;
+    --slate-soft: #C9D4DD;
+    --ours: #B8734F;
+    --other: #4F6577;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1000px; height: 740px; background: var(--ground); }
+  body { font-family: "Archivo", sans-serif; color: var(--ink); padding: 34px 56px 26px; display: grid; grid-template-rows: auto 1fr auto; row-gap: 22px; }
+  header { display: block; }
+  h1 { font-stretch: 112%; font-weight: 750; font-size: 34px; letter-spacing: -0.02em; }
+  header p { font-size: 22px; color: var(--ink-2); margin-top: 4px; }
+  .panels { display: grid; grid-template-columns: 1fr 1fr; column-gap: 56px; align-items: start; }
+  h2 { font-stretch: 105%; font-weight: 650; font-size: 28px; line-height: 1.15; }
+  h2 small { display: block; font-weight: 450; font-stretch: 100%; color: var(--muted); font-size: 22px; margin-top: 2px; }
+  .rows { display: grid; row-gap: 8px; margin-top: 14px; padding-right: 64px; }
+  .lib { font-size: 28px; color: var(--ink-2); white-space: nowrap; line-height: 1.2; }
+  .ours .lib { color: var(--ink); font-weight: 700; }
+  .track { position: relative; height: 22px; margin-top: 3px; }
+  .bar { position: absolute; left: 0; top: 0; height: 22px; background: var(--other); border-radius: 0 4px 4px 0; }
+  .ours .bar { background: var(--ours); }
+  .val { position: absolute; top: 50%; transform: translateY(-50%); margin-left: 10px; font-family: "JetBrains Mono", monospace; font-size: 28px; color: var(--ink-2); white-space: nowrap; }
+  .ours .val { color: var(--ink); font-weight: 600; }
+  /* the axis is the hero's ruler: minor ticks, mono labels, slate hairline */
+  .scale { position: relative; height: 40px; margin: 12px 64px 0 0; border-top: 1.5px solid var(--slate); }
+  .scale i { position: absolute; top: 0; width: 0; border-left: 1.5px solid var(--slate-soft); height: 7px; }
+  .scale i.major { border-left-color: var(--slate); height: 13px; }
+  .scale span { position: absolute; top: 15px; transform: translateX(-50%); font-family: "JetBrains Mono", monospace; font-size: 20px; color: var(--slate); font-weight: 600; }
+  footer { font-size: 22px; line-height: 1.3; color: var(--muted); }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Read 100K records into typed objects</h1>
+    <p>Mean ms, lower is better</p>
+  </header>
+  <div class="panels" id="panels"></div>
+  <footer>Azure Standard_D8as_v5 · AMD EPYC 7763 · Ubuntu 24.04 · .NET 10.0.13 · BenchmarkDotNet 0.15.8 · docs/benchmarks/v4.9.0.md<br>Fixed-width values come from two suites on one machine (48 ms and 51 ms for ModernLibs.FileHelpers).</footer>
+  <script>
+    const panels = [
+      { title: 'Fixed-width file', sub: '7 fields, class records', max: 120, major: 40, minor: 10, rows: [
+        ['ModernLibs.FileHelpers', 50.85, true, '48–51'],
+        ['CsvHelper 34', 54.47],
+        ['FileHelpers 3.5.2', 110.75],
+      ]},
+      { title: 'Delimited file', sub: '25 columns, with dates', max: 480, major: 160, minor: 40, rows: [
+        ['Sylvan.Data.Csv 1.4.4', 131.23],
+        ['ModernLibs.FileHelpers', 154.82, true],
+        ['CsvHelper 34', 164.80],
+        ['Sep 0.17.1', 170.81],
+        ['FileHelpers 3.5.2', 458.64],
+      ]},
+    ];
+    const host = document.getElementById('panels');
+    for (const p of panels) {
+      const el = document.createElement('section');
+      el.innerHTML = `<h2>${p.title}<small>${p.sub}</small></h2><div class="rows"></div><div class="scale"></div>`;
+      const rows = el.querySelector('.rows');
+      for (const [name, ms, ours, label] of p.rows) {
+        const pct = (ms / p.max) * 100;
+        rows.insertAdjacentHTML('beforeend',
+          `<div class="row${ours ? ' ours' : ''}"><div class="lib">${name}</div><div class="track"><div class="bar" style="width:${pct}%"></div><span class="val" style="left:${pct}%">${label ?? Math.round(ms)}</span></div></div>`);
+      }
+      const scale = el.querySelector('.scale');
+      for (let t = 0; t <= p.max; t += p.minor) {
+        const major = t % p.major === 0;
+        scale.insertAdjacentHTML('beforeend', `<i class="${major ? 'major' : ''}" style="left:${(t / p.max) * 100}%"></i>`);
+        if (major) scale.insertAdjacentHTML('beforeend', `<span style="left:${(t / p.max) * 100}%">${t}</span>`);
+      }
+      host.appendChild(el);
+    }
+  </script>
+</body>
+</html>

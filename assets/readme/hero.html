@@ -1,0 +1,75 @@
+<!doctype html>
+<!-- Source of assets/readme/hero.png (1000x490 CSS px, rendered at 2x). Render: see assets/readme/README.md. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=JetBrains+Mono:wght@400;600&display=block" rel="stylesheet">
+<style>
+  :root {
+    --ground: #EEF2F5;
+    --ink: #1D2B36;
+    --ink-2: #4A5F70;
+    --slate: #466C89;
+    --slate-soft: #C9D4DD;
+    --copper: #B8734F;
+    --cell: 24px; /* one character of the record at 40px JetBrains Mono (0.6em advance) */
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1000px; height: 490px; background: var(--ground); }
+  body { font-family: "Archivo", sans-serif; color: var(--ink); padding: 40px 56px 0; display: grid; row-gap: 30px; align-content: start; }
+  .id { display: grid; grid-template-columns: 96px auto 1fr; column-gap: 22px; align-items: center; }
+  .mark { width: 96px; height: 96px; }
+  .name { line-height: 0.95; }
+  .name .org { display: block; font-stretch: 112%; font-weight: 500; font-size: 24px; color: var(--slate); }
+  .name .lib { display: block; font-stretch: 118%; font-weight: 800; font-size: 56px; letter-spacing: -0.025em; }
+  .tag { justify-self: end; max-width: 380px; font-weight: 450; font-size: 28px; line-height: 1.25; color: var(--ink-2); }
+
+  .record { font-family: "JetBrains Mono", monospace; }
+  .ruler { display: flex; height: 40px; align-items: flex-end; }
+  .ruler i { display: block; width: var(--cell); height: 9px; border-left: 1.5px solid var(--slate-soft); position: relative; font-style: normal; }
+  .ruler i.five { height: 15px; border-left-color: #9DB0BF; }
+  .ruler i.ten { height: 23px; border-left-color: var(--slate); }
+  .ruler i.ten::before { content: attr(data-n); position: absolute; top: -28px; left: 5px; font-size: 22px; color: var(--slate); font-weight: 600; }
+  .line { display: flex; font-size: 40px; line-height: 1; white-space: pre; border-top: 1.5px solid var(--slate); border-bottom: 1.5px solid var(--slate); padding: 14px 0 12px; }
+  .f + .f { box-shadow: inset 3px 0 0 var(--copper); }
+  .f .pad { color: #A9B8C4; }
+  .spans { display: flex; margin-top: 12px; font-size: 28px; }
+  .spans span { display: block; border-top: 2px solid var(--ink); padding-top: 7px; margin-right: 3px; color: var(--ink-2); }
+  .spans b { color: var(--ink); font-weight: 600; }
+  .typed { margin-top: 22px; font-size: 28px; line-height: 1.35; color: var(--ink-2); white-space: pre; }
+  .typed .t { color: var(--slate); font-weight: 600; }
+  .typed .v { color: var(--copper); font-weight: 600; }
+  .typed .k { color: var(--ink); }
+</style>
+</head>
+<body>
+  <div class="id">
+    <img class="mark" src="../logo.svg" alt="">
+    <div class="name"><span class="org">ModernLibs.</span><span class="lib">FileHelpers</span></div>
+    <p class="tag">Typed fixed-width and delimited files for .NET&nbsp;10, ready for Native&nbsp;AOT.</p>
+  </div>
+
+  <div class="record" aria-hidden="true">
+    <div class="ruler" id="ruler"></div>
+    <div class="line"><span class="f">000042</span><span class="f">John Smith<span class="pad">··········</span></span><span class="f">0001234.50</span></div>
+    <div class="spans">
+      <span style="width: calc(var(--cell) * 6 - 3px)"><b>Id</b> 6</span>
+      <span style="width: calc(var(--cell) * 20 - 3px)"><b>Name</b> 20</span>
+      <span style="width: calc(var(--cell) * 10 - 3px)"><b>Salary</b> 10</span>
+    </div>
+    <div class="typed"><span class="t">Employee</span> <span class="k">{</span> Id = <span class="v">42</span>, Name = <span class="v">"John Smith"</span>,
+           Salary = <span class="v">1234.50m</span> <span class="k">}</span></div>
+  </div>
+
+  <script>
+    const r = document.getElementById('ruler');
+    for (let i = 1; i <= 36; i++) {
+      const t = document.createElement('i');
+      if (i % 10 === 1 && i > 1) { t.className = 'ten'; t.dataset.n = i - 1; }
+      else if (i % 5 === 1 && i > 1) t.className = 'five';
+      r.appendChild(t);
+    }
+  </script>
+</body>
+</html>

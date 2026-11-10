@@ -1,15 +1,47 @@
-# ModernLibs.FileHelpers
+![ModernLibs.FileHelpers: a fixed-width record, 000042John Smith 0001234.50, split into its Id, Name and Salary fields and read into an Employee object](https://raw.githubusercontent.com/ModernLibs/FileHelpers/main/assets/readme/hero.png)
 
 [![NuGet](https://img.shields.io/nuget/v/ModernLibs.FileHelpers.svg)](https://www.nuget.org/packages/ModernLibs.FileHelpers)
 [![CI](https://github.com/ModernLibs/FileHelpers/actions/workflows/ci.yml/badge.svg)](https://github.com/ModernLibs/FileHelpers/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/ModernLibs/FileHelpers/blob/main/LICENSE)
 
-Typed reading and writing of delimited (CSV, TSV, pipe, ...) and fixed-length text files for .NET 10,
-with a [FileHelpers](https://github.com/MarcosMeli/FileHelpers) 3.x-style API.
+Typed reading and writing of fixed-length and delimited (CSV, TSV, pipe, ...) text files for
+.NET 10, with the [FileHelpers](https://github.com/MarcosMeli/FileHelpers) 3.x API. You describe a
+record layout with attributes; a source generator in the package writes the parsing and formatting
+code at compile time. No runtime reflection, so it works with Native AOT and trimming.
 
-You describe a record layout with attributes. A source generator, shipped inside the package, turns
-the layout into parsing and formatting code at compile time. There is no runtime reflection, so the
-library works with Native AOT and trimming.
+- **The fastest fixed-width reader in our benchmarks:** more than twice as fast as FileHelpers 3.5.2
+  and ahead of CsvHelper 34.
+- **On par with the best CSV readers:** reading a 25-column file, ahead of Sep and CsvHelper 34 at
+  every size we measured, level with Sylvan at 1M rows and behind it at 10K and 100K.
+- **Drop-in for FileHelpers 3.x code:** the same attributes, engines, events and exceptions; most
+  code migrates by changing the namespace.
+
+## Benchmarks
+
+![Read 100K records into typed objects. Fixed-width file: ModernLibs.FileHelpers 48 to 51 ms, CsvHelper 34 54 ms, FileHelpers 3.5.2 111 ms. Delimited file: Sylvan 131 ms, ModernLibs.FileHelpers 155 ms, CsvHelper 34 165 ms, Sep 171 ms, FileHelpers 3.5.2 459 ms.](https://raw.githubusercontent.com/ModernLibs/FileHelpers/main/assets/readme/benchmarks.png)
+
+Time and allocation for 100K records (fixed-width: 7 fields, class records; 25-column file with
+dates), from the
+[4.9.0 results](https://github.com/ModernLibs/FileHelpers/blob/main/docs/benchmarks/v4.9.0.md):
+
+| Scenario | ModernLibs.FileHelpers 4.9.0 | FileHelpers 3.5.2 | Sep 0.17.1 | Sylvan.Data.Csv 1.4.4 | CsvHelper 34.0.0 |
+|---|---:|---:|---:|---:|---:|
+| Fixed-width read, 7 fields | **48 to 51 ms**, 39.7 MB | 111 ms, 59.5 MB | - | - | 54 ms, 40.9 MB |
+| 25-column read | **155 ms**, 75.7 MB | 459 ms, 230.7 MB | 171 ms, 75.6 MB | 131 ms, 75.7 MB | 165 ms, 76.9 MB |
+| Quoted-field read | **46 ms**, 22.8 MB | - | 29 ms, 20.5 MB | 38 ms, 22.8 MB | 28 ms, 21.7 MB |
+| 25-column write | **69 to 70 ms**, 55.4 MB | - | 102 ms, 110.6 MB | - | 58 ms, 110.8 MB |
+
+Measured on an Azure `Standard_D8as_v5` virtual machine (AMD EPYC 7763, Ubuntu 24.04, .NET 10.0.13)
+with BenchmarkDotNet 0.15.8, default job. Where we are behind, the table says so: Sylvan reads the
+25-column file faster at 10K and 100K rows (level at 1M), Sep, Sylvan and CsvHelper read quoted
+fields faster, and CsvHelper writes faster. Sep and Sylvan do not read fixed-width files; we have not
+benchmarked other fixed-width libraries such as RecordParser or FlatFiles.
+
+A dash means the suite does not measure that library. ModernLibs.FileHelpers and FileHelpers 3.5.2
+produce typed records through their attributes and converters; the other libraries are measured with
+the row-to-object code written in each benchmark. Where a cell has a range, two suites measured the
+same operation. [BENCHMARKS.md](https://github.com/ModernLibs/FileHelpers/blob/main/BENCHMARKS.md)
+explains how to run the suite on your own hardware.
 
 ModernLibs.FileHelpers is an independent reimplementation modelled on the API of FileHelpers 3.x by
 Marcos Meli and contributors. FileHelpers 3.x is the reference for its behaviour. It is not the
@@ -222,34 +254,15 @@ All parsing and formatting code is generated at compile time. The library uses n
 enabled, so the trim and AOT analyzers check it on every build. Applications that use it can publish
 with `PublishAot=true`.
 
-## Performance
+## Why it is fast
 
 The read path works on `ReadOnlySpan<char>`: lines and fields are sliced, not copied, and numeric,
-date and other value-type fields are parsed straight from the span. Buffers are pooled. Struct records
-with value-type fields are read without per-record allocations (see above), and this is checked by
-the test suite.
-
-The repository contains a BenchmarkDotNet suite that compares this library with FileHelpers 3.5.2,
-Sep, Sylvan.Data.Csv and CsvHelper. In the
-[4.9.0 results](https://github.com/ModernLibs/FileHelpers/blob/main/docs/benchmarks/v4.9.0.md)
-(AMD EPYC 7763 virtual machine, Ubuntu 24.04, .NET 10.0.13, BenchmarkDotNet default job), time and
-allocation for 100K rows:
-
-| Scenario | ModernLibs.FileHelpers 4.9.0 | FileHelpers 3.5.2 | Sep 0.17.1 | Sylvan.Data.Csv 1.4.4 | CsvHelper 34.0.0 |
-|---|---:|---:|---:|---:|---:|
-| Read a 25-column delimited file into objects | 155 ms, 75.7 MB | 459 ms, 230.7 MB | 171 ms, 75.6 MB | 131 ms, 75.7 MB | 165 ms, 76.9 MB |
-| Read a fixed-width file (7 fields, class records) | 48 to 51 ms, 39.7 MB | 111 ms, 59.5 MB | - | - | 54 ms, 40.9 MB |
-| Read a file with quoted fields | 46 ms, 22.8 MB | - | 29 ms, 20.5 MB | 38 ms, 22.8 MB | 28 ms, 21.7 MB |
-| Write the 25-column records to a string | 68 to 70 ms, 55.4 MB | - | 102 ms, 110.6 MB | - | 58 ms, 110.8 MB |
-
-A dash means the suite does not measure that library. ModernLibs.FileHelpers and FileHelpers 3.5.2
-produce typed records through their attributes and converters; the other libraries are measured with
-the row-to-object code written in each benchmark. Where a cell has a range, two suites measured the
-same operation.
-
-Results depend on hardware and record shape; see
-[BENCHMARKS.md](https://github.com/ModernLibs/FileHelpers/blob/main/BENCHMARKS.md) to run the suite on
-your own hardware.
+date and other value-type fields are parsed straight from the span. `ReadFile` parses records as it
+reads the file instead of loading it into one string, buffers are pooled, and the quote scan uses
+vector search. Struct records with value-type fields are read without per-record allocations (see
+above), and this is checked by the test suite. Results depend on hardware and record shape; run the
+[benchmark suite](https://github.com/ModernLibs/FileHelpers/blob/main/BENCHMARKS.md) on a machine
+like your production one.
 
 ## Migrating from FileHelpers 3.x
 

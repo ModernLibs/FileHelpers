@@ -56,6 +56,15 @@ public record struct SarStruct
     [FieldOrder(2)] public string Text { get; set; }
 }
 
+/// <summary>24 bytes: not a power of two, so the chunk cap is rounded down to one.</summary>
+[DelimitedRecord(",")]
+public record struct SarStruct24
+{
+    [FieldOrder(1)] public int Id { get; set; }
+    [FieldOrder(2)] public string Text { get; set; }
+    [FieldOrder(3)] public string More { get; set; }
+}
+
 /// <summary>A reader that gives <c>text</c> up to <c>faultAt</c> characters and then throws <see cref="IOException"/>.</summary>
 internal sealed class SarFaultingReader(string text, int faultAt) : TextReader
 {
@@ -412,11 +421,13 @@ public sealed class StreamingArrayReadTests
         int[] counts = [0, 1, 63, 64, 65, 4_095, 4_096, 4_097, 8_191, 8_192, 8_193, 70_000, 140_000];
         int[] caps = [0, 64, 4_097, 100_000];
         var structEngine = new FileHelperEngine<SarStruct>();
+        var struct24Engine = new FileHelperEngine<SarStruct24>();
         var classEngine = new FileHelperEngine<SarPlain>();
 
         foreach (int count in counts)
         {
             string input = string.Concat(Enumerable.Range(1, count).Select(i => $"{i},t{i}\n"));
+            string input24 = string.Concat(Enumerable.Range(1, count).Select(i => $"{i},t{i},m{i}\n"));
             foreach (int maxRecords in caps)
             {
                 string label = $"{count} records, maxRecords {maxRecords}";
@@ -424,15 +435,75 @@ public sealed class StreamingArrayReadTests
                 // Act
                 var expectedStructs = structEngine.ReadString(input, maxRecords);
                 var structs = structEngine.ReadStream(new StringReader(input), maxRecords);
+                var expectedStructs24 = struct24Engine.ReadString(input24, maxRecords);
+                var structs24 = struct24Engine.ReadStream(new StringReader(input24), maxRecords);
                 var expectedClasses = classEngine.ReadString(input, maxRecords).Select(r => $"{r.Id}:{r.Text}").ToArray();
                 var classes = classEngine.ReadStream(new StringReader(input), maxRecords).Select(r => $"{r.Id}:{r.Text}").ToArray();
 
                 // Assert
                 await Assert.That(structs.Length).IsEqualTo(maxRecords > 0 ? Math.Min(count, maxRecords) : count).Because(label);
                 await Assert.That(structs.SequenceEqual(expectedStructs)).IsTrue().Because("structs, " + label);
+                await Assert.That(structs24.SequenceEqual(expectedStructs24)).IsTrue().Because("24-byte structs, " + label);
                 await Assert.That(classes.SequenceEqual(expectedClasses)).IsTrue().Because("classes, " + label);
             }
         }
+    }
+
+    [Test]
+    [DisplayName("After ReadStream of class records, the arrays it gave back to the pool hold no records")]
+    public async Task ReadStream_PooledChunks_AreCleared()
+    {
+        // Arrange: more records than the largest chunk (8,192 references), so several chunk sizes go back
+        string input = string.Concat(Enumerable.Range(1, 20_000).Select(i => $"{i},t{i}\n"));
+        var engine = new FileHelperEngine<SarPlain>();
+
+        // Act: read, then rent every chunk size on the same thread (the pool hands out this thread's arrays first)
+        var records = engine.ReadStream(new StringReader(input));
+        int leaked = 0;
+        var rented = new List<SarPlain[]>();
+        for (int size = 64; size <= 8_192; size *= 2)
+        {
+            for (int i = 0; i < 4; i++)
+            {
+                var array = System.Buffers.ArrayPool<SarPlain>.Shared.Rent(size);
+                rented.Add(array);
+                leaked += array.Count(r => r is not null);
+            }
+        }
+
+        foreach (var array in rented)
+            System.Buffers.ArrayPool<SarPlain>.Shared.Return(array, clearArray: true);
+
+        // Assert
+        await Assert.That(records.Length).IsEqualTo(20_000);
+        await Assert.That(leaked).IsEqualTo(0);
+    }
+
+    [Test]
+    [DisplayName("A ReadStream that fails after 10K records leaves the engine able to read the same input again")]
+    public async Task ReadStream_AfterReaderFault_NextReadMatchesReadString()
+    {
+        // Arrange: the reader faults after about 12K records (the 16K-character fills, the chunks past the first ones)
+        string input = string.Concat(Enumerable.Range(1, 30_000).Select(i => $"{i},t{i}\n"));
+        var engine = new FileHelperEngine<SarStruct>();
+        var expected = new FileHelperEngine<SarStruct>().ReadString(input);
+
+        // Act
+        Exception? fault = null;
+        try
+        {
+            engine.ReadStream(new SarFaultingReader(input, faultAt: 120_000));
+        }
+        catch (IOException ex)
+        {
+            fault = ex;
+        }
+
+        var again = engine.ReadStream(new StringReader(input));
+
+        // Assert
+        await Assert.That(fault).IsNotNull();
+        await Assert.That(again.SequenceEqual(expected)).IsTrue();
     }
 
     [Test]

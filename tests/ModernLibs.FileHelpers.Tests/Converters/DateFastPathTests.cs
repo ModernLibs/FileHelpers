@@ -22,6 +22,7 @@ public sealed class DateFastPathTests
     [
         "ddMMyyyy", "s", "yyyyMMdd", "yyyy-MM-dd", "yyyy-MM-dd HH:mm:ss", "dd/MM/yyyy", "MM/dd/yyyy",
         "yyyy-MM-ddTHH:mm:ss", "dd.MM.yyyy", "yyyyMMddHHmmss", "dd-MM-yyyy HH:mm", "yyyy_MM_dd",
+        "HH:mm:ss dd/MM/yyyy",
     ];
 
     /// <summary>Formats the fast path must leave to <c>TryParseExact</c>.</summary>
@@ -79,6 +80,9 @@ public sealed class DateFastPathTests
             for (char digit = '0'; digit <= '9'; digit++)
                 yield return string.Concat(sample.AsSpan(0, i), digit.ToString(), sample.AsSpan(i + 1));
         }
+
+        // Year 0: every digit is valid, the year is not.
+        yield return new DateTime(2024, 6, 15, 10, 20, 30).ToString(format, CultureInfo.InvariantCulture).Replace("2024", "0000", StringComparison.Ordinal);
 
         foreach (string decoration in Decorations)
         {

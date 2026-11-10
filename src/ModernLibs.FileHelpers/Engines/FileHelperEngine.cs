@@ -4,6 +4,7 @@
 #pragma warning disable CA1710, MA0046
 
 using System.Buffers;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Text;
 using ModernLibs.FileHelpers.Parsing;
@@ -864,7 +865,8 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     /// Collects the records of an input of unknown length in chunks rented from <see cref="ArrayPool{T}"/>, so a
     /// record is never copied when the buffer grows; <see cref="ToArray"/> copies each record once into the array
     /// returned. Chunks start at the initial capacity and double up to <see cref="MaxChunkBytes"/>, below the large
-    /// object heap. <see cref="Dispose"/> returns chunks to the pool only up to <see cref="MaxPooledBytes"/> and
+    /// object heap unless one record is larger than about 1.3 KB (the 64-record first chunk then is already above
+    /// it, as the 4.9.0 buffer was). <see cref="Dispose"/> returns chunks to the pool only up to <see cref="MaxPooledBytes"/> and
     /// leaves the rest to the GC, so a large read does not leave megabytes of records' worth of arrays in the
     /// shared pool after it ends.
     /// </summary>
@@ -948,10 +950,10 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
 
         private void NextChunk()
         {
-            int maxLength = Math.Max(InitialCapacity, MaxChunkBytes / Unsafe.SizeOf<T>());
-            int length = Math.Min(_current.Length * 2, maxLength);
-            if (length < _current.Length)
-                length = _current.Length; // A first chunk larger than the cap (a capacity hint) keeps its size.
+            // ArrayPool rounds every request up to a power of two, so the cap is rounded down to one: otherwise a
+            // 56-byte record would ask for 1,170 elements and get 2,048 (114,688 bytes, on the large object heap).
+            int maxLength = Math.Max(InitialCapacity, 1 << BitOperations.Log2((uint)Math.Max(1, MaxChunkBytes / Unsafe.SizeOf<T>())));
+            int length = Math.Max(Math.Min(_current.Length * 2, maxLength), _current.Length);
 
             if (_chunkCount == _chunks!.Length)
                 Array.Resize(ref _chunks, _chunkCount * 2);

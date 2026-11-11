@@ -484,6 +484,9 @@ The benchmark project can measure another library than this repository's, with t
 | `-p:FileHelpersPackageVersion=4.9.1` | the published package (its `lib/net10.0` and the generator it bundles) |
 | `-p:FileHelpersSourceRoot=<dir>` | the library and generator of another source tree, compiled with this repository's SDK |
 
+A build with either property defines `FILEHELPERS_BASELINE`, which leaves out the benchmarks of 4.10 APIs that 4.9.1
+does not have (`Engine_WriteStreamAsync_Null`); `round.sh` reports them as "not run" in a pair with such a build.
+
 `benchmarks/tools/build-baselines.sh <out-dir>` builds the 4.9.1 baselines next to the folders of
 `build-variants.sh`: `pkg-net10` and `pkg-net11` (the package, run on .NET 10 and .NET 11; the script checks that the
 folder holds the package's own DLL) and `control-net10`, `control-net11-ra-on`, `control-net11-ra-off` (the `v4.9.1`

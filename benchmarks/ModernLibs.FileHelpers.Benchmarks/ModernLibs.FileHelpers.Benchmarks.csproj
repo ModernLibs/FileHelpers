@@ -14,8 +14,10 @@
       -p:FileHelpersSourceRoot=<dir>       the library and generator of another source tree, for example the v4.9.1
                                            tag compiled with this repository's SDK (the "control" build)
     Program.cs prints which library a process loaded, so the start-up lines prove which one was measured.
+    A baseline build defines FILEHELPERS_BASELINE, which leaves out the benchmarks of APIs that 4.9.1 does not have.
   -->
   <PropertyGroup>
+    <DefineConstants Condition="'$(FileHelpersPackageVersion)' != '' or '$(FileHelpersSourceRoot)' != ''">$(DefineConstants);FILEHELPERS_BASELINE</DefineConstants>
     <_FileHelpersSrc>../../src/</_FileHelpersSrc>
     <_FileHelpersSrc Condition="'$(FileHelpersSourceRoot)' != ''">$([MSBuild]::EnsureTrailingSlash('$(FileHelpersSourceRoot)'))src/</_FileHelpersSrc>
   </PropertyGroup>

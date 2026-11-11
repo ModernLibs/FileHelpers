@@ -40,8 +40,10 @@ public class EngineAsyncBenchmarks
 {
     private string _path = "";
     private FileHelperEngine<PackageAsset> _engine = null!;
+#if !FILEHELPERS_BASELINE
     private PackageAsset[] _records = [];
     private byte[] _bytes = [];
+#endif
 
     [Params(10_000, 100_000)]
     public int Rows { get; set; }
@@ -73,6 +75,11 @@ public class EngineAsyncBenchmarks
         DataCheck.Equal(DatasetGenerator.BadRowEvery + 1, first.LineNumber, nameof(Engine_ReadAsync_Path_ExceptionEvery100) + " line of the first error (after the header)");
     }
 
+#if !FILEHELPERS_BASELINE
+    // WriteStreamAsync, ReadAsync(Stream) and ReadAsync(TextReader) are new in 4.10: a build against the 4.9.1 package
+    // or source (round.sh baselines, FILEHELPERS_BASELINE) has none of the benchmarks between here and #endif, nor
+    // Engine_WriteStreamAsync_Null and Engine_WriteStreamAsync_Null_SourceThrows below, and round.sh reports them as
+    // "not run" in a pair with such a build.
     [GlobalSetup(Target = nameof(Engine_WriteStreamAsync_Null))]
     public async Task SetupWriteStreamAsync()
     {
@@ -161,6 +168,7 @@ public class EngineAsyncBenchmarks
             yield return records[i];
         throw new InvalidOperationException("Benchmark source fault.");
     }
+#endif
 
     [Benchmark]
     public async Task<long> Engine_ReadAsync_Path()
@@ -188,6 +196,7 @@ public class EngineAsyncBenchmarks
         return _engine.ErrorManager.ErrorCount;
     }
 
+#if !FILEHELPERS_BASELINE
     [Benchmark]
     public async Task<int> Engine_WriteStreamAsync_Null()
     {
@@ -212,4 +221,5 @@ public class EngineAsyncBenchmarks
         }
         return caught;
     }
+#endif
 }

@@ -114,13 +114,17 @@ One table per scenario group and VM. Rows key on the benchmark method and its pa
 | Scenario | 4.9.1 pkg | net10 | net11-ra-on | net11-ra-off | on/off | verdict |
 |---|---|---|---|---|---|---|
 
-`EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null` is listed in the filter file but exists only after T43; until
-then the report shows it as "not run".
-
 ### Async
+
+`EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null` (T43) uses an API that 4.9.1 does not have: the 4.9.1 builds
+leave it out (`FILEHELPERS_BASELINE`), so its `4.9.1 pkg` cell stays empty and it runs only in the pairs `ra` and
+`runtime-410`.
 
 | Scenario | 4.9.1 pkg | net10 | net11-ra-on | net11-ra-off | on/off | verdict |
 |---|---|---|---|---|---|---|
+
+PLACEHOLDER, filled by T46/T47 integration: `Engine_ReadAsync_Stream`, `Engine_ReadAsync_TextReader` and a
+`WriteStreamAsync` fault-path method (T46).
 
 ### Exception path
 
@@ -135,6 +139,8 @@ Not measured in Step 0. The Native AOT smoke test (T04, `tests/ModernLibs.FileHe
 `PublishAot` for `net10.0` and `net11.0` and checks that reads and writes give the right results; it measures no time,
 and no benchmark runs under AOT (the gate prototypes need reflection, and BenchmarkDotNet runs in-process). Design 3.1
 (C2) asks for one AOT benchmark run of the 25-column read on each runtime; that run does not exist yet.
+
+PLACEHOLDER, filled by T46/T47 integration: the AOT read timing harness of T47, its table and how the round runs it.
 
 ### Controls
 

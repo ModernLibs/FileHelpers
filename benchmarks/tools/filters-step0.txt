@@ -16,8 +16,8 @@
 # <glob>   a BenchmarkDotNet --filter glob, passed to ab.py as it stands. Each line is one ab.py run per pair, so
 #          the methods one glob selects are interleaved with each other (the gates compare methods of one run).
 #
-# A glob that selects nothing in one of the two builds of a pair is skipped and reported as "not run"
-# (Engine_WriteStreamAsync_Null exists only after T43). Lines starting with # and blank lines are ignored.
+# A glob that selects nothing in one of the two builds of a pair is skipped and reported as "not run" (for example a
+# benchmark of a 4.10 API in a pair with a 4.9.1 build). Lines starting with # and blank lines are ignored.
 # The methods and their Rows are listed in BENCHMARKS.md ("What is measured").
 
 # 25-column delimited read (PackageAssets): parse-and-discard is the primary metric (B2), ReadFile the array read
@@ -53,7 +53,11 @@ async      free-gains,sdk-net10,sdk-net11,ra,v410-net10,ra-control *EngineAsyncB
 async      ra,ra-control,v410-net10                             *EngineAsyncBenchmarks.Engine_ReadFileAsync_Callback
 async      ra,ra-control,v410-net10                             *AsyncStreamingBenchmarks.ReadAsync_MultiRecord
 async      ra,ra-control,v410-net10                             *OptimizedParseBenchmarks.ReadFileAsync_Callback_ProcessAndDiscard
-async      ra,ra-control,v410-net10                             *EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null
+# WriteStreamAsync is new in 4.10 (T43): the 4.9.1 builds have no such method, so it runs only between 4.10 builds
+# (runtime-410 gives its net10 column).
+async      ra,runtime-410                                       *EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null
+# PLACEHOLDER, filled by T46/T47 integration: Engine_ReadAsync_Stream, Engine_ReadAsync_TextReader and a
+# WriteStreamAsync fault-path method (T46) go here; the lead sends the exact lines after T46 lands.
 
 # Exception path: a conversion error in every 100th row, ErrorMode.SaveAndContinue
 exception  ra,ra-control,v410-net10                             *EngineAsyncBenchmarks.Engine_ReadAsync_Path_ExceptionEvery100
@@ -76,3 +80,6 @@ component  runtime-410                                          *Components.Form
 # the A side of those pairs puts R6_Current next to the same method on the 4.9.1 package
 prototype  v410-net10,v410-net11                                *Prototypes.R6UpperBoundBenchmarks*
 prototype  v410-net10,v410-net11                                *Prototypes.G2PrototypeBenchmarks*
+
+# PLACEHOLDER, filled by T46/T47 integration: how a round runs the AOT read timing harness of T47 (a line here or a
+# step of round.sh) is added after T47 lands.

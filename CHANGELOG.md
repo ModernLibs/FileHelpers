@@ -38,8 +38,9 @@ file.
 
 ### Changed
 
-- **`ReadStream(null)` on `FileHelperEngine<T>` is now ambiguous** between the `TextReader` and the
-  `Stream` overload and no longer compiles. Cast the argument: `ReadStream((TextReader)null!)`.
+- **`ReadStream(null)` and `ReadStream(null, n)` on `FileHelperEngine<T>` and `IFileHelperEngine<T>` are
+  now ambiguous** between the `TextReader` and the `Stream` overload and no longer compile. Cast the
+  argument: `ReadStream((TextReader)null!)`.
 
 ## [4.9.1] - 2026-11-11
 

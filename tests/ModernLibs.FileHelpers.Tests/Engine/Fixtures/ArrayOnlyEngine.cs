@@ -60,9 +60,25 @@ internal sealed class ArrayOnlyEngine : IFileHelperEngine<CsvOrder>
 
     public CsvOrder[] ReadString(string content, int maxRecords) => Fixed(maxRecords);
 
-    public CsvOrder[] ReadStream(TextReader reader) => Fixed(2);
+    /// <summary>The text the last <c>ReadStream(TextReader[, int])</c> call read from its reader.</summary>
+    public string? LastReaderText { get; private set; }
 
-    public CsvOrder[] ReadStream(TextReader reader, int maxRecords) => Fixed(maxRecords);
+    /// <summary>The <c>maxRecords</c> the last <c>ReadStream(TextReader, int)</c> call received.</summary>
+    public int? LastMaxRecords { get; private set; }
+
+    public CsvOrder[] ReadStream(TextReader reader)
+    {
+        LastReaderText = reader.ReadToEnd();
+        LastMaxRecords = null;
+        return Fixed(2);
+    }
+
+    public CsvOrder[] ReadStream(TextReader reader, int maxRecords)
+    {
+        LastReaderText = reader.ReadToEnd();
+        LastMaxRecords = maxRecords;
+        return Fixed(maxRecords);
+    }
 
     public IAsyncEnumerable<CsvOrder> ReadAsync(string filePath, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException();

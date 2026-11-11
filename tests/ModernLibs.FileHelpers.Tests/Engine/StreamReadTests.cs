@@ -150,7 +150,7 @@ public sealed class StreamReadTests
         var records = new FileHelperEngine<CsvOrder>().ReadStream(stream);
 
         await Assert.That(records.Length).IsEqualTo(2);
-        await Assert.That(stream.CanRead).IsTrue();
+        await Assert.That(records[1].CustomerName).IsEqualTo("b");
     }
 
     [Test]
@@ -186,12 +186,51 @@ public sealed class StreamReadTests
     [Test]
     public async Task Interface_Default_Works_For_A_Foreign_Implementation()
     {
-        IFileHelperEngine<CsvOrder> fake = new ArrayOnlyEngine();
-        var stream = new MemoryStream(Encode(Encoding.UTF8, "x", withBom: false));
+        var impl = new ArrayOnlyEngine { Encoding = Encoding.Latin1 };
+        IFileHelperEngine<CsvOrder> fake = impl;
+        const string Text = "h\r\n1,é,1.5\r\n";
 
+        // From the current position, decoded with the engine's Encoding (no BOM).
+        var stream = new MemoryStream(Encoding.Latin1.GetBytes("skip\r\n" + Text)) { Position = 6 };
         await Assert.That(fake.ReadStream(stream).Length).IsEqualTo(2);
-        await Assert.That(fake.ReadStream(stream, 1).Length).IsEqualTo(1);
+        await Assert.That(impl.LastReaderText).IsEqualTo(Text);
+        await Assert.That(impl.LastMaxRecords).IsNull();
         await Assert.That(stream.CanRead).IsTrue();
+
+        // maxRecords arrives unchanged.
+        stream = new MemoryStream(Encoding.Latin1.GetBytes(Text));
+        await Assert.That(fake.ReadStream(stream, 1).Length).IsEqualTo(1);
+        await Assert.That(impl.LastReaderText).IsEqualTo(Text);
+        await Assert.That(impl.LastMaxRecords).IsEqualTo(1);
+        await Assert.That(stream.CanRead).IsTrue();
+
+        // A UTF-8 BOM wins over Latin1.
+        fake.ReadStream(new MemoryStream(Encode(Encoding.UTF8, Text, withBom: true)));
+        await Assert.That(impl.LastReaderText).IsEqualTo(Text);
+        fake.ReadStream(new MemoryStream(Encode(Encoding.UTF8, Text, withBom: true)), 2);
+        await Assert.That(impl.LastReaderText).IsEqualTo(Text);
+
         await Assert.That(() => fake.ReadStream((Stream)null!)).ThrowsExactly<ArgumentNullException>();
+        await Assert.That(() => fake.ReadStream((Stream)null!, 1)).ThrowsExactly<ArgumentNullException>();
+    }
+
+    [Test]
+    public async Task Stream_Stays_Open_After_A_Read_That_Throws()
+    {
+        var engine = new FileHelperEngine<CsvOrder> { ErrorMode = ErrorMode.ThrowException };
+        var stream = new MemoryStream(Encode(Encoding.UTF8, "h\r\nx,a,1.5\r\n", withBom: false));
+
+        Exception? thrown = null;
+        try
+        {
+            engine.ReadStream(stream);
+        }
+        catch (Exception ex)
+        {
+            thrown = ex;
+        }
+
+        await Assert.That(thrown).IsNotNull();
+        await Assert.That(stream.CanRead).IsTrue();
     }
 }

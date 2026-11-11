@@ -276,7 +276,7 @@ Most code migrates by changing the namespace:
 
 Some things are different. Runtime-reflection features (`ClassBuilder`, non-generic engines,
 `DelimitedFileEngine` options) are not available, a few signatures changed, and some defaults differ
-(UTF-8 encoding, `\r\n` line endings on every platform). The
+(UTF-8 encoding). The
 [migration guide](https://github.com/ModernLibs/FileHelpers/blob/main/docs/MIGRATION.md) lists every
 difference we know of.
 

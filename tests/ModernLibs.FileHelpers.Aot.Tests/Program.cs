@@ -2,8 +2,8 @@ using ModernLibs.FileHelpers;
 using ModernLibs.FileHelpers.Aot.Tests;
 
 // Each check returns its own non-zero code on mismatch; 0 means all passed.
-// The engine writes CRLF by default (NewLineForWrite), on every OS.
-string nl = "\r\n";
+// The engine writes Environment.NewLine by default (NewLineForWrite), as FileHelpers 3.x does.
+string nl = Environment.NewLine;
 int passed = 0;
 
 static int Fail(int code, string what, string? got)

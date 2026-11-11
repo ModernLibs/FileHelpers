@@ -21,7 +21,7 @@ public interface IFileHelperEngine<T>
     /// <summary>Gets or sets the encoding used for file I/O. Defaults to UTF-8.</summary>
     Encoding Encoding { get; set; }
 
-    /// <summary>Gets or sets the newline sequence used when writing. Defaults to \r\n.</summary>
+    /// <summary>Gets or sets the newline sequence used when writing. Defaults to <see cref="System.Environment.NewLine"/>.</summary>
     string NewLineForWrite { get; set; }
 
     /// <summary>Gets or sets how parse errors are handled. Defaults to ThrowException.</summary>

@@ -72,7 +72,7 @@ public sealed class IgnoreInheritedClassTests
     public async Task WriteString_OnlyDerivedFields_WithIgnoreInheritedClass()
     {
         // Arrange: Create engine for derived type with IgnoreInheritedClass
-        var engine = new FileHelperEngine<DerivedWithoutInherited>();
+        var engine = new FileHelperEngine<DerivedWithoutInherited> { NewLineForWrite = "\r\n" };
         var records = new DerivedWithoutInherited[]
         {
             new() { DerivedField = "test" },

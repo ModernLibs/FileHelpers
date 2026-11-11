@@ -10,6 +10,7 @@ public sealed class MasterDetailEngine<TMaster, TDetail>
     private readonly MasterDetailSelector _selector;
     private readonly FileHelperEngine<TMaster> _masterEngine = new();
     private readonly FileHelperEngine<TDetail> _detailEngine = new();
+    private string? _newLineForWrite; // set through NewLineForWrite; null = never set (Environment.NewLine)
 
     /// <summary>Error manager for read operations; cleared at the start of every read.</summary>
     public ErrorManager ErrorManager { get; } = new();
@@ -23,10 +24,15 @@ public sealed class MasterDetailEngine<TMaster, TDetail>
 
     /// <summary>
     /// Line terminator written after each master and detail record (and inside records with
-    /// <see cref="FieldInNewLineAttribute"/> fields). Defaults to <c>"\r\n"</c> on every platform, like
-    /// <see cref="FileHelperEngine{T}.NewLineForWrite"/>.
+    /// <see cref="FieldInNewLineAttribute"/> fields). Defaults to <see cref="Environment.NewLine"/>, as in
+    /// FileHelpers 3.x, like <see cref="FileHelperEngine{T}.NewLineForWrite"/>; set <c>"\r\n"</c> to keep the 4.8 to
+    /// 4.9.1 output.
     /// </summary>
-    public string NewLineForWrite { get; set; } = "\r\n";
+    public string NewLineForWrite
+    {
+        get => _newLineForWrite ?? Environment.NewLine;
+        set => _newLineForWrite = value;
+    }
 
     /// <summary>Creates a master/detail engine with an explicit line selector.</summary>
     public MasterDetailEngine(MasterDetailSelector selector)
@@ -123,9 +129,10 @@ public sealed class MasterDetailEngine<TMaster, TDetail>
         ArgumentNullException.ThrowIfNull(writer);
         ArgumentNullException.ThrowIfNull(groups);
 
-        // The record engines write each record followed by NewLineForWrite.
-        _masterEngine.NewLineForWrite = NewLineForWrite;
-        _detailEngine.NewLineForWrite = NewLineForWrite;
+        // The record engines write each record followed by NewLineForWrite. Copy the set/unset state, not the
+        // value, so an unset NewLineForWrite here does not count as explicitly set in the record engines.
+        _masterEngine.CopyNewLineForWrite(_newLineForWrite);
+        _detailEngine.CopyNewLineForWrite(_newLineForWrite);
         foreach (var group in groups)
         {
             _masterEngine.WriteStream(writer, [group.Master]);

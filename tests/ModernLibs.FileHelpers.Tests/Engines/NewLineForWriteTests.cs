@@ -13,7 +13,7 @@ namespace ModernLibs.FileHelpers.Tests.Engines;
 
 /// <summary>
 /// Multi-record and master/detail engines terminate records with <c>NewLineForWrite</c> (default
-/// <c>"\r\n"</c> on every platform), like <see cref="FileHelperEngine{T}"/>.
+/// <see cref="Environment.NewLine"/>, as in FileHelpers 3.x), like <see cref="FileHelperEngine{T}"/>.
 /// </summary>
 [Category("Write")]
 public sealed class NewLineForWriteTests
@@ -37,32 +37,40 @@ public sealed class NewLineForWriteTests
         new(line => line.StartsWith("M|", StringComparison.Ordinal) ? RecordAction.Master : RecordAction.Detail);
 
     [Test]
-    [DisplayName("MultiRecordEngine writes \\r\\n by default and honours NewLineForWrite")]
+    [DisplayName("MultiRecordEngine writes Environment.NewLine by default and honours NewLineForWrite")]
     public async Task MultiRecordEngine_NewLineForWrite()
     {
         // Arrange: default and custom terminator
         var engine = NewMultiRecordEngine();
+        string nl = Environment.NewLine;
 
-        // Act + Assert: default is CRLF regardless of platform
-        await Assert.That(engine.NewLineForWrite).IsEqualTo("\r\n");
-        await Assert.That(engine.WriteString(s_mixed)).IsEqualTo("H|B1\r\nD|1|2.5\r\n");
+        // Act + Assert: default is the platform newline (FileHelpers 3.x)
+        await Assert.That(engine.NewLineForWrite).IsEqualTo(nl);
+        await Assert.That(engine.WriteString(s_mixed)).IsEqualTo($"H|B1{nl}D|1|2.5{nl}");
 
         engine.NewLineForWrite = "\n";
         await Assert.That(engine.WriteString(s_mixed)).IsEqualTo("H|B1\nD|1|2.5\n");
+
+        engine.NewLineForWrite = "\r\n";
+        await Assert.That(engine.WriteString(s_mixed)).IsEqualTo("H|B1\r\nD|1|2.5\r\n");
     }
 
     [Test]
-    [DisplayName("MasterDetailEngine writes \\r\\n by default and honours NewLineForWrite")]
+    [DisplayName("MasterDetailEngine writes Environment.NewLine by default and honours NewLineForWrite")]
     public async Task MasterDetailEngine_NewLineForWrite()
     {
         // Arrange: default and custom terminator
         var engine = NewMasterDetailEngine();
+        string nl = Environment.NewLine;
 
-        // Act + Assert: default is CRLF regardless of platform
-        await Assert.That(engine.NewLineForWrite).IsEqualTo("\r\n");
-        await Assert.That(engine.WriteString(Groups())).IsEqualTo("M|A\r\nD|A|2\r\n");
+        // Act + Assert: default is the platform newline (FileHelpers 3.x)
+        await Assert.That(engine.NewLineForWrite).IsEqualTo(nl);
+        await Assert.That(engine.WriteString(Groups())).IsEqualTo($"M|A{nl}D|A|2{nl}");
 
         engine.NewLineForWrite = "\n";
         await Assert.That(engine.WriteString(Groups())).IsEqualTo("M|A\nD|A|2\n");
+
+        engine.NewLineForWrite = "\r\n";
+        await Assert.That(engine.WriteString(Groups())).IsEqualTo("M|A\r\nD|A|2\r\n");
     }
 }

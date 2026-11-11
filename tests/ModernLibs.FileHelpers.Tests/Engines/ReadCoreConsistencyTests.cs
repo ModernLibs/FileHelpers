@@ -291,8 +291,8 @@ public sealed class ReadCoreConsistencyTests
             new RcInNewLine { Id = 1, Name = "alpha", Qty = 10 },
             new RcInNewLine { Id = 2, Name = "beta", Qty = 20 },
         };
-        var engine = new FileHelperEngine<RcInNewLine> { HeaderText = "HEADER", FooterText = "FOOTER" };
-        using var asyncEngine = new FileHelperAsyncEngine<RcInNewLine> { HeaderText = "HEADER", FooterText = "FOOTER" };
+        var engine = new FileHelperEngine<RcInNewLine> { NewLineForWrite = "\r\n", HeaderText = "HEADER", FooterText = "FOOTER" };
+        using var asyncEngine = new FileHelperAsyncEngine<RcInNewLine> { NewLineForWrite = "\r\n", HeaderText = "HEADER", FooterText = "FOOTER" };
 
         // Act: write through the batch and the streaming engine, then read back
         string batch = engine.WriteString(rows);

@@ -359,10 +359,16 @@ var engine = new FileHelperEngine<Customer>(Encoding.GetEncoding(1252));
 
 ### 3.2 Line endings and empty header/footer
 
-- `NewLineForWrite` defaults to `"\r\n"` on every platform. 3.x used `Environment.NewLine`, which is
-  `"\n"` on Linux and macOS. Set `engine.NewLineForWrite = "\n";` if you need that. This applies to
-  `MultiRecordEngine` and `MasterDetailEngine` too: they have a `NewLineForWrite` property with the
-  same default, which also sets the line break inside `[FieldInNewLine]` records.
+- `NewLineForWrite` defaults to `Environment.NewLine`, as in 3.x: `"\n"` on Linux and macOS, `"\r\n"`
+  on Windows. This applies to `MultiRecordEngine` and `MasterDetailEngine` too: they have a
+  `NewLineForWrite` property with the same default, which also sets the line break inside
+  `[FieldInNewLine]` records. Set `engine.NewLineForWrite = "\r\n";` for the same output on every
+  platform.
+- From 4.8.0 to 4.9.1, `NewLineForWrite` defaulted to `"\r\n"` on every platform. From 4.10 on, the
+  output on Linux and macOS uses `"\n"` unless you set `NewLineForWrite = "\r\n"`; Windows output is
+  unchanged.
+- Multi-line `HeaderText`/`FooterText` read joins stay `"\r\n"` unless `NewLineForWrite` is set,
+  unchanged from 4.9.1.
 - `HeaderText` and `FooterText` are `null` when there is no header or footer. In 3.x they were empty
   strings, so code like `engine.HeaderText.Length` needs a null check.
 

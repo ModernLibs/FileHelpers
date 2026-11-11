@@ -137,10 +137,10 @@ public sealed class TrimGivenCharsTests
     [DisplayName("Write is unchanged: the option never trims on write")]
     public async Task Write_Is_Unchanged()
     {
-        string a = new FileHelperEngine<TgA>().WriteString([new TgA { Code = "xxCODExx", Other = "y" }]);
-        string plain = new FileHelperEngine<PlA>().WriteString([new PlA { Code = "xxCODExx", Other = "y" }]);
-        string b = new FileHelperEngine<TgB>().WriteString([new TgB { Code = " xxCODExx ", Other = "y" }]);
-        string plainB = new FileHelperEngine<PlB>().WriteString([new PlB { Code = " xxCODExx ", Other = "y" }]);
+        string a = new FileHelperEngine<TgA> { NewLineForWrite = "\r\n" }.WriteString([new TgA { Code = "xxCODExx", Other = "y" }]);
+        string plain = new FileHelperEngine<PlA> { NewLineForWrite = "\r\n" }.WriteString([new PlA { Code = "xxCODExx", Other = "y" }]);
+        string b = new FileHelperEngine<TgB> { NewLineForWrite = "\r\n" }.WriteString([new TgB { Code = " xxCODExx ", Other = "y" }]);
+        string plainB = new FileHelperEngine<PlB> { NewLineForWrite = "\r\n" }.WriteString([new PlB { Code = " xxCODExx ", Other = "y" }]);
 
         await Assert.That(a).IsEqualTo("xxCODExx,y\r\n");
         await Assert.That(plain).IsEqualTo("xxCODExx,y\r\n");
@@ -301,7 +301,7 @@ public sealed class TrimGivenCharsTests
     [DisplayName("Read and write are not symmetric: the value \" x \" is written quoted and reads back as x")]
     public async Task Quote_In_List_Write_Then_Read_Is_Not_Symmetric()
     {
-        var engine = new FileHelperEngine<TgQuoteInList>();
+        var engine = new FileHelperEngine<TgQuoteInList> { NewLineForWrite = "\r\n" };
         string text = engine.WriteString([new TgQuoteInList { Code = "\" x \"", Other = "y" }]);
 
         await Assert.That(text).IsEqualTo("\"\"\" x \"\"\",y\r\n");

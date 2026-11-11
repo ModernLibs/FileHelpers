@@ -53,7 +53,7 @@ public sealed class FieldAlignReadTests
     public async Task WriteString_RightAligned_PadsLeft()
     {
         // Arrange: Record with right alignment
-        var engine = new FileHelperEngine<WriteAlignedRecord>();
+        var engine = new FileHelperEngine<WriteAlignedRecord> { NewLineForWrite = "\r\n" };
         var records = new[] { new WriteAlignedRecord { Name = "ABC" } };
 
         // Act: Write
@@ -68,7 +68,7 @@ public sealed class FieldAlignReadTests
     public async Task WriteString_LeftAligned_PadsRight()
     {
         // Arrange: Record with left alignment
-        var engine = new FileHelperEngine<WriteAlignedRecord>();
+        var engine = new FileHelperEngine<WriteAlignedRecord> { NewLineForWrite = "\r\n" };
         var records = new[] { new WriteAlignedRecord { Name = "ABC" } };
 
         // Act: Write
@@ -83,7 +83,7 @@ public sealed class FieldAlignReadTests
     public async Task AlignPlusTrim_ReadTrimsWriteAligns()
     {
         // Arrange: Record with left alignment and trim
-        var engine = new FileHelperEngine<WriteTrimAlignedRecord>();
+        var engine = new FileHelperEngine<WriteTrimAlignedRecord> { NewLineForWrite = "\r\n" };
         var records = new[] { new WriteTrimAlignedRecord { Name = "  hello  " } };
 
         // Act: Write (trim is read-side only; write preserves original + aligns)
@@ -105,7 +105,7 @@ public sealed class FieldAlignReadTests
     public async Task AlignPlusConverter_AlignedNumericWritten()
     {
         // Arrange: Record with right-aligned numeric
-        var engine = new FileHelperEngine<WriteAlignedIntRecord>();
+        var engine = new FileHelperEngine<WriteAlignedIntRecord> { NewLineForWrite = "\r\n" };
         var records = new[] { new WriteAlignedIntRecord { Value = 42 } };
 
         // Act: Write

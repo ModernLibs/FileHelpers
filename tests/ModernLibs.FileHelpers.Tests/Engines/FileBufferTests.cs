@@ -154,7 +154,7 @@ public sealed class FileBufferTests
     public async Task AppendToFile_MatchesWriteString()
     {
         // Arrange: a file holding one record without a terminator
-        var engine = new FileHelperEngine<FbLine>();
+        var engine = new FileHelperEngine<FbLine> { NewLineForWrite = "\r\n" };
         var path = Path.GetTempFileName();
         try
         {

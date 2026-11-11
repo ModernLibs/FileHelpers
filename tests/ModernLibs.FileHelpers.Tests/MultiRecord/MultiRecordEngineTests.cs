@@ -52,7 +52,10 @@ public sealed class MultiRecordEngineTests
         // Arrange: create a multi-record engine and mixed record sequence.
         var engine = new MultiRecordEngine(
             MultiRecordType.For<MultiHeader>(line => line.StartsWith("H|", StringComparison.Ordinal)),
-            MultiRecordType.For<MultiDetail>(line => line.StartsWith("D|", StringComparison.Ordinal)));
+            MultiRecordType.For<MultiDetail>(line => line.StartsWith("D|", StringComparison.Ordinal)))
+        {
+            NewLineForWrite = "\r\n",
+        };
         object[] records =
         [
             new MultiHeader { Kind = "H", Batch = "B001" },

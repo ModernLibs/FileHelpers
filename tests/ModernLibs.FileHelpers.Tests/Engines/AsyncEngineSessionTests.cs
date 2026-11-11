@@ -29,7 +29,7 @@ public sealed class AsyncEngineSessionTests
     public async Task EndWriteString_IncludesFooter()
     {
         // Arrange: header and footer on a string write session
-        using var engine = new FileHelperAsyncEngine<RcRecord> { HeaderText = "HH", FooterText = "FF" };
+        using var engine = new FileHelperAsyncEngine<RcRecord> { NewLineForWrite = "\r\n", HeaderText = "HH", FooterText = "FF" };
         engine.BeginWriteString();
         engine.WriteNext(new RcRecord { Id = 1, Name = "x" });
 
@@ -120,7 +120,7 @@ public sealed class AsyncEngineSessionTests
     public async Task ReadAndWriteSessions_AreExclusive()
     {
         // Arrange: one engine with a write session, one with a read session
-        using var writing = new FileHelperAsyncEngine<RcRecord>();
+        using var writing = new FileHelperAsyncEngine<RcRecord> { NewLineForWrite = "\r\n" };
         writing.BeginWriteString();
         using var reading = new FileHelperAsyncEngine<RcRecord>();
         reading.BeginReadString("1,a");

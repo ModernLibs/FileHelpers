@@ -172,7 +172,7 @@ public sealed class FieldTrimInteractionTests
     public async Task WriteString_TrimIsReadSideOnly()
     {
         // Arrange: Record with whitespace in value
-        var engine = new FileHelperEngine<TrimWriteFixedRecord>();
+        var engine = new FileHelperEngine<TrimWriteFixedRecord> { NewLineForWrite = "\r\n" };
         var records = new[] { new TrimWriteFixedRecord { Name = "  hello  " } };
 
         // Act: Write

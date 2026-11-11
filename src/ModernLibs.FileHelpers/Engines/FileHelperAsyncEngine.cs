@@ -35,6 +35,7 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     private readonly IRecordDescriptor<T> _descriptor;
     private readonly RecordReadCore<T> _core;
     private readonly bool _implementsNotifyWrite;   // T implements INotifyWrite<T>
+    private string? _newLineForWrite;               // set through NewLineForWrite; null = never set (Environment.NewLine)
 
     // ---- Reader state -------------------------------------------------------
     private TextReader? _reader;
@@ -108,8 +109,25 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     /// </summary>
     public string? FooterText { get; set; }
 
-    /// <summary>Line terminator written after each record. Defaults to <c>"\r\n"</c>.</summary>
-    public string NewLineForWrite { get; set; } = "\r\n";
+    /// <summary>
+    /// Line terminator written after the header, each record and the footer, and inside records with
+    /// <see cref="FieldInNewLineAttribute"/> fields. Defaults to <see cref="Environment.NewLine"/> (<c>"\n"</c> on
+    /// Linux and macOS, <c>"\r\n"</c> on Windows), as in FileHelpers 3.x; 4.8 to 4.9.1 wrote <c>"\r\n"</c> on every
+    /// platform, so set <c>"\r\n"</c> to keep that output.
+    /// When set, it also joins the lines captured into <see cref="HeaderText"/>/<see cref="FooterText"/> on read;
+    /// when never set, reads join them with <c>"\r\n"</c> on every platform (unchanged from 4.9.1).
+    /// </summary>
+    public string NewLineForWrite
+    {
+        get => _newLineForWrite ?? Environment.NewLine;
+        set => _newLineForWrite = value;
+    }
+
+    /// <summary>
+    /// Separator that joins multi-line <see cref="HeaderText"/>/<see cref="FooterText"/> on read: the
+    /// <see cref="NewLineForWrite"/> the user set, else <c>"\r\n"</c> (4.9.1 read behaviour on every platform).
+    /// </summary>
+    private string ReadJoinNewLine => _newLineForWrite ?? "\r\n";
 
     /// <summary>
     /// Encoding used by <see cref="BeginReadFile"/>, <c>ReadAsync</c> and <see cref="BeginWriteFile"/>.
@@ -742,7 +760,7 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
         FooterText = null;
         LastRecord = default;
         _errorManager.ClearErrors();
-        return new RecordReadSession<T>(_core, this, this, _errorManager, NewLineForWrite, maxRecords: 0);
+        return new RecordReadSession<T>(_core, this, this, _errorManager, ReadJoinNewLine, maxRecords: 0);
     }
 
     /// <summary>Starts the session and consumes the <see cref="IgnoreFirstAttribute"/> header lines eagerly.</summary>

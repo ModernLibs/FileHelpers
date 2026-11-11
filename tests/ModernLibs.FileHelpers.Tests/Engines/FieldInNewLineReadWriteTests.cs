@@ -275,7 +275,7 @@ public sealed class FieldInNewLineReadWriteTests
     public async Task Delimited_Write_UsesNewLineAndRoundTrips()
     {
         // Arrange
-        var engine = new FileHelperEngine<InlDelimited>();
+        var engine = new FileHelperEngine<InlDelimited> { NewLineForWrite = "\r\n" };
         var rows = engine.ReadString(ThreeXDelimited);
 
         // Act
@@ -307,7 +307,7 @@ public sealed class FieldInNewLineReadWriteTests
     public async Task Delimited_AsyncEngine_WriteNext()
     {
         // Arrange
-        using var engine = new FileHelperAsyncEngine<InlDelimited>();
+        using var engine = new FileHelperAsyncEngine<InlDelimited> { NewLineForWrite = "\r\n" };
         engine.BeginWriteString();
 
         // Act
@@ -343,7 +343,7 @@ public sealed class FieldInNewLineReadWriteTests
     public async Task Fixed_Write_UsesNewLineAndRoundTrips()
     {
         // Arrange
-        var engine = new FileHelperEngine<InlFixed>();
+        var engine = new FileHelperEngine<InlFixed> { NewLineForWrite = "\r\n" };
         var row = new InlFixed { Field1 = 107, Field2 = 37052652, IpAddress = "166.090.252.002", FieldLast = 111 };
 
         // Act
@@ -408,7 +408,7 @@ public sealed class FieldInNewLineReadWriteTests
     public async Task FirstFieldInNewLine_Delimited_WriteRoundTrips()
     {
         // Arrange
-        var engine = new FileHelperEngine<InlFirstDelimited>();
+        var engine = new FileHelperEngine<InlFirstDelimited> { NewLineForWrite = "\r\n" };
         InlFirstDelimited[] rows = [new() { Id = 1, Name = "alpha" }, new() { Id = 2, Name = "beta" }];
 
         // Act
@@ -425,7 +425,7 @@ public sealed class FieldInNewLineReadWriteTests
     public async Task FirstFieldInNewLine_DelimitedQuoted_WriteRoundTrips()
     {
         // Arrange
-        var engine = new FileHelperEngine<InlFirstQuoted>();
+        var engine = new FileHelperEngine<InlFirstQuoted> { NewLineForWrite = "\r\n" };
         InlFirstQuoted[] rows = [new() { Id = 1, Name = "a,b" }, new() { Id = 2, Name = "c" }];
 
         // Act
@@ -442,7 +442,7 @@ public sealed class FieldInNewLineReadWriteTests
     public async Task FirstFieldInNewLine_Fixed_WriteRoundTrips()
     {
         // Arrange
-        var engine = new FileHelperEngine<InlFirstFixed>();
+        var engine = new FileHelperEngine<InlFirstFixed> { NewLineForWrite = "\r\n" };
         InlFirstFixed[] rows = [new() { Id = 1, Name = "alpha", Code = "AB" }, new() { Id = 22, Name = "bravo", Code = "CD" }];
 
         // Act
@@ -498,7 +498,7 @@ public sealed class FieldInNewLineReadWriteTests
     public async Task QuotedMultiline_BeforeNewLineField_RoundTrips()
     {
         // Arrange
-        var engine = new FileHelperEngine<InlQuotedMultiline>();
+        var engine = new FileHelperEngine<InlQuotedMultiline> { NewLineForWrite = "\r\n" };
         var rows = new[]
         {
             new InlQuotedMultiline { Id = 1, Notes = "x\r\ny", Tail = "c", Qty = 5 },
@@ -535,7 +535,7 @@ public sealed class FieldInNewLineReadWriteTests
     public async Task QuotedMultiline_OnNewLineField_RoundTrips()
     {
         // Arrange
-        var engine = new FileHelperEngine<InlQuotedMultilineOnNewLine>();
+        var engine = new FileHelperEngine<InlQuotedMultilineOnNewLine> { NewLineForWrite = "\r\n" };
         var row = new InlQuotedMultilineOnNewLine { Id = 1, Notes = "x\r\ny", Qty = 2 };
 
         // Act

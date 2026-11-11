@@ -73,6 +73,15 @@ file.
 
 ### Changed
 
+- **`NewLineForWrite` defaults to `Environment.NewLine`, as in FileHelpers 3.x.** This is a behaviour
+  change on Linux and macOS relative to 4.8-4.9.1: the engines now write `"\n"` there, where 4.8.0 to
+  4.9.1 wrote `"\r\n"` on every platform. Windows output is unchanged. Set `NewLineForWrite = "\r\n"` to
+  keep 4.9.1 output. It applies to `FileHelperEngine<T>`, `FileHelperAsyncEngine<T>`, `MultiRecordEngine`
+  and `MasterDetailEngine`, and to every write path: `WriteString`, `WriteStream`, `WriteStreamAsync`,
+  `WriteFile`, `AppendToFile`, `BeginWrite*`/`BeginAppendFile`, the header and footer, and the line break
+  inside `[FieldInNewLine]` records. Reading is unchanged: multi-line `HeaderText`/`FooterText` read joins
+  stay `"\r\n"` unless `NewLineForWrite` is set, unchanged from 4.9.1. See the
+  [migration guide](docs/MIGRATION.md#32-line-endings-and-empty-headerfooter).
 - **`ReadStream(null)` and `ReadStream(null, n)` on `FileHelperEngine<T>` and `IFileHelperEngine<T>` are
   now ambiguous** between the `TextReader` and the `Stream` overload and no longer compile. Cast the
   argument: `ReadStream((TextReader)null!)`.

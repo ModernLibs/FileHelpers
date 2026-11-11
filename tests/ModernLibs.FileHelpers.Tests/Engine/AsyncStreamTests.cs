@@ -337,11 +337,14 @@ public sealed class AsyncStreamTests
         }
     }
 
-    /// <summary>The text is a prefix of <paramref name="expected"/> that ends at a record boundary (or is empty).</summary>
+    /// <summary>
+    /// The text is a prefix of <paramref name="expected"/> that ends at a record boundary (or is empty); the callers
+    /// write with the default <c>NewLineForWrite</c>, <see cref="Environment.NewLine"/>.
+    /// </summary>
     private static async Task AssertWholeRecordPrefix(string written, string expected)
     {
         await Assert.That(expected.StartsWith(written, StringComparison.Ordinal)).IsTrue();
-        await Assert.That(written.Length == 0 || written.EndsWith("\r\n", StringComparison.Ordinal)).IsTrue();
+        await Assert.That(written.Length == 0 || written.EndsWith(Environment.NewLine, StringComparison.Ordinal)).IsTrue();
     }
 
     [Test]

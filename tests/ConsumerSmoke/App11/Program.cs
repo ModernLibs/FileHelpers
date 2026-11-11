@@ -2,8 +2,9 @@
 var orders = Lib10.Api.Read("1,\"a,b\",01112026\r\n2,c,02112026\r\n");
 if (orders.Length != 2 || orders[0].Name != "a,b") return 1;
 string text = Lib10.Api.Write(orders);
-// [FieldQuoted] always quotes on write, so "c" comes back as "\"c\"".
-if (text != "1,\"a,b\",01112026\r\n2,\"c\",02112026\r\n")
+// [FieldQuoted] always quotes on write, so "c" comes back as "\"c\"". The default NewLineForWrite is Environment.NewLine.
+string nl = Environment.NewLine;
+if (text != "1,\"a,b\",01112026" + nl + "2,\"c\",02112026" + nl)
 {
     Console.Error.WriteLine("unexpected text: " + text.Replace("\r", "\\r").Replace("\n", "\\n"));
     return 2;

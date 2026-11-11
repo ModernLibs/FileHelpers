@@ -42,6 +42,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     private readonly IRecordDescriptor<T> _descriptor;
     private readonly RecordReadCore<T> _core;
     private readonly bool _implementsNotifyWrite;   // T implements INotifyWrite<T>
+    private string? _newLineForWrite;               // set through NewLineForWrite; null = never set (Environment.NewLine)
 
     /// <summary>
     /// Creates an engine instance backed by the source-generated descriptor for <typeparamref name="T"/>.
@@ -90,8 +91,8 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
 
     /// <summary>
     /// Header captured from the leading <see cref="IgnoreFirstAttribute"/> lines (original text, joined with
-    /// <see cref="NewLineForWrite"/>) during the most recent read. <see langword="null"/> when
-    /// <see cref="IgnoreFirstAttribute"/> is not set or the input had no lines.
+    /// <see cref="NewLineForWrite"/> when it was set, else <c>"\r\n"</c>) during the most recent read.
+    /// <see langword="null"/> when <see cref="IgnoreFirstAttribute"/> is not set or the input had no lines.
     /// Setting this property emits it before the records in <see cref="WriteString"/>, <see cref="WriteStream"/> and
     /// <see cref="WriteFile"/> (when non-empty; <see cref="NewLineForWrite"/> is added unless it already ends with it);
     /// ignored by <c>AppendToFile</c>.
@@ -108,9 +109,9 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
 
     /// <summary>
     /// Footer captured from the trailing <see cref="IgnoreLastAttribute"/> lines (original text, joined with
-    /// <see cref="NewLineForWrite"/>) during the most recent read. <see langword="null"/> when
-    /// <see cref="IgnoreLastAttribute"/> is not set, the input had no footer lines, or a streaming read
-    /// stopped before the end of the input.
+    /// <see cref="NewLineForWrite"/> when it was set, else <c>"\r\n"</c>) during the most recent read.
+    /// <see langword="null"/> when <see cref="IgnoreLastAttribute"/> is not set, the input had no footer lines, or a
+    /// streaming read stopped before the end of the input.
     /// Setting this property emits it after the records in <see cref="WriteString"/>, <see cref="WriteStream"/> and
     /// <see cref="WriteFile"/> (when non-empty; <see cref="NewLineForWrite"/> is added unless it already ends with it);
     /// ignored by <c>AppendToFile</c>.
@@ -118,11 +119,30 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     public string? FooterText { get; set; }
 
     /// <summary>
-    /// Line terminator used when writing and when joining captured header/footer lines
-    /// into <see cref="HeaderText"/>/<see cref="FooterText"/>. Defaults to <c>"\r\n"</c> for
-    /// FileHelpers 3.x parity.
+    /// Line terminator written after the header, each record and the footer, and inside records with
+    /// <see cref="FieldInNewLineAttribute"/> fields. Defaults to <see cref="Environment.NewLine"/> (<c>"\n"</c> on
+    /// Linux and macOS, <c>"\r\n"</c> on Windows), as in FileHelpers 3.x; 4.8 to 4.9.1 wrote <c>"\r\n"</c> on every
+    /// platform, so set <c>"\r\n"</c> to keep that output.
+    /// When set, it also joins the lines captured into <see cref="HeaderText"/>/<see cref="FooterText"/> on read;
+    /// when never set, reads join them with <c>"\r\n"</c> on every platform (unchanged from 4.9.1).
     /// </summary>
-    public string NewLineForWrite { get; set; } = "\r\n";
+    public string NewLineForWrite
+    {
+        get => _newLineForWrite ?? Environment.NewLine;
+        set => _newLineForWrite = value;
+    }
+
+    /// <summary>
+    /// Separator that joins multi-line <see cref="HeaderText"/>/<see cref="FooterText"/> on read: the
+    /// <see cref="NewLineForWrite"/> the user set, else <c>"\r\n"</c> (4.9.1 read behaviour on every platform).
+    /// </summary>
+    internal string ReadJoinNewLine => _newLineForWrite ?? "\r\n";
+
+    /// <summary>
+    /// Copies an owning engine's <see cref="NewLineForWrite"/> state (<see langword="null"/> when the owner never
+    /// set it), so an unset owner leaves this engine unset too.
+    /// </summary>
+    internal void CopyNewLineForWrite(string? explicitNewLine) => _newLineForWrite = explicitNewLine;
 
     /// <summary>
     /// Encoding used by <see cref="ReadFile(string)"/>, <see cref="WriteFile"/>, and
@@ -863,7 +883,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
         HeaderText = null;
         FooterText = null;
         ErrorManager.ClearErrors();
-        return new RecordReadSession<T>(_core, this, this, ErrorManager, NewLineForWrite, maxRecords)
+        return new RecordReadSession<T>(_core, this, this, ErrorManager, ReadJoinNewLine, maxRecords)
         {
             AllowRecycle = allowRecycle && RecycleRecords,
             KeepFooterAfterStop = keepFooterAfterStop,

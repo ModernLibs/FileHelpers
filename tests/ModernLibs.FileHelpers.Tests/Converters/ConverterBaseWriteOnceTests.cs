@@ -73,7 +73,7 @@ public sealed class ConverterBaseWriteOnceTests
     public async Task FieldToString_RunsOncePerField()
     {
         // Arrange: texts from empty to 100K characters
-        var engine = new FileHelperEngine<CbwoRecord>();
+        var engine = new FileHelperEngine<CbwoRecord> { NewLineForWrite = "\r\n" };
         int[] lengths = [0, 1, 63, 64, 65, 200, 1_000, 5_000, 100_000];
         var records = lengths.Select((length, i) => new CbwoRecord { Id = i, Length = length }).ToArray();
         CbwoLongConverter.Calls = 0;
@@ -93,7 +93,7 @@ public sealed class ConverterBaseWriteOnceTests
     public async Task TwoFields_SameValue_CallOncePerField()
     {
         // Arrange
-        var engine = new FileHelperEngine<CbwoTwoFields>();
+        var engine = new FileHelperEngine<CbwoTwoFields> { NewLineForWrite = "\r\n" };
         var records = new[] { new CbwoTwoFields { First = 300, Second = 300 }, new CbwoTwoFields { First = 5, Second = 300 } };
         CbwoLongConverter.Calls = 0;
 

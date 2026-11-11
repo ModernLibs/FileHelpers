@@ -118,7 +118,8 @@ internal static class Compat49Matrix
     /// </summary>
     private static string RoundTrip<T>(string input)
     {
-        var engine = new FileHelperEngine<T> { ErrorMode = ErrorMode.SaveAndContinue };
+        // Golden49 pins the 4.9.1 bytes, written with "\r\n" on every OS (T49: the default is now Environment.NewLine).
+        var engine = new FileHelperEngine<T> { ErrorMode = ErrorMode.SaveAndContinue, NewLineForWrite = "\r\n" };
         var text = new StringBuilder();
         Run(text, string.Empty, () =>
         {
@@ -129,7 +130,7 @@ internal static class Compat49Matrix
 
         foreach (var (label, create) in Compat49WriteCases.For<T>(ShapeName(typeof(T))))
         {
-            var writer = new FileHelperEngine<T>();
+            var writer = new FileHelperEngine<T> { NewLineForWrite = "\r\n" };
             Run(text, "written-extra:" + label + ":", () => Line(text, "written-extra:" + label + ":", Escape(writer.WriteString([create()]))));
         }
 

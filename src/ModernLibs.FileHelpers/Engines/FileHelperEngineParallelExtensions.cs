@@ -102,7 +102,7 @@ public static class FileHelperEngineParallelExtensions
         if (!chunkable || content.Length < chunkSize * 2)
             return engine.ReadString(content);
 
-        var layout = SplitIntoChunks(content, core.Options, engine.NewLineForWrite, chunkSize);
+        var layout = SplitIntoChunks(content, core.Options, engine.ReadJoinNewLine, chunkSize);
         int totalChunks = layout.Chunks.Count;
         var results = new ChunkResult<T>[totalChunks];
         var progressGate = new Lock();
@@ -169,7 +169,7 @@ public static class FileHelperEngineParallelExtensions
     {
         var errors = new ErrorManager { ErrorMode = errorMode };
         var records = new List<T>();
-        using var session = new RecordReadSession<T>(core, engine, host: null, errors, engine.NewLineForWrite, maxRecords: 0, applyHeaderFooter: false, lineOffset);
+        using var session = new RecordReadSession<T>(core, engine, host: null, errors, engine.ReadJoinNewLine, maxRecords: 0, applyHeaderFooter: false, lineOffset);
         try
         {
             var lines = new SpanLines(chunk);

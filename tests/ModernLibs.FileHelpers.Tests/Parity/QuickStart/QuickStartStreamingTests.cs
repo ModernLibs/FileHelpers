@@ -265,7 +265,7 @@ public sealed class QuickStartStreamingTests
 
             // Assert
             var content = await File.ReadAllTextAsync(tempFile);
-            var lines = content.Split(["\r\n"], StringSplitOptions.RemoveEmptyEntries);
+            var lines = content.Split([Environment.NewLine], StringSplitOptions.RemoveEmptyEntries);
             await Assert.That(lines.Length).IsEqualTo(2);
             await Assert.That(lines[0]).IsEqualTo("John Doe,30,USA");
         }
@@ -319,7 +319,7 @@ public sealed class QuickStartStreamingTests
         var output = engine.EndWriteString();
 
         // Assert
-        var lines = output.Split(["\r\n"], StringSplitOptions.RemoveEmptyEntries);
+        var lines = output.Split([Environment.NewLine], StringSplitOptions.RemoveEmptyEntries);
         await Assert.That(lines.Length).IsEqualTo(2);
     }
 

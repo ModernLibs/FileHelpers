@@ -37,7 +37,7 @@ public sealed class QuotedFieldParityTests
             {
                 public static string Run()
                 {
-                    var engine = new FileHelperEngine<R>();
+                    var engine = new FileHelperEngine<R> { NewLineForWrite = "\r\n" };
                     var rows = engine.ReadString("1,\"a\nb\"\n2,\"c\"");
                     string written = engine.WriteString(rows);
                     return rows.Length + "|" + rows[0].Notes.Replace("\n", "\\n") + "|" + rows[1].Notes + "|" + written.Replace("\n", "\\n").Replace("\r", "\\r");
@@ -176,10 +176,10 @@ public sealed class QuotedFieldParityTests
             {
                 private static string L(string s) => s.Replace("\r\n", "/").Replace("\n", "\\n");
                 public static string Run() =>
-                    L(new FileHelperEngine<A>().WriteString(new[] { new A { V = "x" } }))
-                    + " " + L(new FileHelperEngine<O>().WriteString(new[] { new O { V = "x" } }))
-                    + " " + L(new FileHelperEngine<W>().WriteString(new[] { new W { V = "x" }, new W { V = "a,b" } }))
-                    + " " + L(new FileHelperEngine<B>().WriteString(new[] { new B { V = "say \"hi\"" }, new B { V = "a\nb" } }));
+                    L(new FileHelperEngine<A> { NewLineForWrite = "\r\n" }.WriteString(new[] { new A { V = "x" } }))
+                    + " " + L(new FileHelperEngine<O> { NewLineForWrite = "\r\n" }.WriteString(new[] { new O { V = "x" } }))
+                    + " " + L(new FileHelperEngine<W> { NewLineForWrite = "\r\n" }.WriteString(new[] { new W { V = "x" }, new W { V = "a,b" } }))
+                    + " " + L(new FileHelperEngine<B> { NewLineForWrite = "\r\n" }.WriteString(new[] { new B { V = "say \"hi\"" }, new B { V = "a\nb" } }));
             }
             """;
 

@@ -188,4 +188,49 @@ jobs:
       - name: Consumer smoke test
         run: tests/ConsumerSmoke/run.sh "$RUNNER_TEMP/fh-smoke" 4.10.0-smoke
 
+  # Native AOT: publish the smoke app for each target (ILC warnings are trim/AOT incompatibilities in the
+  # library or the generated descriptors) and run the native binary.
+  aot-smoke:
+    name: aot-smoke (${{ matrix.tfm }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tfm: [net10.0, net11.0]
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # global.json pins SDK 11 (latestPatch roll-forward); 10.0.x provides the net10.0 runtime.
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+          dotnet-version: 10.0.x
+
+      # ILC needs clang and zlib headers; ubuntu-latest has them, install only if clang is missing.
+      - name: Native toolchain
+        run: |
+          command -v clang >/dev/null || { sudo apt-get update && sudo apt-get install -y clang zlib1g-dev; }
+
+      # The log stays in the job output. Any "warning IL" (trim, AOT or single-file analysis) fails the job.
+      - name: Publish (Native AOT)
+        run: |
+          set -euo pipefail
+          dotnet publish tests/ModernLibs.FileHelpers.Aot.Tests -c Release -f "${{ matrix.tfm }}" -r linux-x64 -o "out/${{ matrix.tfm }}" 2>&1 | tee publish.log
+          if grep -q "warning IL" publish.log; then
+            echo "::error::Native AOT publish reported IL warnings (${{ matrix.tfm }})."
+            exit 1
+          fi
+
+      - name: Run native binary
+        run: |
+          set -euo pipefail
+          "./out/${{ matrix.tfm }}/ModernLibs.FileHelpers.Aot.Tests" | tee aot-run.log
+          grep -Eq 'AOT smoke: [1-9][0-9]* checks passed' aot-run.log
+
   # Stryker.NET runs in mutation.yml (manual and weekly), not on every push.

@@ -116,19 +116,19 @@ One table per scenario group and VM. Rows key on the benchmark method and its pa
 
 ### Async
 
-`EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null` (T43) uses an API that 4.9.1 does not have: the 4.9.1 builds
-leave it out (`FILEHELPERS_BASELINE`), so its `4.9.1 pkg` cell stays empty and it runs only in the pairs `ra` and
-`runtime-410`.
+Four methods of `EngineAsyncBenchmarks` use APIs that 4.9.1 does not have (T43, T46): `Engine_WriteStreamAsync_Null`,
+`Engine_ReadAsync_Stream`, `Engine_ReadAsync_TextReader` and `Engine_WriteStreamAsync_Null_SourceThrows`. The 4.9.1
+builds leave them out (`FILEHELPERS_BASELINE`), so their `4.9.1 pkg` cell stays empty and they run only in the pairs
+`ra` and `runtime-410`. `Engine_WriteStreamAsync_Null_SourceThrows` is also in the exception-path table.
 
 | Scenario | 4.9.1 pkg | net10 | net11-ra-on | net11-ra-off | on/off | verdict |
 |---|---|---|---|---|---|---|
 
-PLACEHOLDER, filled by T46/T47 integration: `Engine_ReadAsync_Stream`, `Engine_ReadAsync_TextReader` and a
-`WriteStreamAsync` fault-path method (T46).
-
 ### Exception path
 
-A conversion error in every 100th row with `ErrorMode.SaveAndContinue` (`Engine_ReadAsync_Path_ExceptionEvery100`).
+A conversion error in every 100th row with `ErrorMode.SaveAndContinue` (`Engine_ReadAsync_Path_ExceptionEvery100`),
+and `WriteStreamAsync` from a source that throws after 3 records, `Rows / 100` calls per invocation
+(`Engine_WriteStreamAsync_Null_SourceThrows`, 4.10 builds only).
 
 | Scenario | 4.9.1 pkg | net10 | net11-ra-on | net11-ra-off | on/off | verdict |
 |---|---|---|---|---|---|---|

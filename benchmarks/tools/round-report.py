@@ -179,11 +179,14 @@ class Vm:
     def b4(self):
         return all(r.b4 for r in self.results)
 
-    def group_of(self, glob):
+    def groups_of(self, glob):
+        """The report groups of a glob: a filter line may name several, comma-separated ("async,exception").
+        {None} for a glob that no filter line names (or without a filter file)."""
+        groups = set()
         for group, _, g in self.filters:
             if g == glob:
-                return group
-        return None
+                groups.update(group.split(","))
+        return groups or {None}
 
     def samples(self, build, case):
         """Every per-launch median of one case on one build, over all runs on this VM."""
@@ -308,7 +311,7 @@ def _sort_key(case):
 
 def scenario_groups(vm):
     """[(title, [case]), ...] for the scenario tables; one table "Scenarios" without a filter file."""
-    method_results = [r for r in vm.results if vm.group_of(r.filter) in METHOD_GROUPS]
+    method_results = [r for r in vm.results if vm.groups_of(r.filter) & set(METHOD_GROUPS)]
     method_cases = set(_cases_in_order(vm, method_results))
     method_cases.update(c for c in _cases_in_order(vm, vm.results) if parse_case(c)[0] in METHOD_CLASSES)
     if not vm.filters:
@@ -316,10 +319,10 @@ def scenario_groups(vm):
         return [("Scenarios", sorted(cases, key=_sort_key), [])]
     groups = []
     known = [g for g, _ in SCENARIO_GROUPS]
-    extra = [g for g, _, _ in vm.filters if g not in known and g not in METHOD_GROUPS]
+    extra = [g for grp, _, _ in vm.filters for g in grp.split(",") if g not in known and g not in METHOD_GROUPS]
     titles = dict(SCENARIO_GROUPS)
     for group in known + sorted(set(extra), key=extra.index):
-        globs = [g for grp, _, g in vm.filters if grp == group]
+        globs = [g for grp, _, g in vm.filters if group in grp.split(",")]
         if not globs:
             continue
         results = [r for r in vm.results if r.filter in globs]
@@ -345,7 +348,7 @@ def scenario_table(vm, cases, missing):
 
 def pair_table(vm, a, b, a_label, b_label, ratio_label, groups=None):
     """Rows of every case that ran in the pair a -> b, with ab.py's ratio and verdict."""
-    results = [r for r in vm.pair(a, b) if groups is None or vm.group_of(r.filter) in groups]
+    results = [r for r in vm.pair(a, b) if groups is None or vm.groups_of(r.filter) & set(groups)]
     if not results:
         return None
     rows = []
@@ -521,7 +524,7 @@ def runtime_async(vm):
         if not results:
             continue
         rows = [(row, r) for r in results for row in r.rows]
-        controls = [abs(row["median_ratio"] - 1.0) for row, r in rows if vm.group_of(r.filter) == "control"]
+        controls = [abs(row["median_ratio"] - 1.0) for row, r in rows if "control" in vm.groups_of(r.filter)]
         noise = max(controls) if controls else None
         counts = {}
         for row, _ in rows:
@@ -549,7 +552,7 @@ def slope(vm):
     rows = []
     families = []
     for result in vm.results:
-        if vm.group_of(result.filter) in METHOD_GROUPS:
+        if vm.groups_of(result.filter) & set(METHOD_GROUPS):
             continue
         for row in result.rows:
             cls, method, params = parse_case(row["name"])

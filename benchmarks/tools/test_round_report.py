@@ -196,6 +196,19 @@ class GateAndGapTests(unittest.TestCase):
         markdown = round_report.build(self.round)
         self.assertRegex(markdown, r"EngineAsyncBenchmarks\.Engine_WriteStreamAsync_Null[^\n]*not run")
 
+    def test_a_line_with_two_groups_fills_both_tables(self):
+        glob = "*EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null_SourceThrows"
+        name = NS + "EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null_SourceThrows(Rows: 100000)"
+        write(os.path.join(self.vm, "ra", "060-async+exception-x.json"),
+              doc("/w/bin/net11-ra-off", "/w/bin/net11-ra-on", glob, [bench(name, scaled(1_000), scaled(1_010))]))
+        with open(os.path.join(self.vm, "filters.txt"), "w", encoding="utf-8") as f:
+            f.write("async,exception ra,runtime-410 %s\n" % glob)
+        markdown = round_report.build(self.round)
+        label = "EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null_SourceThrows (Rows 100K)"
+        for title in ("### Async", "### Exception path"):
+            section = markdown.split(title + "\n", 1)[1].split("\n### ", 1)[0]
+            self.assertIn(label, section, title)
+
 
 if __name__ == "__main__":
     unittest.main()

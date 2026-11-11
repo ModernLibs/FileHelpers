@@ -3,7 +3,8 @@
 #   <group> <pairs> <glob>
 #
 # <group>  the report table the results go into (round-report.py): read25, quoted, read-other, fixed, write, async,
-#          exception, control, component, prototype
+#          exception, control, component, prototype; several comma-separated (async,exception) put the results in
+#          each of those tables from one ab.py run
 # <pairs>  the A/B pairs of round.sh that run the glob, comma-separated ("all" means every pair):
 #          free-gains   pkg-net10 -> pkg-net11                     4.9.1 on .NET 10 against .NET 11
 #          sdk-net10    pkg-net10 -> control-net10                 compiler and SDK effect, .NET 10
@@ -53,11 +54,13 @@ async      free-gains,sdk-net10,sdk-net11,ra,v410-net10,ra-control *EngineAsyncB
 async      ra,ra-control,v410-net10                             *EngineAsyncBenchmarks.Engine_ReadFileAsync_Callback
 async      ra,ra-control,v410-net10                             *AsyncStreamingBenchmarks.ReadAsync_MultiRecord
 async      ra,ra-control,v410-net10                             *OptimizedParseBenchmarks.ReadFileAsync_Callback_ProcessAndDiscard
-# WriteStreamAsync is new in 4.10 (T43): the 4.9.1 builds have no such method, so it runs only between 4.10 builds
-# (runtime-410 gives its net10 column).
+# 4.10-only API (T43, T46): WriteStreamAsync, ReadAsync(Stream), ReadAsync(TextReader). The 4.9.1 builds leave these
+# methods out (FILEHELPERS_BASELINE), so they run only between 4.10 builds (runtime-410 gives their net10 column).
+# The fault-path write is in two report groups: async and exception.
 async      ra,runtime-410                                       *EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null
-# PLACEHOLDER, filled by T46/T47 integration: Engine_ReadAsync_Stream, Engine_ReadAsync_TextReader and a
-# WriteStreamAsync fault-path method (T46) go here; the lead sends the exact lines after T46 lands.
+async      ra,runtime-410                                       *EngineAsyncBenchmarks.Engine_ReadAsync_Stream
+async      ra,runtime-410                                       *EngineAsyncBenchmarks.Engine_ReadAsync_TextReader
+async,exception ra,runtime-410                                  *EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null_SourceThrows
 
 # Exception path: a conversion error in every 100th row, ErrorMode.SaveAndContinue
 exception  ra,ra-control,v410-net10                             *EngineAsyncBenchmarks.Engine_ReadAsync_Path_ExceptionEvery100

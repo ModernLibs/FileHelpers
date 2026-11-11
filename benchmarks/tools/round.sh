@@ -274,7 +274,7 @@ for pentry in "${pairs[@]}"; do
         read -r lineno group pair_list glob <<< "$fl"
         [[ "$pair_list" == "all" || ",$pair_list," == *",$pair,"* ]] || continue
         slug="$(printf '%s' "$glob" | sed 's/[^A-Za-z0-9_.-]/_/g; s/^_*//; s/_*$//')"
-        out="$raw/$pair/$(printf '%03d' "$lineno")-$group-$slug.json"
+        out="$raw/$pair/$(printf '%03d' "$lineno")-${group//,/+}-$slug.json"
         step="$pair: $glob"
         missing=""
         lists_any "$a" "$glob" || missing="$a"

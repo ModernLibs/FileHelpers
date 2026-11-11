@@ -235,4 +235,19 @@ jobs:
           "./out/${{ matrix.tfm }}/ModernLibs.FileHelpers.Aot.Tests" | tee aot-run.log
           grep -Eq 'AOT smoke: 9 checks passed' aot-run.log
 
+      # The Native AOT timing harness of the Step 0 round (T47, BENCHMARKS.md): publishes the 4.9.1 package build
+      # and this build for the leg's runtime (the script stops on any ILxxxx diagnostic and checks the compiled-in
+      # library), then one short interleaved run. ab.py first compares the data checksum of both builds and refuses
+      # to time when it differs. Numbers from a CI runner mean nothing (D1): --smoke, 1,000 rows, 3 iterations.
+      # --allow-dirty because the steps above write out/ and logs into the checkout.
+      - name: AOT timing harness (publish and short run)
+        run: |
+          set -euo pipefail
+          if [[ "${{ matrix.tfm }}" == net10.0 ]]; then pair=(pkg-net10 net10); else pair=(pkg-net11 net11-ra-on); fi
+          bench="$RUNNER_TEMP/aot-bench"
+          benchmarks/tools/build-aot-variants.sh "$bench" "${pair[@]}"
+          python3 -I benchmarks/tools/ab.py --aot --a "$bench/${pair[0]}" --b "$bench/${pair[1]}" \
+            --expect-a 'tfm=net10.0 runtime-async=off' --smoke --allow-dirty --launches 5 \
+            --out "$RUNNER_TEMP/aot-bench.json" -- --rows 1000 --warmup 1 --iterations 3
+
   # Stryker.NET runs in mutation.yml (manual and weekly), not on every push.

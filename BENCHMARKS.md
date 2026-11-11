@@ -355,6 +355,106 @@ without `--smoke` records `"b4": true`. Run the tests of `ab.py` with
 "does it run", "is the data right" and "is the direction plausible". Its numbers are not evidence and
 go into no report, gate or changelog; results come from Azure rounds only.
 
+## Native AOT timing harness
+
+BenchmarkDotNet runs the benchmarks in its own process with the JIT (see "Running"), so it cannot measure a
+Native AOT build. `benchmarks/ModernLibs.FileHelpers.Benchmarks.Aot` is a small console program, published with
+`PublishAot=true`, that times one scenario under Native AOT (design 3.1, row C2): the 25-column parse-and-discard
+read. It has no BenchmarkDotNet and uses no reflection.
+
+**What it measures.** The work of `DelimitedParseBenchmarks.FileHelpers_ParseAndDiscard`: the same record type
+(`Benchmarks/PackageAsset.cs`, compiled into both programs), the same dataset generator (`Data/DatasetGenerator.cs`,
+also shared, so the file for a row count is byte-identical) and the same call: one `FileHelperEngine<PackageAsset>`
+per process, and per iteration `ReadFile(path, r => checksum += r.Id)`. One process:
+
+1. prints its start-up lines (variant, library, build, runtime);
+2. generates the PackageAssets file of `--rows` rows (default 100,000) in `Data/` next to the executable, unless it
+   is there already;
+3. data check, not timed: a checksum of every field of every row (64-bit FNV-1a over the parsed values and the
+   strings), once computed from the text with the BCL parsers and once from the records the library reads. They
+   must agree, and with `--expect-checksum` they must also equal the checksum the other build of the pair read.
+   Otherwise the process prints `// REFUSED, nothing timed: ...` and exits 3;
+4. `--warmup` untimed reads (default 5), then `--iterations` timed reads (default 20). Before each timed read it
+   runs a full garbage collection (BenchmarkDotNet does the same between iterations by default); each read is timed
+   with `Stopwatch.GetTimestamp` and must return the Id sum of the file;
+5. prints one JSON line: scenario, variant, library, build (`native-aot=yes`, app target framework, runtime
+   identifier), runtime, rows, warm-up and iteration counts, the data checksum and every iteration time in ns.
+
+```text
+// ModernLibs.FileHelpers variant: tfm=net10.0 runtime-async=off
+// ModernLibs.FileHelpers library: package 4.9.1
+// Build: native-aot=yes app-tfm=net10.0 rid=linux-x64
+// Runtime: .NET 10.0.15
+{"harness":"aot","scenario":"PackageAssets_ParseAndDiscard","variant":"tfm=net10.0 runtime-async=off",...,"rows":100000,"warmup":5,"iterations":20,"checksum":"0x...","times_ns":[...]}
+```
+
+Exit codes: 0 done, 2 unusable arguments, 3 refused (nothing was timed). `--checksum-only` stops after the data
+check and prints the JSON line without times; `--info` prints the start-up lines only.
+
+**Build.** `benchmarks/tools/build-aot-variants.sh <out-dir> [<variant>...]` publishes the harness with `dotnet
+publish -c Release -r <rid>` (the runtime identifier of the machine: `linux-x64` or `linux-arm64`), one
+publish at a time, each into a clean folder with its own intermediate folder:
+
+| Folder | Library compiled in | Harness |
+|---|---|---|
+| `net10` | this repository, `net10.0` | `net10.0` on .NET 10 |
+| `net11-ra-on` | this repository, `net11.0`, runtime async on | `net11.0` on .NET 11 |
+| `net11-ra-off` | this repository, `net11.0`, `-p:FileHelpersRuntimeAsync=false` | `net11.0` on .NET 11 |
+| `pkg-net10` | the 4.9.1 package (`-p:FileHelpersPackageVersion=4.9.1`), its `lib/net10.0` | `net10.0` on .NET 10 |
+| `pkg-net11` | the same package DLL | `net11.0` on .NET 11 |
+
+The package build also takes the generator from the package, as a consumer gets it (`--package-version` picks
+another version). After each publish the script stops unless the log has no `ILxxxx` diagnostic, the folder holds
+the native executable and no `ModernLibs.FileHelpers.dll`, `verify-variant` run on the `ModernLibs.FileHelpers.dll`
+the AOT compiler read (the `-r:` line of its `.ilc.rsp` file) prints the configuration of the folder's name, a
+package folder's library is the package's own DLL (SHA-256 against the NuGet cache), and the executable started with
+`--info` prints the same variant, `native-aot=yes` and the .NET major version of its target framework. Each folder
+gets a `variant.txt` (the checked line, commit, SDK, library, its SHA-256, runtime identifier). The AOT compiler
+needs a native toolchain on the machine: CI installs `clang` and `zlib1g-dev` when `clang` is missing (job
+`aot-smoke`); without `clang` the SDK falls back to `gcc`, which is how it publishes under WSL here.
+
+**Run.** `ab.py --aot` runs the folders interleaved, with the B4 rule, the 7-launch minimum, `--smoke` and
+`--allow-dirty` exactly as for BenchmarkDotNet folders. Arguments after `--` go to the harness (`--rows`,
+`--warmup`, `--iterations`; `--expect-checksum`, `--checksum-only`, `--info` and `--data-dir` are refused, ab.py
+sets or forbids them). Before the first timed launch, `ab.py` runs each side once with `--checksum-only` and stops
+unless both report the same data checksum; every timed launch then gets `--expect-checksum` with that value. One
+sample is the median of the iteration times of one launch. The start-up lines of every process must show the
+folder's variant and `native-aot=yes`, and the SHA-256 of each executable must not change during the run. The
+result file has `"harness": "aot"`, `"aot_checksum"` and `"program_args"`; the case is named
+`ModernLibs.FileHelpers.Benchmarks.Aot.PackageAssets_ParseAndDiscard(Rows: 100000)`.
+
+```bash
+benchmarks/tools/build-aot-variants.sh ~/fh-aot
+python3 -I benchmarks/tools/ab.py --aot --a ~/fh-aot/pkg-net10 --b ~/fh-aot/net10 \
+  --expect-a 'tfm=net10.0 runtime-async=off' --launches 7 --out aot-net10.json -- --rows 100000
+```
+
+**What it cannot do.**
+
+- Its numbers compare AOT builds with each other (4.9.1 against 4.10, runtime async on against off). They are not a
+  ratio against a BenchmarkDotNet number: the timing loops differ (BenchmarkDotNet has a pilot stage, chooses its
+  iteration counts, removes outliers and subtracts its overhead; this harness has fixed counts and none of that).
+- No memory diagnoser: no Gen0/Gen1/Gen2 or allocation columns.
+- One scenario. Another one needs code in the harness and an entry in `AOT_SCENARIOS` of `ab.py`.
+- The published program has the feature switches `PublishAot` sets for every AOT application (for example
+  `EventSource` support off); that is the AOT configuration a consumer gets. Globalization is not invariant, as in
+  the BenchmarkDotNet process, so ICU must be installed.
+- The 4.9.1 package ships `lib/net10.0` only, so both package folders compile the same `net10.0` library, and
+  runtime async does not apply to it. The read is synchronous, so `net11-ra-off` against `net11-ra-on` is expected
+  to show no difference (an A/A check under AOT).
+- Local numbers are smoke checks (D1), as for every other run.
+
+The Step 0 round runs four AOT pairs on every VM, each with 7 launches of 100,000 rows (`<bin>` is the round's build
+folder, `<raw>` its result folder):
+
+```bash
+benchmarks/tools/build-aot-variants.sh <bin>/aot
+python3 -I benchmarks/tools/ab.py --aot --a <bin>/aot/pkg-net10 --b <bin>/aot/net10 --expect-a 'tfm=net10.0 runtime-async=off' --launches 7 --out <raw>/aot/v410-net10.json -- --rows 100000 --warmup 5 --iterations 20
+python3 -I benchmarks/tools/ab.py --aot --a <bin>/aot/pkg-net11 --b <bin>/aot/net11-ra-on --expect-a 'tfm=net10.0 runtime-async=off' --launches 7 --out <raw>/aot/v410-net11.json -- --rows 100000 --warmup 5 --iterations 20
+python3 -I benchmarks/tools/ab.py --aot --a <bin>/aot/pkg-net11 --b <bin>/aot/net11-ra-off --expect-a 'tfm=net10.0 runtime-async=off' --launches 7 --out <raw>/aot/v410-net11-ra-off.json -- --rows 100000 --warmup 5 --iterations 20
+python3 -I benchmarks/tools/ab.py --aot --a <bin>/aot/net11-ra-off --b <bin>/aot/net11-ra-on --launches 7 --out <raw>/aot/ra.json -- --rows 100000 --warmup 5 --iterations 20
+```
+
 ## Datasets
 
 The datasets are generated on the first run and reused afterwards. Each one is a pure function of its

@@ -1,0 +1,67 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Native AOT timing harness for the Step 0 round (T47, design 3.1 row C2): times the 25-column parse-and-discard
+    read of DelimitedParseBenchmarks.FileHelpers_ParseAndDiscard in a natively compiled process. BenchmarkDotNet
+    runs in-process with the JIT (BENCHMARKS.md), so it cannot measure Native AOT; this program has no
+    BenchmarkDotNet, no reflection, and compiles the record type and the data generator of the benchmark project
+    (linked below), so both describe the same work. Build and run: benchmarks/tools/build-aot-variants.sh, then
+    benchmarks/tools/ab.py in its AOT mode (BENCHMARKS.md, "Native AOT timing harness").
+  -->
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
+    <OutputType>Exe</OutputType>
+    <PublishAot>true</PublishAot>
+    <IsPackable>false</IsPackable>
+    <!-- InvariantGlobalization stays off: the BenchmarkDotNet process it is compared with loads ICU too. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../ModernLibs.FileHelpers.Benchmarks/Benchmarks/PackageAsset.cs" Link="Shared/PackageAsset.cs" />
+    <Compile Include="../ModernLibs.FileHelpers.Benchmarks/Data/DatasetGenerator.cs" Link="Shared/DatasetGenerator.cs" />
+  </ItemGroup>
+
+  <!--
+    Which ModernLibs.FileHelpers is compiled in. By default this repository's library and generator;
+    -p:FileHelpersPackageVersion=4.9.1 uses the published package instead (its lib/ and the generator it bundles),
+    the same switch the T12 round uses for the benchmark project. -p:FileHelpersRuntimeAsync=false builds the
+    net11.0 library without runtime async, as for build-variants.sh.
+  -->
+  <ItemGroup Condition="'$(FileHelpersPackageVersion)' == ''">
+    <ProjectReference Include="../../src/ModernLibs.FileHelpers/ModernLibs.FileHelpers.csproj" />
+    <!-- The generator attaches as an analyzer (as in the NuGet package); AOT needs the generated descriptors. -->
+    <ProjectReference Include="../../src/ModernLibs.FileHelpers.Generator/ModernLibs.FileHelpers.Generator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(FileHelpersPackageVersion)' != ''">
+    <!-- The package brings its own generator (analyzers/dotnet/cs). -->
+    <PackageReference Include="ModernLibs.FileHelpers" VersionOverride="$(FileHelpersPackageVersion)" />
+  </ItemGroup>
+
+  <!--
+    The configuration this binary is built for, as constants (HarnessBuild.g.cs): Program prints it in its
+    start-up lines without reflection. build-aot-variants.sh proves it: it runs verify-variant on the
+    ModernLibs.FileHelpers.dll that the AOT compiler read (from its .ilc.rsp file) and stops unless the DLL and this
+    line agree. The 4.9.1 package ships lib/net10.0 only, so a package build loads a net10.0 library on both runtimes.
+  -->
+  <PropertyGroup>
+    <_HarnessLibrary Condition="'$(FileHelpersPackageVersion)' == ''">project</_HarnessLibrary>
+    <_HarnessLibrary Condition="'$(FileHelpersPackageVersion)' != ''">package $(FileHelpersPackageVersion)</_HarnessLibrary>
+    <_HarnessLibraryTfm Condition="'$(FileHelpersPackageVersion)' == ''">$(TargetFramework)</_HarnessLibraryTfm>
+    <_HarnessLibraryTfm Condition="'$(FileHelpersPackageVersion)' != ''">net10.0</_HarnessLibraryTfm>
+    <_HarnessRuntimeAsync>off</_HarnessRuntimeAsync>
+    <_HarnessRuntimeAsync Condition="'$(FileHelpersPackageVersion)' == '' and '$(TargetFramework)' == 'net11.0' and '$(FileHelpersRuntimeAsync)' != 'false'">on</_HarnessRuntimeAsync>
+  </PropertyGroup>
+  <Target Name="_WriteHarnessBuild" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <!-- Set here, not above: IntermediateOutputPath is defined after the project file's own properties. -->
+      <_HarnessBuildFile>$(IntermediateOutputPath)HarnessBuild.g.cs</_HarnessBuildFile>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_HarnessBuildFile)" Overwrite="true" WriteOnlyWhenDifferent="true"
+                      Lines="// &lt;auto-generated/&gt; by ModernLibs.FileHelpers.Benchmarks.Aot.csproj;namespace ModernLibs.FileHelpers.Benchmarks.Aot%3B;internal static class HarnessBuild;{;    public const string Library = &quot;$(_HarnessLibrary)&quot;%3B;    public const string LibraryTfm = &quot;$(_HarnessLibraryTfm)&quot;%3B;    public const string RuntimeAsync = &quot;$(_HarnessRuntimeAsync)&quot;%3B;    public const string AppTfm = &quot;$(TargetFramework)&quot;%3B;    public const string RuntimeIdentifier = &quot;$(RuntimeIdentifier)&quot;%3B;}" />
+    <ItemGroup>
+      <Compile Include="$(_HarnessBuildFile)" />
+      <FileWrites Include="$(_HarnessBuildFile)" />
+    </ItemGroup>
+  </Target>
+</Project>

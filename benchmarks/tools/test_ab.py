@@ -282,6 +282,254 @@ class LauncherTests(unittest.TestCase):
             launch("b", self.bench, "N.C.M", self.artifacts + "-2")
 
 
+AOT_CASE = "ModernLibs.FileHelpers.Benchmarks.Aot.PackageAssets_ParseAndDiscard(Rows: 1000)"
+
+
+def _aot_startup_log(variant="tfm=net10.0 runtime-async=off", native="yes", runtime=".NET 10.0.15"):
+    return (
+        "// ModernLibs.FileHelpers variant: %s\n"
+        "// ModernLibs.FileHelpers library: project\n"
+        "// Build: native-aot=%s app-tfm=net10.0 rid=linux-x64\n"
+        "// Runtime: %s\n" % (variant, native, runtime))
+
+
+def _aot_result_line(checksum="0x00000000000000aa", times=(300, 100, 200), rows=1000):
+    return json.dumps({"harness": "aot", "scenario": "PackageAssets_ParseAndDiscard",
+                       "variant": "tfm=net10.0 runtime-async=off", "rows": rows, "warmup": 1,
+                       "iterations": len(times), "checksum": checksum, "times_ns": list(times)}) + "\n"
+
+
+class AotStartupAndResultTests(unittest.TestCase):
+    def test_aot_startup_has_no_assembly_line_and_must_be_native(self):
+        bench = "/x/net10"
+        startup = ab.check_startup(_aot_startup_log(), bench, ab.expected_variant(bench, None), aot=True)
+        self.assertEqual(startup, {
+            "variant": "tfm=net10.0 runtime-async=off",
+            "library": "project",
+            "build": "native-aot=yes app-tfm=net10.0 rid=linux-x64",
+            "runtime": ".NET 10.0.15",
+        })
+
+    def test_aot_startup_refuses_a_jit_process(self):
+        bench = "/x/net10"
+        with self.assertRaises(RuntimeError):
+            ab.check_startup(_aot_startup_log(native="no"), bench, ab.expected_variant(bench, None), aot=True)
+
+    def test_aot_startup_refuses_another_variant_and_runtime(self):
+        bench = "/x/net10"
+        with self.assertRaises(RuntimeError):
+            ab.check_startup(_aot_startup_log(variant="tfm=net11.0 runtime-async=on"), bench,
+                             ab.expected_variant(bench, None), aot=True)
+        with self.assertRaises(RuntimeError):
+            ab.check_startup(_aot_startup_log(runtime=".NET 11.0.0"), bench, ab.expected_variant(bench, None), aot=True)
+
+    def test_a_benchmarkdotnet_log_is_not_an_aot_log(self):
+        bench = "/x/net11-ra-on"
+        with self.assertRaises(RuntimeError):
+            ab.check_startup(_startup_log(bench), bench, ab.expected_variant(bench, None), aot=True)
+
+    def test_aot_result_gives_the_case_name_and_the_median_of_the_iterations(self):
+        result = ab.parse_aot_result(_aot_startup_log() + _aot_result_line())
+        self.assertEqual(ab.aot_case_name(result), AOT_CASE)
+        self.assertEqual(ab.aot_sample(result), 200.0)
+        self.assertEqual(result["checksum"], "0x00000000000000aa")
+
+    def test_aot_output_without_a_result_line_or_times_is_an_error(self):
+        with self.assertRaises(RuntimeError):
+            ab.parse_aot_result(_aot_startup_log())
+        with self.assertRaises(RuntimeError):
+            ab.aot_sample(ab.parse_aot_result(_aot_result_line(times=())))
+
+    def test_arguments_ab_sets_itself_cannot_be_passed_to_the_aot_program(self):
+        for bad in (["--expect-checksum", "0x1"], ["--checksum-only"], ["--info"], ["--data-dir", "x"]):
+            with self.assertRaises(ValueError):
+                ab.check_aot_args(bad)
+        ab.check_aot_args(["--rows", "100000", "--warmup", "5", "--iterations", "20"])
+
+    def test_the_filter_selects_aot_scenarios(self):
+        self.assertEqual(ab.aot_methods("*"), ["ModernLibs.FileHelpers.Benchmarks.Aot.PackageAssets_ParseAndDiscard"])
+        self.assertEqual(ab.aot_methods("*ParseAndDiscard*"), ab.aot_methods("*"))
+        self.assertEqual(ab.aot_methods("*QuotedFields*"), [])
+
+
+class _FakeAotRun:
+    """Stands in for subprocess.run of the AOT program: prints the start-up lines and one result line."""
+
+    def __init__(self, checksum="0x00000000000000aa", returncode=0, native="yes"):
+        self.checksum = checksum
+        self.returncode = returncode
+        self.native = native
+        self.commands = []
+
+    def __call__(self, cmd, cwd, stdout, stderr, check):
+        self.commands.append(cmd)
+        stdout.write(_aot_startup_log(native=self.native))
+        if self.returncode == 0:
+            stdout.write(_aot_result_line(checksum=self.checksum))
+
+        class Result:
+            pass
+
+        result = Result()
+        result.returncode = self.returncode
+        return result
+
+
+class AotLauncherTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.bench = os.path.join(self._tmp.name, "net10")
+        os.makedirs(self.bench)
+        with open(os.path.join(self.bench, ab.AOT_EXECUTABLE), "wb") as f:
+            f.write(b"\x7fELF")
+        self.artifacts = os.path.join(self._tmp.name, "work", "001-b-aot")
+        self.expected = {"b": ab.expected_variant(self.bench, None)}
+        self.method = ab.aot_methods("*")[0]
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _launcher(self, run, startups=None, hashes=None, checksum="0x00000000000000aa"):
+        return ab._aot_launcher(["--rows", "1000"], self.expected, {} if startups is None else startups,
+                                {} if hashes is None else hashes, checksum, run=run)
+
+    def test_a_launch_passes_the_expected_checksum_and_returns_the_median(self):
+        run = _FakeAotRun()
+        startups = {}
+        medians = self._launcher(run, startups)("b", self.bench, self.method, self.artifacts)
+        self.assertEqual(medians, {AOT_CASE: 200.0})
+        self.assertEqual(run.commands[0][0], os.path.join(self.bench, ab.AOT_EXECUTABLE))
+        self.assertEqual(run.commands[0][1:], ["--expect-checksum", "0x00000000000000aa", "--rows", "1000"])
+        self.assertEqual(startups["b"]["build"], "native-aot=yes app-tfm=net10.0 rid=linux-x64")
+        self.assertTrue(os.path.isfile(os.path.join(self.artifacts, "console.log")))
+
+    def test_a_refused_launch_stops_the_run(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            self._launcher(_FakeAotRun(returncode=3))("b", self.bench, self.method, self.artifacts)
+        self.assertIn("exited with 3", str(ctx.exception))
+        self.assertIn("refused", str(ctx.exception))
+
+    def test_a_result_with_another_checksum_stops_the_run(self):
+        with self.assertRaises(RuntimeError):
+            self._launcher(_FakeAotRun(checksum="0x00000000000000bb"))("b", self.bench, self.method, self.artifacts)
+
+    def test_a_jit_process_stops_the_run(self):
+        with self.assertRaises(RuntimeError):
+            self._launcher(_FakeAotRun(native="no"))("b", self.bench, self.method, self.artifacts)
+
+    def test_an_executable_that_changes_between_launches_stops_the_run(self):
+        launch = self._launcher(_FakeAotRun())
+        launch("b", self.bench, self.method, self.artifacts)
+        with open(os.path.join(self.bench, ab.AOT_EXECUTABLE), "wb") as f:
+            f.write(b"\x7fELF rebuilt")
+        with self.assertRaises(RuntimeError):
+            launch("b", self.bench, self.method, self.artifacts + "-2")
+
+
+_FAKE_AOT_PROGRAM = """#!/bin/sh
+dir=$(dirname "$0")
+sum=$(cat "$dir/checksum")
+echo "// ModernLibs.FileHelpers variant: tfm=net10.0 runtime-async=off"
+echo "// ModernLibs.FileHelpers library: $(cat "$dir/library")"
+echo "// Build: native-aot=yes app-tfm=net10.0 rid=linux-x64"
+echo "// Runtime: .NET 10.0.15"
+expect=""
+only=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --expect-checksum) expect="$2"; shift 2 ;;
+        --checksum-only) only=1; shift ;;
+        *) shift ;;
+    esac
+done
+if [ -n "$expect" ] && [ "$expect" != "$sum" ]; then
+    echo "// REFUSED, nothing timed" >&2
+    exit 3
+fi
+if [ "$only" = 1 ]; then
+    echo '{"harness":"aot","scenario":"PackageAssets_ParseAndDiscard","rows":1000,"checksum":"'"$sum"'","times_ns":[]}'
+    exit 0
+fi
+echo "timed" >> "$dir/timed.log"
+echo '{"harness":"aot","scenario":"PackageAssets_ParseAndDiscard","rows":1000,"checksum":"'"$sum"'","times_ns":[100,110,105]}'
+"""
+
+
+@unittest.skipUnless(os.name == "posix", "runs a shell script as the AOT program")
+class AotMainTests(unittest.TestCase):
+    """ab.main --aot end to end, with a shell script in place of the native program."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.dirs = {}
+        for name, library in (("pkg-net10", "package 4.9.1"), ("net10", "project")):
+            folder = os.path.join(self._tmp.name, name)
+            os.makedirs(folder)
+            exe = os.path.join(folder, ab.AOT_EXECUTABLE)
+            with open(exe, "w", encoding="utf-8") as f:
+                f.write(_FAKE_AOT_PROGRAM)
+            os.chmod(exe, 0o755)
+            files = {
+                "checksum": "0x00000000000000aa\n",
+                "library": library + "\n",
+                ab.VARIANT_FILE: "%s: tfm=net10.0 runtime-async=off\ncommit=aaa\nsdk=11.0.100\n" % name,
+            }
+            for file_name, text in files.items():
+                with open(os.path.join(folder, file_name), "w", encoding="utf-8") as f:
+                    f.write(text)
+            self.dirs[name] = folder
+        self.out = os.path.join(self._tmp.name, "aot.json")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _main(self, *extra):
+        return ab.main(["--aot", "--a", self.dirs["pkg-net10"], "--b", self.dirs["net10"],
+                        "--expect-a", "tfm=net10.0 runtime-async=off", "--launches", "7", "--out", self.out]
+                       + list(extra))
+
+    def _timed(self, name):
+        path = os.path.join(self.dirs[name], "timed.log")
+        if not os.path.exists(path):
+            return 0
+        with open(path, encoding="utf-8") as f:
+            return len(f.readlines())
+
+    def test_seven_interleaved_launches_give_a_b4_document(self):
+        self.assertEqual(self._main("--", "--rows", "1000"), 0)
+        with open(self.out, encoding="utf-8") as f:
+            document = json.load(f)
+        self.assertTrue(document["b4"])
+        self.assertEqual(document["harness"], "aot")
+        self.assertEqual(document["aot_checksum"], "0x00000000000000aa")
+        self.assertEqual(document["program_args"], ["--rows", "1000"])
+        self.assertEqual(document["a"]["startup"]["library"], "package 4.9.1")
+        self.assertEqual(document["b"]["startup"]["library"], "project")
+        [row] = document["benchmarks"]
+        self.assertEqual(row["name"], AOT_CASE)
+        self.assertEqual(row["a_median_ns"], [105.0] * 7)
+        self.assertEqual(row["verdict"], "no-change")
+        self.assertEqual((self._timed("pkg-net10"), self._timed("net10")), (7, 7))
+
+    def test_a_checksum_that_differs_between_the_builds_refuses_to_time(self):
+        with open(os.path.join(self.dirs["net10"], "checksum"), "w", encoding="utf-8") as f:
+            f.write("0x00000000000000bb\n")
+        with self.assertRaises(RuntimeError) as ctx:
+            self._main()
+        self.assertIn("checksum", str(ctx.exception))
+        self.assertEqual((self._timed("pkg-net10"), self._timed("net10")), (0, 0))
+        self.assertFalse(os.path.exists(self.out))
+
+    def test_aot_mode_still_needs_seven_launches_for_b4(self):
+        with self.assertRaises(SystemExit):
+            ab.main(["--aot", "--a", self.dirs["pkg-net10"], "--b", self.dirs["net10"],
+                     "--expect-a", "tfm=net10.0 runtime-async=off", "--launches", "6", "--out", self.out])
+
+    def test_benchmarkdotnet_mode_still_needs_a_filter(self):
+        with self.assertRaises(SystemExit):
+            ab.main(["--a", self.dirs["net10"], "--b", self.dirs["net10"], "--launches", "7", "--out", self.out])
+
+
 class VariantFileTests(unittest.TestCase):
     CLEAN_A = "net11-ra-off: tfm=net11.0 runtime-async=off\ncommit=aaa\nsdk=11.0.100\n"
     CLEAN_B = "net11-ra-on: tfm=net11.0 runtime-async=on\ncommit=aaa\nsdk=11.0.100\n"

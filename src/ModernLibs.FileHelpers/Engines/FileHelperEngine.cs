@@ -99,6 +99,13 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     public string? HeaderText { get; set; }
 
     /// <summary>
+    /// Builds the header line FileHelpers 3.x <c>GetFileHeader()</c> returns: the caption (<c>[FieldCaption]</c>,
+    /// else the member name) of every field joined with one separator, without quoting or a line terminator.
+    /// The separator is the delimiter of the first field for a delimited record, a tab for a fixed-length record.
+    /// </summary>
+    public string GetFileHeader() => FileHeaderBuilder.Build(_descriptor);
+
+    /// <summary>
     /// Footer captured from the trailing <see cref="IgnoreLastAttribute"/> lines (original text, joined with
     /// <see cref="NewLineForWrite"/>) during the most recent read. <see langword="null"/> when
     /// <see cref="IgnoreLastAttribute"/> is not set, the input had no footer lines, or a streaming read

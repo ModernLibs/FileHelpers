@@ -128,7 +128,7 @@ Running in-process has costs, which every result has to live with:
 | `FixedWidthParseBenchmarks` | Fixed-width reads, class versus struct records | CsvHelper | 10K, 100K |
 | `OptimizedParseBenchmarks` | `ReadFile`, `ReadString`, `ReadSpan` and their callback and async variants | - | 10K, 100K |
 | `AsyncStreamingBenchmarks` | `MultiRecordAsyncEngine.ReadAsync` versus `MultiRecordEngine.ReadFile`, with and without cancellation | - | 10K, 100K |
-| `EngineAsyncBenchmarks` | `FileHelperEngine<T>.ReadAsync(path)` and `ReadFileAsync(path, callback)` on the 25-column file, and `ReadAsync(path)` with a conversion error in every 100th row (`ErrorMode.SaveAndContinue`), for the runtime-async A/B | - | 10K, 100K |
+| `EngineAsyncBenchmarks` | `FileHelperEngine<T>.ReadAsync(path)` and `ReadFileAsync(path, callback)` on the 25-column file, and `ReadAsync(path)` with a conversion error in every 100th row (`ErrorMode.SaveAndContinue`), and `WriteStreamAsync` of the records to `Stream.Null`, for the runtime-async A/B | - | 10K, 100K |
 | `R6UpperBoundBenchmarks` | Gate R6: quoted parse-and-discard with the generated descriptor and with a descriptor that takes precomputed field ends (see below) | - | 10K, 100K |
 | `G2PrototypeBenchmarks` | Gate G2: `WriteString` of the 25-column records with the generated `Format` and with a single-span `Format` (see below) | - | 100K |
 | Component classes (namespace `...Benchmarks.Components`) | Tokenizers, the scan loop shape, converter call shapes, unquoting, string creation and one-record `Format` (see below) | - | fixed per class |
@@ -258,8 +258,9 @@ descriptor's `Parse` (R6) or `Format` (G2) differs. If the engine's private fiel
 instead of measuring the generated descriptor. The prototypes need reflection over private fields, so the two gate
 classes are not part of an AOT run.
 
-`EngineAsyncBenchmarks` has no `Engine_WriteStreamAsync_Null` method yet; it is added when
-`FileHelperEngine<T>.WriteStreamAsync` exists.
+`EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null` writes the 25-column dataset's records (read once in its own
+setup) with `FileHelperEngine<T>.WriteStreamAsync` to `Stream.Null`; the setup checks one call's output length on a
+`MemoryStream` and runs no other benchmark path.
 
 ## Configurations and A/B runs
 

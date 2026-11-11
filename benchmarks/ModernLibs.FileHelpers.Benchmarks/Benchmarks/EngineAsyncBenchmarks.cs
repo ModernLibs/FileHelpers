@@ -21,14 +21,17 @@ namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks;
 /// (<see cref="DatasetGenerator.EnsurePackageAssetsBadEvery100"/>), with <see cref="ErrorMode.SaveAndContinue"/>: one
 /// conversion exception is thrown and caught per bad row, inside the async enumerator. Returns
 /// <c>ErrorManager.ErrorCount</c>, which the setup checks is <c>Rows / 100</c>.</item>
+/// <item><see cref="Engine_WriteStreamAsync_Null"/>: <c>WriteStreamAsync(Stream.Null, records)</c> of the dataset's
+/// records, read once in the setup. The setup checks one call's output on a <see cref="MemoryStream"/>: its length is
+/// the encoded <c>WriteString</c> text plus the preamble. Returns <c>TotalRecords</c>.</item>
 /// </list>
-/// <c>Engine_WriteStreamAsync_Null</c> (design B8, A1) is added when <c>WriteStreamAsync</c> exists (T43).
 /// </remarks>
 [MemoryDiagnoser]
 public class EngineAsyncBenchmarks
 {
     private string _path = "";
     private FileHelperEngine<PackageAsset> _engine = null!;
+    private PackageAsset[] _records = [];
 
     [Params(10_000, 100_000)]
     public int Rows { get; set; }
@@ -60,6 +63,20 @@ public class EngineAsyncBenchmarks
         DataCheck.Equal(DatasetGenerator.BadRowEvery + 1, first.LineNumber, nameof(Engine_ReadAsync_Path_ExceptionEvery100) + " line of the first error (after the header)");
     }
 
+    [GlobalSetup(Target = nameof(Engine_WriteStreamAsync_Null))]
+    public async Task SetupWriteStreamAsync()
+    {
+        _engine = new FileHelperEngine<PackageAsset>();
+        _records = _engine.ReadFile(DatasetGenerator.EnsurePackageAssets(ComponentData.DataDir(), Rows));
+        DataCheck.Equal(Rows, _records.Length, nameof(Engine_WriteStreamAsync_Null) + " records");
+
+        using var ms = new MemoryStream();
+        await _engine.WriteStreamAsync(ms, _records);
+        long expected = _engine.Encoding.GetPreamble().Length + _engine.Encoding.GetByteCount(_engine.WriteString(_records));
+        DataCheck.Equal(expected, ms.Length, nameof(Engine_WriteStreamAsync_Null) + " output length");
+        DataCheck.Equal(Rows, await Engine_WriteStreamAsync_Null(), nameof(Engine_WriteStreamAsync_Null) + " TotalRecords");
+    }
+
     [Benchmark]
     public async Task<long> Engine_ReadAsync_Path()
     {
@@ -84,5 +101,12 @@ public class EngineAsyncBenchmarks
         {
         }
         return _engine.ErrorManager.ErrorCount;
+    }
+
+    [Benchmark]
+    public async Task<int> Engine_WriteStreamAsync_Null()
+    {
+        await _engine.WriteStreamAsync(Stream.Null, _records);
+        return _engine.TotalRecords;
     }
 }

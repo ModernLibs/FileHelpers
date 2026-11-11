@@ -521,8 +521,8 @@ These are not differences, but they surprise people who expect them to be fixed:
   without quotes (`x,1`) is rejected on read with "does not begin with the quote char". Use
   `QuoteMode.OptionalForBoth` for a round trip. FileHelpers 3.5.2 behaves the same.
 - A fixed-length value that is longer than its field is cut silently on write, also for a right-aligned
-  field (`[FieldAlign(AlignMode.Right, '0')]`): the value is cut at its end to the first `Length`
-  characters (`12345` in a field of length 3 is written as `123`). This is the default in 3.x too. To get
+  field (`[FieldAlign(AlignMode.Right, '0')]`): the value is cut at its end to the first n
+  characters (the field width of `[FieldFixedLength(n)]`; `12345` in a field of length 3 is written as `123`). This is the default in 3.x too. To get
   an error instead, set `[FieldFixedLength(n, OverflowMode = OverflowMode.Error)]`.
 
 ## 4. What is new

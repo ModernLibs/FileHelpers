@@ -104,7 +104,8 @@ file.
   - `MLFH032` (Info): a `[FieldTrim(mode, chars...)]` list contains a character of the delimiter that
     follows the field.
   - `MLFH033` (Warning): a `[FieldQuoted]` field has a `[FieldTrim]` list that contains its quote
-    character, with `TrimMode.Left` or `Both` and `QuoteMode.OptionalForRead` or `AlwaysQuoted`.
+    character, with `TrimMode.Left` or `Both` and `QuoteMode.OptionalForRead` or `AlwaysQuoted`. Setting
+    `TrimGivenChars = true` on the field also avoids the warning.
 
   A project with `TreatWarningsAsErrors` can fail on upgrade. Fix the layout, or suppress the IDs in the
   project file: `<NoWarn>$(NoWarn);MLFH030;MLFH031;MLFH033</NoWarn>`. See

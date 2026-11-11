@@ -40,6 +40,11 @@ jobs:
     steps:
       # Supply chain: every action is pinned to a full commit SHA (tags are mutable); the trailing
       # comment names the release the SHA belongs to.
+      # windows-latest checks out with core.autocrlf=true (CRLF); the repo is LF (.editorconfig) and
+      # tests hold raw string literals, so turn the conversion off before the checkout.
+      - name: Disable CRLF conversion
+        run: git config --global core.autocrlf false
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

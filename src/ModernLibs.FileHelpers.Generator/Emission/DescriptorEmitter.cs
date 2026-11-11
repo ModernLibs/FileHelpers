@@ -166,7 +166,7 @@ internal static class DescriptorEmitter
             string delimiterArg = field.Delimiter is not null ? Literal(field.Delimiter) : "null";
             string captionArg = field.Caption is not null ? Literal(field.Caption) : "null";
             string cultureNameArg = field.CultureName is not null ? Literal(field.CultureName) : "null";
-            sb.AppendLine($"            new(nameof({fqType}.{field.Identifier}), typeof({field.FullTypeName}), {field.Order}, {offset}, {width}, {delimiterArg}, {Bool(field.IsInNewLine)}, {captionArg}, {cultureNameArg}, {Bool(field.IsOptional)}, (global::ModernLibs.FileHelpers.TrimMode){field.TrimMode ?? 0}, {CharLiteral(field.IsQuoted ? field.QuoteChar : '\0')}, (global::ModernLibs.FileHelpers.MultilineMode){field.QuoteMultiline}, {(field.TrimMode is 1 or 2 or 3 && field.TrimChars is not null ? UnicodeLiteral(field.TrimChars) : "null")}){(field.TrimGivenChars ? " { TrimGivenChars = true }" : "")},");
+            sb.AppendLine($"            new(nameof({fqType}.{field.Identifier}), typeof({field.FullTypeName}), {field.Order}, {offset}, {width}, {delimiterArg}, {Bool(field.IsInNewLine)}, {captionArg}, {cultureNameArg}, {Bool(field.IsOptional)}, (global::ModernLibs.FileHelpers.TrimMode){field.TrimMode ?? 0}, {CharLiteral(field.IsQuoted ? field.QuoteChar : '\0')}, (global::ModernLibs.FileHelpers.MultilineMode){field.QuoteMultiline}, {(field.TrimMode is 1 or 2 or 3 && field.TrimChars is not null ? UnicodeLiteral(field.TrimChars) : "null")}){(field.TrimGivenChars && field.TrimMode is 1 or 2 or 3 ? " { TrimGivenChars = true }" : "")},");
             if (isFixed && field.FixedLength > 0) runningOffset += field.FixedLength;
         }
 

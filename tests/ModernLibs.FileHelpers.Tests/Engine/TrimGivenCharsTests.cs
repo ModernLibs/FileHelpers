@@ -165,6 +165,27 @@ public sealed class TrimGivenCharsTests
     }
 
     [Test]
+    [DisplayName("FieldDescriptor.ToString is the 4.9.1 string with the flag off and names the flag only when it is on")]
+    public async Task Descriptor_ToString_Is_Unchanged_When_Flag_Is_Off()
+    {
+        // The 4.9.1 (e23ec84) compiler-generated record format, 14 positional members.
+        const string Off = "FieldDescriptor { Name = Code, FieldType = System.String, Order = 0, Offset = -1, Width = -1, Delimiter = , "
+            + "IsInNewLine = False, Caption = , CultureName = , IsOptional = False, TrimMode = Both, QuoteChar = \", "
+            + "QuoteMultiline = AllowForBoth, TrimChars = x  }";
+        const string On = "FieldDescriptor { Name = Code, FieldType = System.String, Order = 0, Offset = -1, Width = -1, Delimiter = , "
+            + "IsInNewLine = False, Caption = , CultureName = , IsOptional = False, TrimMode = Both, QuoteChar = \", "
+            + "QuoteMultiline = AllowForBoth, TrimChars = x , TrimGivenChars = True }";
+        string nul = ((char)0).ToString();
+        string handMade = "FieldDescriptor { Name = A, FieldType = System.Int32, Order = 2, Offset = -1, Width = -1, Delimiter = , "
+            + "IsInNewLine = False, Caption = , CultureName = , IsOptional = False, TrimMode = None, QuoteChar = " + nul + ", "
+            + "QuoteMultiline = AllowForBoth, TrimChars =  }";
+
+        await Assert.That(FileHelperRegistry<PlB>.Descriptor.Fields[0].ToString()).IsEqualTo(Off);
+        await Assert.That(FileHelperRegistry<TgB>.Descriptor.Fields[0].ToString()).IsEqualTo(On);
+        await Assert.That(new FieldDescriptor("A", typeof(int), 2).ToString()).IsEqualTo(handMade);
+    }
+
+    [Test]
     [DisplayName("TrimMode.None with the option is a documented no-op")]
     public async Task None_With_Option_Is_A_NoOp() =>
         await Assert.That(Read<TgNone>(" xxCODExx ")).IsEqualTo("[ xxCODExx ]|y");
@@ -173,8 +194,10 @@ public sealed class TrimGivenCharsTests
     [DisplayName("No chars given: the 3.x white-space set is trimmed (includes U+200B, which string.Trim keeps)")]
     public async Task Default_Chars_Are_The_3x_WhiteSpace_Set()
     {
-        await Assert.That(Read<TgDefault>("​\t CODE  ")).IsEqualTo("[CODE]|y");
-        await Assert.That(Read<PlDefault>("​\t CODE  ")).IsEqualTo("[​\t CODE]|y");
+        string zwsp = char.ConvertFromUtf32(0x200B);   // zero-width space: in the 3.x set, not char.IsWhiteSpace
+        string nbsp = char.ConvertFromUtf32(0x00A0);   // no-break space: in both
+        await Assert.That(Read<TgDefault>(zwsp + "\t CODE " + nbsp)).IsEqualTo("[CODE]|y");
+        await Assert.That(Read<PlDefault>(zwsp + "\t CODE " + nbsp)).IsEqualTo("[" + zwsp + "\t CODE]|y");
     }
 
     [Test]
@@ -228,6 +251,67 @@ public sealed class TrimGivenCharsTests
     [Arguments(" x ", "[x]|y")]
     public async Task Delimiter_In_List_Is_Trimmed_From_Quoted_Value(string input, string expected) =>
         await Assert.That(Read<TgDelimiterInList>(input)).IsEqualTo(expected);
+
+    [Test]
+    [DisplayName("A value made only of the given chars reads as empty (unquoted and quoted)")]
+    public async Task Only_Trim_Chars_Reads_Empty()
+    {
+        await Assert.That(Read<TgA>("x x ")).IsEqualTo("[]|y");
+        await Assert.That(Read<TgB>("\"xx  xx\"")).IsEqualTo("[]|y");
+    }
+
+    [Test]
+    [DisplayName("[FieldNotEmpty] after a value made only of the given chars throws ConvertException")]
+    public async Task NotEmpty_After_Only_Trim_Chars_Throws() =>
+        await Assert.That(() => new FileHelperEngine<TgNotEmpty>().ReadString("xxx,y\r\n")).Throws<ConvertException>();
+
+    [Test]
+    [DisplayName("AlwaysQuoted with the option: chars trimmed after unquoting; an unquoted value still throws")]
+    public async Task AlwaysQuoted_With_Option()
+    {
+        await Assert.That(Read<TgAlways>(" \"xxCODExx\" ")).IsEqualTo("[CODE]|y");
+        await Assert.That(() => new FileHelperEngine<TgAlways>().ReadString("CODE,y\r\n")).Throws<BadUsageException>();
+    }
+
+    [Test]
+    [DisplayName("Quoted option field as the last field")]
+    [Arguments("y,\"xxCODExx\"")]
+    [Arguments("y, \"xx CODE xx\" ")]
+    [Arguments("y,xxCODExx ")]
+    public async Task Quoted_Option_Field_Last(string line)
+    {
+        TgLast[] records = new FileHelperEngine<TgLast>().ReadString(line + "\r\n");
+
+        await Assert.That(records[0].Other).IsEqualTo("y");
+        await Assert.That(records[0].Code).IsEqualTo("CODE");
+    }
+
+    [Test]
+    [DisplayName("Value-type field: 0042 reads 42; 000 reads as empty and throws NullValueNotFoundException unless nullable or [FieldNullValue]")]
+    public async Task Value_Type_Field()
+    {
+        await Assert.That(new FileHelperEngine<TgInt>().ReadString("0042\r\n")[0].N).IsEqualTo(42);
+        await Assert.That(() => new FileHelperEngine<TgInt>().ReadString("000\r\n")).Throws<NullValueNotFoundException>();
+        TgIntNullable r = new FileHelperEngine<TgIntNullable>().ReadString("000,000\r\n")[0];
+        await Assert.That(r.N).IsNull();
+        await Assert.That(r.K).IsEqualTo(0);
+    }
+
+    [Test]
+    [DisplayName("Read and write are not symmetric: the value \" x \" is written quoted and reads back as x")]
+    public async Task Quote_In_List_Write_Then_Read_Is_Not_Symmetric()
+    {
+        var engine = new FileHelperEngine<TgQuoteInList>();
+        string text = engine.WriteString([new TgQuoteInList { Code = "\" x \"", Other = "y" }]);
+
+        await Assert.That(text).IsEqualTo("\"\"\" x \"\"\",y\r\n");
+        await Assert.That(engine.ReadString(text)[0].Code).IsEqualTo("x");
+    }
+
+    [Test]
+    [DisplayName("TrimMode.None with the option: the descriptor does not carry the flag")]
+    public async Task None_With_Option_Descriptor_Flag_Is_Off() =>
+        await Assert.That(FileHelperRegistry<TgNone>.Descriptor.Fields[0].TrimGivenChars).IsFalse();
 
     [Test]
     [DisplayName("Fixed-length field: the given chars are trimmed on read")]
@@ -336,6 +420,44 @@ internal sealed class TgDelimiterInList : ICodeRecord
     [FieldQuoted('"', QuoteMode.OptionalForRead)]
     [FieldTrim(TrimMode.Both, ',', ' ', TrimGivenChars = true)] public string Code { get; set; } = "";
     public string Other { get; set; } = "";
+}
+
+[DelimitedRecord(",")]
+internal sealed class TgNotEmpty : ICodeRecord
+{
+    [FieldNotEmpty]
+    [FieldTrim(TrimMode.Both, 'x', TrimGivenChars = true)] public string Code { get; set; } = "";
+    public string Other { get; set; } = "";
+}
+
+[DelimitedRecord(",")]
+internal sealed class TgAlways : ICodeRecord
+{
+    [FieldQuoted('"', QuoteMode.AlwaysQuoted)]
+    [FieldTrim(TrimMode.Both, 'x', ' ', TrimGivenChars = true)] public string Code { get; set; } = "";
+    public string Other { get; set; } = "";
+}
+
+[DelimitedRecord(",")]
+internal sealed class TgLast
+{
+    public string Other { get; set; } = "";
+    [FieldQuoted('"', QuoteMode.OptionalForRead)]
+    [FieldTrim(TrimMode.Both, 'x', ' ', TrimGivenChars = true)] public string Code { get; set; } = "";
+}
+
+[DelimitedRecord(",")]
+internal sealed class TgInt
+{
+    [FieldTrim(TrimMode.Left, '0', TrimGivenChars = true)] public int N { get; set; }
+}
+
+[DelimitedRecord(",")]
+internal sealed class TgIntNullable
+{
+    [FieldTrim(TrimMode.Left, '0', TrimGivenChars = true)] public int? N { get; set; }
+    [FieldNullValue(0)]
+    [FieldTrim(TrimMode.Left, '0', TrimGivenChars = true)] public int K { get; set; }
 }
 
 [FixedLengthRecord]

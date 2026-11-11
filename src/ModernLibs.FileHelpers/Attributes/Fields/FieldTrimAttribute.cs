@@ -40,13 +40,25 @@ public sealed class FieldTrimAttribute : Attribute
     /// trim. Default <see langword="false"/>: FileHelpers 3.x behaviour (see the remarks of the class).
     /// </summary>
     /// <remarks>
-    /// <para>Read only: values are never trimmed on write.</para>
+    /// <para>
+    /// Read only: values are never trimmed on write, so read and write are not symmetric. For example, with the quote
+    /// character and the space in the list, the value <c>" x "</c> is written as <c>""" x """</c> and reads back as
+    /// <c>x</c>.
+    /// </para>
+    /// <para>Applies to delimited and fixed-length fields.</para>
     /// <para>
     /// For a <see cref="FieldQuotedAttribute"/> field the quote character, when it is in the list, is not skipped
     /// before the opening quote (so the quoted value is still recognised); it is trimmed from the value after
     /// unquoting. A character of the delimiter in the list is trimmed from quoted values too.
     /// </para>
+    /// <para>
+    /// A value made only of the given characters reads as empty. An empty value on a value-type field without
+    /// <see cref="FieldNullValueAttribute"/> throws <see cref="NullValueNotFoundException"/>: for example,
+    /// <c>[FieldTrim(TrimMode.Left, '0', TrimGivenChars = true)] int</c> reads <c>0042</c> as 42 but throws on
+    /// <c>000</c>. Use <c>int?</c> or <c>[FieldNullValue(0)]</c> when such values occur.
+    /// </para>
     /// <para>With <see cref="FileHelpers.TrimMode.None"/> the property has no effect. An empty list trims nothing.</para>
+    /// </remarks>
     /// <example>
     /// <code>
     /// [FieldQuoted('"', QuoteMode.OptionalForRead)]
@@ -54,7 +66,6 @@ public sealed class FieldTrimAttribute : Attribute
     /// public string Code;   // xxCODExx , "xxCODExx" and  "xx CODE xx"  all read as CODE
     /// </code>
     /// </example>
-    /// </remarks>
     public bool TrimGivenChars { get; set; }
 
     /// <summary>Trims in the specified direction with the FileHelpers 3.x white-space characters.</summary>

@@ -47,7 +47,7 @@ The numeric converters are `ByteConverter`, `SByteConverter`, `Int16Converter`, 
 
 | Member | Bound at |
 |---|---|
-| `FieldDescriptor.TrimGivenChars` `init` accessor, as an object initializer `new(...) { TrimGivenChars = true }` | `EmitFieldDescriptors` in `DescriptorEmitter.cs`; emitted only for a field with `[FieldTrim(..., TrimGivenChars = true)]`, so the code of every other record is unchanged |
+| `FieldDescriptor.TrimGivenChars` `init` accessor, as an object initializer `new(...) { TrimGivenChars = true }` | `EmitFieldDescriptors` in `DescriptorEmitter.cs`; emitted only for a field with `[FieldTrim(..., TrimGivenChars = true)]` and a `TrimMode` other than `None`, so the code of every other record is unchanged |
 
 A descriptor that sets it needs a 4.10 or later runtime, like any new API. The read helpers of the runtime
 (`RecordParsing.IndexOfLineBreak` and the engine's quote scan) read the flag; with the default `false` they

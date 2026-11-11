@@ -38,7 +38,7 @@ public static class RecordParsing
             if (atFieldStart)
             {
                 atFieldStart = false;
-                if (current.QuoteChar != '\0' && OpeningQuote(text, i, current, recordDelimiter) is var quote and >= 0)
+                if (current.QuoteChar != '\0' && OpeningQuote(text, i, in current, recordDelimiter) is var quote and >= 0)
                 {
                     int end = QuotedEnd(text, quote + 1, current.QuoteChar);
                     bool multiline = current.QuoteMultiline is MultilineMode.AllowForRead or MultilineMode.AllowForBoth;
@@ -85,7 +85,7 @@ public static class RecordParsing
     }
 
     /// <summary>Index of the opening quote of <paramref name="field"/> at <paramref name="start"/>, or -1.</summary>
-    private static int OpeningQuote(ReadOnlySpan<char> text, int start, FieldDescriptor field, string recordDelimiter)
+    private static int OpeningQuote(ReadOnlySpan<char> text, int start, in FieldDescriptor field, string recordDelimiter)
     {
         int i = start;
         if (field.TrimMode is TrimMode.Both or TrimMode.Left)

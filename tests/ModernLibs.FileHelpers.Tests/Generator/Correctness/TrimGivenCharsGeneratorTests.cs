@@ -61,6 +61,8 @@ public sealed class TrimGivenCharsGeneratorTests
         await Assert.That(run.CompileErrors.IsEmpty).IsTrue().Because(run.ErrorText);
         await Assert.That(run.GeneratedWarnings.IsEmpty).IsTrue();
         await Assert.That(GeneratorHarness.WorkingDescriptorCount(run.Result)).IsEqualTo(2);
+        // R.A, R.B, R.D and F.A carry the flag; R.C (TrimMode.None) does not
+        await Assert.That(run.GeneratedText.Split("{ TrimGivenChars = true }").Length - 1).IsEqualTo(4);
     }
 
     [Test]

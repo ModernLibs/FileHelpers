@@ -220,7 +220,16 @@ space that is not in the list stops the trim: with `'x'` alone, ` xxCODExx` read
 character in the list is not skipped before the opening quote (the quoted value is still recognised) and is
 trimmed after unquoting. A delimiter character in the list is trimmed from quoted values (`"a,b,"` reads as
 `a,b`; reported as [MLFH032](diagnostics.md#mlfh032)). With `TrimMode.None` the option does nothing, and an
-empty list trims nothing. Values are never trimmed on write.
+empty list trims nothing. The option applies to delimited and fixed-length fields.
+
+Points to watch:
+
+- A value made only of the given characters reads as empty (`xxxx` with `'x'`). `[FieldNotEmpty]` then
+  throws `ConvertException`, and a value-type field without `[FieldNullValue]` throws
+  `NullValueNotFoundException`: `[FieldTrim(TrimMode.Left, '0', TrimGivenChars = true)] public int N;` reads
+  `0042` as `42` but throws on `000`. Declare the field `int?` (reads `null`) or add `[FieldNullValue(0)]`.
+- Values are never trimmed on write, so read and write are not symmetric. With `'"'` and `' '` in the list
+  of a `[FieldQuoted]` field, the value `" x "` is written as `""" x """` and reads back as `x`.
 
 ### 2.6 Multi-record files
 

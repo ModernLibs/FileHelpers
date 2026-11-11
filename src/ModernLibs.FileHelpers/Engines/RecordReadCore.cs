@@ -551,6 +551,9 @@ internal sealed class RecordReadCore<T> : ILogicalLineRules
 
         var rest = line[end..];
         ref readonly var field = ref Descriptor.Fields[segment.Start + segment.Count - 1];
+        // The full [FieldTrim] list, quote char included even with TrimGivenChars (where the skips before the opening
+        // quote leave it out): this is the last field of the line, and the generated parser ignores everything after
+        // its closing quote, so a quote char after it changes no result.
         return rest.IsEmpty
             || (field.TrimMode is TrimMode.Both or TrimMode.Right && rest.Trim(field.TrimChars ?? " \t").IsEmpty);
     }

@@ -65,7 +65,7 @@ it was considered and rejected. Contributions are welcome: please open an issue 
 
 | Gap | Status | Notes |
 |---|---|---|
-| `ReadFileAsList` / `ReadStringAsList` / `ReadStreamAsList` | Open | One-line wrappers around the array methods. |
+| `ReadFileAsList` / `ReadStringAsList` / `ReadStreamAsList` | Done in 4.10 | One-line wrappers around the array methods. |
 | `WriteFile` / `WriteStream` / `WriteString` with `maxRecords` (all engines) | Open | `records.Take(n)` does the same. |
 | `[IgnoreFirst]` / `[IgnoreLast]` in `MultiRecordEngine` | Open | 3.x applies the options of the first record type. |
 | Record-by-record API on `MultiRecordEngine` (`BeginReadFile`, `ReadNext`, `WriteNext`, ...) | Open | `MultiRecordAsyncEngine.ReadAsync` covers streaming reads. |

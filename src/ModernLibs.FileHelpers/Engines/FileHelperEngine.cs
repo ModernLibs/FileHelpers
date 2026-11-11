@@ -6,6 +6,7 @@
 using System.Buffers;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 using ModernLibs.FileHelpers.Parsing;
 
@@ -352,6 +353,46 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     }
 
     // =========================================================================
+    // List results
+    // =========================================================================
+
+    /// <summary><see cref="ReadFile(string)"/> returning a <see cref="List{T}"/>.</summary>
+    public List<T> ReadFileAsList(string filePath) => ReadFileAsList(filePath, maxRecords: 0);
+
+    /// <summary><see cref="ReadFile(string, int)"/> returning a <see cref="List{T}"/>.</summary>
+    public List<T> ReadFileAsList(string filePath, int maxRecords)
+    {
+        ArgumentNullException.ThrowIfNull(filePath);
+        using var reader = FileBuffers.OpenReader(filePath, Encoding);
+        return ReadToList(reader, maxRecords, readToEnd: false);
+    }
+
+    /// <summary><see cref="ReadString(string)"/> returning a <see cref="List{T}"/>.</summary>
+    public List<T> ReadStringAsList(string content) => ReadStringAsList(content, maxRecords: 0);
+
+    /// <summary><see cref="ReadString(string, int)"/> returning a <see cref="List{T}"/>.</summary>
+    public List<T> ReadStringAsList(string content, int maxRecords)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        var sink = new ArraySink();
+        ReadBatch(content.AsSpan(), maxRecords, allowRecycle: false, ref sink);
+        return sink.ToList();
+    }
+
+    /// <summary>
+    /// <see cref="ReadStream(TextReader)"/> returning a <see cref="List{T}"/>; the reader is NOT disposed and is
+    /// left at its end.
+    /// </summary>
+    public List<T> ReadStreamAsList(TextReader reader) => ReadStreamAsList(reader, maxRecords: 0);
+
+    /// <summary><see cref="ReadStream(TextReader, int)"/> returning a <see cref="List{T}"/>.</summary>
+    public List<T> ReadStreamAsList(TextReader reader, int maxRecords)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        return ReadToList(reader, maxRecords, readToEnd: true);
+    }
+
+    // =========================================================================
     // Streaming reads
     // =========================================================================
 
@@ -695,6 +736,34 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     private T[] ReadToArray(TextReader reader, int maxRecords, bool readToEnd)
     {
         var sink = new ChunkedArraySink();
+        try
+        {
+            ReadToSink(reader, maxRecords, readToEnd, ref sink);
+            return sink.ToArray();
+        }
+        finally
+        {
+            sink.Dispose();
+        }
+    }
+
+    /// <summary><see cref="ReadToArray(TextReader, int, bool)"/> collecting into a <see cref="List{T}"/>.</summary>
+    private List<T> ReadToList(TextReader reader, int maxRecords, bool readToEnd)
+    {
+        var sink = new ChunkedArraySink();
+        try
+        {
+            ReadToSink(reader, maxRecords, readToEnd, ref sink);
+            return sink.ToList();
+        }
+        finally
+        {
+            sink.Dispose();
+        }
+    }
+
+    private void ReadToSink(TextReader reader, int maxRecords, bool readToEnd, ref ChunkedArraySink sink)
+    {
         sink.Initialize(maxRecords > 0 ? Math.Min(maxRecords, ChunkedArraySink.InitialCapacity) : ChunkedArraySink.InitialCapacity);
         bool completed = false;
         try
@@ -722,15 +791,12 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
                 SyncPosition(session);
             }
 
-            var result = sink.ToArray();
             completed = true;
             if (readToEnd)
                 SkipToEnd(reader);
-            return result;
         }
         finally
         {
-            sink.Dispose();
             if (readToEnd && !completed)
                 SkipToEndAfterFault(reader);
         }
@@ -859,6 +925,17 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
                 return _buffer;
             return _buffer.AsSpan(0, _count).ToArray();
         }
+
+        public readonly List<T> ToList()
+        {
+            var list = new List<T>();
+            if (_buffer is null || _count == 0)
+                return list;
+
+            CollectionsMarshal.SetCount(list, _count);
+            _buffer.AsSpan(0, _count).CopyTo(CollectionsMarshal.AsSpan(list));
+            return list;
+        }
     }
 
     /// <summary>
@@ -918,6 +995,25 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
             }
 
             return result;
+        }
+
+        public readonly List<T> ToList()
+        {
+            var list = new List<T>();
+            if (_count == 0)
+                return list;
+
+            CollectionsMarshal.SetCount(list, _count);
+            var destination = CollectionsMarshal.AsSpan(list);
+            for (int i = 0; i < _chunkCount; i++)
+            {
+                var chunk = _chunks![i];
+                int length = i == _chunkCount - 1 ? _used : chunk.Length;
+                chunk.AsSpan(0, length).CopyTo(destination);
+                destination = destination[length..];
+            }
+
+            return list;
         }
 
         public void Dispose()

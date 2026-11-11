@@ -65,6 +65,41 @@ public interface IFileHelperEngine<T>
     /// <returns>An array of parsed records.</returns>
     T[] ReadFile(string filePath, int maxRecords);
 
+#pragma warning disable MA0016 // The 3.x contract returns List<T>; callers expect a concrete, growable list.
+    /// <summary>Reads all records from a file into a list.</summary>
+    /// <param name="filePath">The path to the input file.</param>
+    /// <returns>A list of parsed records.</returns>
+    List<T> ReadFileAsList(string filePath) => [.. ReadFile(filePath)];
+
+    /// <summary>Reads at most <paramref name="maxRecords"/> records from a file into a list.</summary>
+    /// <param name="filePath">The path to the input file.</param>
+    /// <param name="maxRecords">The maximum number of records to read.</param>
+    /// <returns>A list of parsed records.</returns>
+    List<T> ReadFileAsList(string filePath, int maxRecords) => [.. ReadFile(filePath, maxRecords)];
+
+    /// <summary>Reads all records from a string into a list.</summary>
+    /// <param name="content">The input string containing delimited or fixed-length data.</param>
+    /// <returns>A list of parsed records.</returns>
+    List<T> ReadStringAsList(string content) => [.. ReadString(content)];
+
+    /// <summary>Reads at most <paramref name="maxRecords"/> records from a string into a list.</summary>
+    /// <param name="content">The input string containing delimited or fixed-length data.</param>
+    /// <param name="maxRecords">The maximum number of records to read.</param>
+    /// <returns>A list of parsed records.</returns>
+    List<T> ReadStringAsList(string content, int maxRecords) => [.. ReadString(content, maxRecords)];
+
+    /// <summary>Reads all records from a TextReader into a list.</summary>
+    /// <param name="reader">The TextReader to read from.</param>
+    /// <returns>A list of parsed records.</returns>
+    List<T> ReadStreamAsList(TextReader reader) => [.. ReadStream(reader)];
+
+    /// <summary>Reads at most <paramref name="maxRecords"/> records from a TextReader into a list.</summary>
+    /// <param name="reader">The TextReader to read from.</param>
+    /// <param name="maxRecords">The maximum number of records to read.</param>
+    /// <returns>A list of parsed records.</returns>
+    List<T> ReadStreamAsList(TextReader reader, int maxRecords) => [.. ReadStream(reader, maxRecords)];
+#pragma warning restore MA0016
+
     /// <summary>Reads all records from a string.</summary>
     /// <param name="content">The input string containing delimited or fixed-length data.</param>
     /// <returns>An array of parsed records.</returns>

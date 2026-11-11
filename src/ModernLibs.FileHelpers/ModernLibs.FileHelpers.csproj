@@ -31,6 +31,12 @@
     <FileHelpersRuntimeAsync Condition="'$(FileHelpersRuntimeAsync)' == ''">true</FileHelpersRuntimeAsync>
     <Features Condition="'$(TargetFramework)' == 'net11.0' and '$(FileHelpersRuntimeAsync)' == 'true'">$(Features);runtime-async=on</Features>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- Features is not part of MSBuild's up-to-date check for CoreCompile; hashing it into the compile-inputs
+         cache (Microsoft.Common.CurrentVersion.targets, _GenerateCompileDependencyCache) makes a switch of
+         FileHelpersRuntimeAsync recompile without a clean or no-incremental build. -->
+    <CoreCompileCache Include="$(Features)" />
+  </ItemGroup>
   <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>

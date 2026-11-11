@@ -28,8 +28,8 @@ ModernLibs.FileHelpers.<version>.nupkg
   pin an older `LangVersion`.
 - The `net11.0` asset is compiled with runtime async (`Features=runtime-async=on`, set by the MSBuild
   property `FileHelpersRuntimeAsync`, default `true`, applied to `net11.0` only). Building with
-  `-p:FileHelpersRuntimeAsync=false` gives the escape-hatch build without it. MSBuild does not rebuild
-  when only this property changes, so add `--no-incremental` when you switch between the two.
+  `-p:FileHelpersRuntimeAsync=false` gives the escape-hatch build without it. The `Features` value is
+  hashed into the compile-inputs cache, so switching the property recompiles without `--no-incremental`.
 - `ModernLibs.FileHelpers.Generator.dll` contains both the source generator and the analyzer
   (`FileHelpersAnalyzer`) that reports the `MLFH` diagnostics; the generator reports only `MLFH020`
   itself. `MLFH` warnings can be suppressed as usual; errors that block the descriptor cannot

@@ -27,4 +27,22 @@ public sealed class DateFormatRuntimeParityTests
         await Assert.That(() => new DateOnlyConverter(format)).Throws<BadUsageException>();
         await Assert.That(() => new TimeOnlyConverter(format)).Throws<BadUsageException>();
     }
+
+    // Formats that pass DateFormat.Validate but are wrong for the type: TryParse must return false, not throw
+    // (.NET 11 changed what DateOnly/TimeOnly.TryParseExact do with such formats; design doc risk 9).
+    [Test]
+    [Arguments("HH:mm")]
+    [Arguments("t")]
+    public async Task DateOnlyConverter_TryParse_ReturnsFalse_ForATimeOnlyFormat(string format)
+    {
+        await Assert.That(new DateOnlyConverter(format).TryParse("2026-11-11", out _)).IsFalse();
+    }
+
+    [Test]
+    [Arguments("yyyy-MM-dd")]
+    [Arguments("d")]
+    public async Task TimeOnlyConverter_TryParse_ReturnsFalse_ForADateOnlyFormat(string format)
+    {
+        await Assert.That(new TimeOnlyConverter(format).TryParse("10:00:00", out _)).IsFalse();
+    }
 }

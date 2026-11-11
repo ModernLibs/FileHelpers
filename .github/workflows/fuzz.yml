@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       iterations:
-        description: 'Iterations of the extended fuzz target'
+        description: 'Iterations of the extended fuzz target; also records per shape of the differential target when above 20000'
         required: false
         default: '10000'
 
@@ -26,7 +26,8 @@ jobs:
   fuzz:
     name: Fuzz Testing
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # A manual run may ask for many differential records (about 75 s per 200000 records per target on a dev box).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 60 || 15 }}
 
     steps:
       - name: Checkout
@@ -82,6 +83,20 @@ jobs:
               --disable-logo \
               --output Detailed \
               --treenode-filter "/*/*/*/*[Category=Fuzz]"
+          done
+
+      # Differential fuzz: for each Compat49 record shape, the 4.9.1 descriptor and the current one read the same
+      # generated records; the target exits 1 with the input and both results at the first difference. 20000
+      # records per shape on every event; a manual run uses the iterations input when it is larger.
+      - name: Run differential fuzz target
+        env:
+          ITERATIONS: ${{ inputs.iterations }}
+        run: |
+          set -euo pipefail
+          records=20000
+          if [ "${ITERATIONS:-0}" -gt "$records" ]; then records="$ITERATIONS"; fi
+          for tfm in net10.0 net11.0; do
+            dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests/ -c Release --no-build -f "$tfm" -- differential "$records"
           done
 
       # Manual extended run; the iteration count comes from the workflow_dispatch input.

@@ -9,8 +9,24 @@
   <ItemGroup>
     <PackageReference Include="SharpFuzz" />
     <ProjectReference Include="../../src/ModernLibs.FileHelpers/ModernLibs.FileHelpers.csproj" />
+    <!-- The generator makes the descriptors of the ...Twin records of Compat49Twins.cs (target "differential"). -->
+    <ProjectReference Include="../../src/ModernLibs.FileHelpers.Generator/ModernLibs.FileHelpers.Generator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
   <ItemGroup>
     <None Include="FuzzCorpus\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Target "differential": the generator and the comparer of the TUnit suite, and the Compat49 matrix with what
+         it needs (the 4.9.1 descriptors of Generated49, the plain records, the twins, the write cases, the inputs). -->
+    <Compile Include="../ModernLibs.FileHelpers.Tests/Fuzz/DiffFuzz/LineGenerator.cs" Link="DiffFuzz/LineGenerator.cs" />
+    <Compile Include="../ModernLibs.FileHelpers.Tests/Fuzz/DiffFuzz/ReadComparer.cs" Link="DiffFuzz/ReadComparer.cs" />
+    <Compile Include="../ModernLibs.FileHelpers.Tests/Compat/Compat49Matrix.cs" Link="Compat/Compat49Matrix.cs" />
+    <Compile Include="../ModernLibs.FileHelpers.Tests/Compat/Compat49Inputs.cs" Link="Compat/Compat49Inputs.cs" />
+    <Compile Include="../ModernLibs.FileHelpers.Tests/Compat/Compat49Records.cs" Link="Compat/Compat49Records.cs" />
+    <Compile Include="../ModernLibs.FileHelpers.Tests/Compat/Compat49Twins.cs" Link="Compat/Compat49Twins.cs" />
+    <Compile Include="../ModernLibs.FileHelpers.Tests/Compat/Compat49WriteCases.cs" Link="Compat/Compat49WriteCases.cs" />
+    <Compile Include="../ModernLibs.FileHelpers.Tests/Compat/Generated49/*.g.cs" Link="Compat/Generated49/%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

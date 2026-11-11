@@ -5,6 +5,8 @@ using System.Text;
 using SharpFuzz;
 using ModernLibs.FileHelpers.Parsing;
 using ModernLibs.FileHelpers.Converters;
+using ModernLibs.FileHelpers.Tests.Compat;
+using ModernLibs.FileHelpers.Tests.Fuzz.DiffFuzz;
 
 namespace ModernLibs.FileHelpers.Fuzz.Tests;
 
@@ -15,7 +17,7 @@ public static class Program
         if (args.Length == 0)
         {
             Console.WriteLine("Usage: ModernLibs.FileHelpers.Fuzz.Tests <target>");
-            Console.WriteLine("Targets: delimited, spanline, fixedlength, converters, extended");
+            Console.WriteLine("Targets: delimited, spanline, fixedlength, converters, extended [iterations], differential <iterations> [seed]");
             return 0;
         }
 
@@ -24,6 +26,15 @@ public static class Program
         {
             int iterations = args.Length > 1 ? int.Parse(args[1], CultureInfo.InvariantCulture) : 10000;
             return ExtendedFuzzRunner.Run(iterations);
+        }
+
+        if (string.Equals(target, "differential", StringComparison.Ordinal))
+        {
+            if (args.Length < 2)
+                throw new ArgumentException("Usage: differential <iterations> [seed]", nameof(args));
+            int iterations = int.Parse(args[1], CultureInfo.InvariantCulture);
+            int seed = args.Length > 2 ? int.Parse(args[2], CultureInfo.InvariantCulture) : DifferentialSeed;
+            return RunDifferential(iterations, seed);
         }
 
         Action<Stream> fuzzAction = target switch
@@ -36,6 +47,51 @@ public static class Program
         };
 
         Fuzzer.OutOfProcess.Run(fuzzAction);
+        return 0;
+    }
+
+    /// <summary>The seed of <c>DifferentialFuzzTests</c>: its 2000 records are the first ones of a run.</summary>
+    private const int DifferentialSeed = 4910;
+
+    /// <summary>
+    /// For every shape of <see cref="Compat49Matrix"/>: reads <paramref name="iterations"/> generated records with
+    /// the 4.9.1 descriptor and with the current one, and stops at the first difference (exit code 1). The loop is
+    /// the one of <c>DifferentialFuzzTests.Snapshot_4_9_1_And_Current_Descriptor_Agree_On_Random_Input</c>.
+    /// </summary>
+    private static int RunDifferential(int iterations, int seed)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(iterations, 1);
+        Console.WriteLine($"Differential fuzz: 4.9.1 descriptor against the current one, {iterations} records per shape, seed {seed}");
+
+        foreach (var (name, readOld, readNew, _, _) in Compat49Matrix.All())
+        {
+            var generator = new LineGenerator(seed);
+            int fieldCount = Compat49Inputs.FieldCount(name);
+            int withRecord = 0, withError = 0;
+            string lastOld = string.Empty;
+            string ReadOld(string input) => lastOld = readOld(input);
+
+            for (int i = 0; i < iterations; i++)
+            {
+                lastOld = string.Empty;                           // stays empty when the old read throws
+                string? difference = ReadComparer.Compare(generator.NextRecord(fieldCount), ReadOld, readNew);
+                if (difference is not null)
+                {
+                    Console.WriteLine($"DIFFERENCE in {name} at record {i + 1} of seed {seed} (A: 4.9.1 descriptor, B: current descriptor)");
+                    Console.WriteLine(difference);
+                    return 1;
+                }
+
+                if (lastOld.StartsWith("record:", StringComparison.Ordinal) || lastOld.Contains("\nrecord:", StringComparison.Ordinal))
+                    withRecord++;
+                if (lastOld.StartsWith("error:", StringComparison.Ordinal) || lastOld.Contains("\nerror:", StringComparison.Ordinal))
+                    withError++;
+            }
+
+            Console.WriteLine($"  {name}: {iterations} equal; inputs with a record {withRecord}, with an error {withError}");
+        }
+
+        Console.WriteLine("Differential fuzz: no difference");
         return 0;
     }
 

@@ -151,6 +151,8 @@ jobs:
           done
 
       # Only the library is packed: the source generator ships inside it (analyzers/dotnet/cs).
+      # Package validation (EnablePackageValidation, baseline 4.9.1, set in the csproj) runs in this step:
+      # an API or compatibility break (CP diagnostic) is an error and fails the step, so nothing is published.
       - name: Pack
         run: >-
           dotnet pack src/ModernLibs.FileHelpers/ --no-build --configuration Release

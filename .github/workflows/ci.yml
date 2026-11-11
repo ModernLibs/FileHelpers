@@ -164,4 +164,28 @@ jobs:
           --disable-logo
           --treenode-filter "/*/*/*/*[Category=Fuzz]"
 
+  # A net10.0 library with generated descriptors, run by a net11.0 app that gets lib/net11.0 of the package.
+  consumer-smoke:
+    name: consumer-smoke
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # global.json pins SDK 11 (latestPatch roll-forward); 10.0.x provides the net10.0 runtime.
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+          dotnet-version: 10.0.x
+
+      # Packs the library (package validation against the 4.9.1 baseline runs in the pack), then restores
+      # and runs the smoke projects against that package from a private folder.
+      - name: Consumer smoke test
+        run: tests/ConsumerSmoke/run.sh "$RUNNER_TEMP/fh-smoke" 4.10.0-smoke
+
   # Stryker.NET runs in mutation.yml (manual and weekly), not on every push.

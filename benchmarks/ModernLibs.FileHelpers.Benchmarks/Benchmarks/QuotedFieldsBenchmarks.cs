@@ -67,8 +67,9 @@ public abstract class QuotedFieldsBenchmarksBase
     private FileHelperEngine<QuotedRecord> _engine = null!;
     private IVariableLengthReader<QuotedCompetitorRow> _recordParser = null!;
 
-    // RecordParser must be told that fields are quoted (it then unquotes them, like the other readers).
-    private static readonly VariableLengthReaderOptions s_recordParserOptions = new() { HasHeader = true, ContainsQuotedFields = true };
+    // RecordParser 2.3.0 is quote-aware by default (ContainsQuotedFields = true, set explicitly in RecordParserOptions) and
+    // parses on the thread pool by default; RecordParserOptions switches that off so all readers use one thread.
+    private static readonly VariableLengthReaderOptions s_recordParserOptions = RecordParserOptions.Variable();
 
     [Params(10_000, 100_000)]
     public int Rows { get; set; }
@@ -131,6 +132,7 @@ public abstract class QuotedFieldsBenchmarksBase
     public void SetupRecordParser()
     {
         Prepare();
+        RecordParserOptions.AssertSingleThreaded(_filePath, fixedWidth: false);
         CheckCompetitor("RecordParser", ReadAllRows_RecordParser());
     }
 
@@ -176,6 +178,7 @@ public abstract class QuotedFieldsBenchmarksBase
     public void SetupDiscardRecordParser()
     {
         Prepare();
+        RecordParserOptions.AssertSingleThreaded(_filePath, fixedWidth: false);
         CheckDiscard("RecordParser", RecordParser_ParseAndDiscard());
     }
 
@@ -230,7 +233,7 @@ public abstract class QuotedFieldsBenchmarksBase
     }
 
     // Tier A competitors (T11): FlameCsv (UTF-8 bytes, source-generated binding, quotes removed by default) and
-    // RecordParser (ContainsQuotedFields = true).
+    // RecordParser (quote-aware, single-threaded).
 
     [Benchmark]
     public IReadOnlyList<QuotedCompetitorRow> ReadAllRows_FlameCsv()

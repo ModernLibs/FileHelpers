@@ -106,6 +106,7 @@ public class FixedWidthComparisonBenchmarks
     public void SetupRecordParser()
     {
         Prepare();
+        RecordParserOptions.AssertSingleThreaded(_filePath, fixedWidth: true);
         var rows = ReadAllRows_RecordParser();
         DataCheck.FixedWidth("RecordParser", DataCheck.DataLines(_filePath, hasHeader: false), rows.Count, i => FixedRecordText.Of(rows[i]));
     }
@@ -114,6 +115,7 @@ public class FixedWidthComparisonBenchmarks
     public void SetupDiscardRecordParser()
     {
         Prepare();
+        RecordParserOptions.AssertSingleThreaded(_filePath, fixedWidth: true);
         DataCheck.Equal(DiscardChecksum.FixedIdLastChars(DataCheck.DataLines(_filePath, hasHeader: false)),
             RecordParser_ParseAndDiscard(), "RecordParser parse-and-discard checksum");
     }
@@ -167,7 +169,7 @@ public class FixedWidthComparisonBenchmarks
     {
         var results = new List<FixedRecord>(Rows);
         using var reader = new StreamReader(_filePath);
-        foreach (var r in reader.ReadRecords(new FixedLengthReaderOptions<FixedRecord> { Parser = _recordParser.Parse }))
+        foreach (var r in reader.ReadRecords(RecordParserOptions.Fixed(_recordParser.Parse)))
             results.Add(r);
         return results;
     }
@@ -177,7 +179,7 @@ public class FixedWidthComparisonBenchmarks
     {
         long checksum = 0;
         using var reader = new StreamReader(_filePath);
-        foreach (var r in reader.ReadRecords(new FixedLengthReaderOptions<FixedRecord> { Parser = _recordParser.Parse }))
+        foreach (var r in reader.ReadRecords(RecordParserOptions.Fixed(_recordParser.Parse)))
             checksum += r.Id[^1];
         return checksum;
     }

@@ -15,8 +15,7 @@ using TinyCsvParser.Models;
 
 namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks;
 
-// TinyCsvParser maps columns by index. Defaults of its converters parse int, long, bool and DateTime with the
-// current culture; the data is culture-neutral (digits, "True"/"False", ISO 8601 "s" dates).
+// TinyCsvParser maps columns by index. Its converters parse with the current culture; its setup pins the invariant one.
 internal sealed class PackageAssetTinyMapping : CsvMapping<PackageAssetRow>
 {
     public PackageAssetTinyMapping()
@@ -139,6 +138,7 @@ internal sealed class PackageAssetCursivelyVisitor(List<PackageAssetRow> rows) :
 public class TierBComparisonBenchmarks
 {
     private string _filePath = "";
+    private FlatFiles.TypeMapping.IDelimitedTypeMapper<PackageAssetRow> _flatMapper = null!;
 
     [Params(10_000, 100_000)]
     public int Rows { get; set; }
@@ -157,7 +157,14 @@ public class TierBComparisonBenchmarks
     public void SetupNReco() { Prepare(); Check("NReco", NReco_ReadAll()); }
 
     [GlobalSetup(Target = nameof(TinyCsvParser_ReadAll))]
-    public void SetupTinyCsvParser() { Prepare(); Check("TinyCsvParser", TinyCsvParser_ReadAll()); }
+    public void SetupTinyCsvParser()
+    {
+        Prepare();
+        // TinyCsvParser parses numbers and dates with the current culture; pin the invariant one, as the other readers use.
+        CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
+        CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
+        Check("TinyCsvParser", TinyCsvParser_ReadAll());
+    }
 
     [GlobalSetup(Target = nameof(Cursively_ReadAll))]
     public void SetupCursively() { Prepare(); Check("Cursively", Cursively_ReadAll()); }
@@ -166,7 +173,7 @@ public class TierBComparisonBenchmarks
     public void SetupLumenWorks() { Prepare(); Check("LumenWorks", LumenWorks_ReadAll()); }
 
     [GlobalSetup(Target = nameof(FlatFiles_ReadAll))]
-    public void SetupFlatFiles() { Prepare(); Check("FlatFiles", FlatFiles_ReadAll()); }
+    public void SetupFlatFiles() { Prepare(); _flatMapper = BuildFlatFilesMapper(); Check("FlatFiles", FlatFiles_ReadAll()); }
 
     [Benchmark]
     public IReadOnlyList<PackageAssetRow> NReco_ReadAll()
@@ -225,8 +232,8 @@ public class TierBComparisonBenchmarks
         return results;
     }
 
-    [Benchmark]
-    public IReadOnlyList<PackageAssetRow> FlatFiles_ReadAll()
+    // FlatFiles builds its mapper once, in the setup, like the other readers.
+    private static FlatFiles.TypeMapping.IDelimitedTypeMapper<PackageAssetRow> BuildFlatFilesMapper()
     {
         var mapper = DelimitedTypeMapper.Define(() => new PackageAssetRow());
         mapper.Property(x => x.Id);
@@ -254,8 +261,14 @@ public class TierBComparisonBenchmarks
         mapper.Property(x => x.RepositoryType);
         mapper.Property(x => x.RepositoryUrl);
         mapper.Property(x => x.RequireLicenseAcceptance);
+        return mapper;
+    }
+
+    [Benchmark]
+    public IReadOnlyList<PackageAssetRow> FlatFiles_ReadAll()
+    {
         var options = new DelimitedOptions { Separator = ",", IsFirstRecordSchema = true, FormatProvider = CultureInfo.InvariantCulture };
         using var stream = new StreamReader(_filePath);
-        return mapper.Read(stream, options).ToList();
+        return _flatMapper.Read(stream, options).ToList();
     }
 }

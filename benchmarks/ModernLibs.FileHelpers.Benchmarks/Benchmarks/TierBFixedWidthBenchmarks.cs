@@ -20,6 +20,7 @@ namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks;
 public class TierBFixedWidthBenchmarks
 {
     private string _filePath = "";
+    private FlatFiles.TypeMapping.IFixedLengthTypeMapper<FixedRecord> _flatMapper = null!;
     private IFixedLengthReader<FixedRecord> _recordParser = null!;
 
     [Params(10_000, 100_000)]
@@ -37,13 +38,13 @@ public class TierBFixedWidthBenchmarks
         DataCheck.FixedWidth(name, DataCheck.DataLines(_filePath, hasHeader: false), rows.Count, i => FixedRecordText.Of(rows[i]));
 
     [GlobalSetup(Target = nameof(FlatFiles_ReadAll))]
-    public void SetupFlatFiles() { Prepare(); Check("FlatFiles", FlatFiles_ReadAll()); }
+    public void SetupFlatFiles() { Prepare(); _flatMapper = BuildFlatFilesMapper(); Check("FlatFiles", FlatFiles_ReadAll()); }
 
     [GlobalSetup(Target = nameof(RecordParser_ReadAll))]
-    public void SetupRecordParser() { Prepare(); Check("RecordParser", RecordParser_ReadAll()); }
+    public void SetupRecordParser() { Prepare(); RecordParserOptions.AssertSingleThreaded(_filePath, fixedWidth: true); Check("RecordParser", RecordParser_ReadAll()); }
 
-    [Benchmark]
-    public IReadOnlyList<FixedRecord> FlatFiles_ReadAll()
+    // FlatFiles builds its mapper once, in the setup, like the other readers.
+    private static FlatFiles.TypeMapping.IFixedLengthTypeMapper<FixedRecord> BuildFlatFilesMapper()
     {
         var mapper = FixedLengthTypeMapper.Define(() => new FixedRecord());
         mapper.Property(x => x.Id, new Window(8)).Trim(false);
@@ -53,8 +54,14 @@ public class TierBFixedWidthBenchmarks
         mapper.Property(x => x.DecimalField, new Window(20)).Trim(false);
         mapper.Property(x => x.Code, new Window(5)).Trim(false);
         mapper.Property(x => x.Suffix, new Window(10)).Trim(false);
+        return mapper;
+    }
+
+    [Benchmark]
+    public IReadOnlyList<FixedRecord> FlatFiles_ReadAll()
+    {
         using var reader = new StreamReader(_filePath);
-        return mapper.Read(reader, new FixedLengthOptions()).ToList();
+        return _flatMapper.Read(reader, new FixedLengthOptions()).ToList();
     }
 
     [Benchmark]
@@ -62,7 +69,7 @@ public class TierBFixedWidthBenchmarks
     {
         var results = new List<FixedRecord>(Rows);
         using var reader = new StreamReader(_filePath);
-        foreach (var r in reader.ReadRecords(new FixedLengthReaderOptions<FixedRecord> { Parser = _recordParser.Parse }))
+        foreach (var r in reader.ReadRecords(RecordParserOptions.Fixed(_recordParser.Parse)))
             results.Add(r);
         return results;
     }

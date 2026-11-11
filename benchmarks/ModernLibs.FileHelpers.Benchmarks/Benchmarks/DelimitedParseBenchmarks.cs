@@ -175,6 +175,7 @@ public class DelimitedParseBenchmarks
 {
     private string _filePath = "";
     private FileHelperEngine<PackageAsset> _engine = null!;
+    private RecordParser.Parsers.IVariableLengthReader<PackageAssetRow> _recordParser = null!;
 
     [Params(10_000, 100_000, 1_000_000)]
     public int Rows { get; set; }
@@ -185,6 +186,7 @@ public class DelimitedParseBenchmarks
         Directory.CreateDirectory(dataDir);
         _filePath = DatasetGenerator.EnsurePackageAssets(dataDir, Rows);
         _engine = new FileHelperEngine<PackageAsset>();
+        _recordParser = RecordParserReaders.PackageAssets();
     }
 
     private void CheckFirstColumn(string name, int[] ids)
@@ -260,6 +262,52 @@ public class DelimitedParseBenchmarks
         Prepare();
         DataCheck.Equal(DiscardChecksum.IdSum(Rows), CsvHelper_ParseAndDiscard(), "CsvHelper parse-and-discard checksum");
     }
+
+    [GlobalSetup(Target = nameof(ReadAllRows_FlameCsv))]
+    public void SetupAllRowsFlameCsv()
+    {
+        Prepare();
+        var rows = ReadAllRows_FlameCsv();
+        DataCheck.PackageAssets("FlameCsv", DataCheck.DataLines(_filePath, hasHeader: true), rows.Count, i => PackageAssetColumns.Of(rows[i]));
+    }
+
+    [GlobalSetup(Target = nameof(ReadAllRows_RecordParser))]
+    public void SetupAllRowsRecordParser()
+    {
+        Prepare();
+        RecordParserOptions.AssertSingleThreaded(_filePath, fixedWidth: false);
+        var rows = ReadAllRows_RecordParser();
+        DataCheck.PackageAssets("RecordParser", DataCheck.DataLines(_filePath, hasHeader: true), rows.Count, i => PackageAssetColumns.Of(rows[i]));
+    }
+
+    [GlobalSetup(Target = nameof(FlameCsv_ParseAndDiscard))]
+    public void SetupDiscardFlameCsv()
+    {
+        Prepare();
+        DataCheck.Equal(DiscardChecksum.IdSum(Rows), FlameCsv_ParseAndDiscard(), "FlameCsv parse-and-discard checksum");
+    }
+
+    [GlobalSetup(Target = nameof(RecordParser_ParseAndDiscard))]
+    public void SetupDiscardRecordParser()
+    {
+        Prepare();
+        RecordParserOptions.AssertSingleThreaded(_filePath, fixedWidth: false);
+        DataCheck.Equal(DiscardChecksum.IdSum(Rows), RecordParser_ParseAndDiscard(), "RecordParser parse-and-discard checksum");
+    }
+
+    // Tier A competitors (T11): FlameCsv reads UTF-8 bytes, RecordParser runs on one thread (see BENCHMARKS.md).
+
+    [Benchmark]
+    public IReadOnlyList<PackageAssetRow> ReadAllRows_FlameCsv() => CompetitorRuns.FlamePackageAssets(_filePath, Rows);
+
+    [Benchmark]
+    public IReadOnlyList<PackageAssetRow> ReadAllRows_RecordParser() => CompetitorRuns.RecordParserPackageAssets(_recordParser, _filePath, Rows);
+
+    [Benchmark]
+    public long FlameCsv_ParseAndDiscard() => CompetitorRuns.FlamePackageAssetsDiscard(_filePath);
+
+    [Benchmark]
+    public long RecordParser_ParseAndDiscard() => CompetitorRuns.RecordParserPackageAssetsDiscard(_recordParser, _filePath);
 
     [Benchmark(Baseline = true)]
     public PackageAsset[] ReadAllRows_FileHelpers() => _engine.ReadFile(_filePath);

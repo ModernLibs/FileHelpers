@@ -71,6 +71,7 @@ public class FixedWidthParseBenchmarks
     private string _filePath = "";
     private FileHelperEngine<FixedRecord> _classEngine = null!;
     private FileHelperEngine<FixedRecordStruct> _structEngine = null!;
+    private RecordParser.Parsers.IFixedLengthReader<FixedRecord> _recordParser = null!;
 
     [Params(10_000, 100_000)]
     public int Rows { get; set; }
@@ -82,6 +83,7 @@ public class FixedWidthParseBenchmarks
         _filePath = DatasetGenerator.EnsureFixedWidth(dataDir, Rows);
         _classEngine = new FileHelperEngine<FixedRecord>();
         _structEngine = new FileHelperEngine<FixedRecordStruct>();
+        _recordParser = RecordParserReaders.Fixed();
     }
 
     // Correctness guard: every benchmark must parse the file it measures. BenchmarkDotNet runs each benchmark
@@ -133,6 +135,32 @@ public class FixedWidthParseBenchmarks
         DataCheck.Equal(DiscardChecksum.FixedIdLastChars(DataCheck.DataLines(_filePath, hasHeader: false)),
             CsvHelper_ParseAndDiscard(), "CsvHelper parse-and-discard checksum");
     }
+
+    [GlobalSetup(Target = nameof(ReadAllRows_RecordParser))]
+    public void SetupRecordParser()
+    {
+        Prepare();
+        RecordParserOptions.AssertSingleThreaded(_filePath, fixedWidth: true);
+        var rows = ReadAllRows_RecordParser();
+        DataCheck.FixedWidth("RecordParser", DataCheck.DataLines(_filePath, hasHeader: false), rows.Count, i => FixedRecordText.Of(rows[i]));
+    }
+
+    [GlobalSetup(Target = nameof(RecordParser_ParseAndDiscard))]
+    public void SetupDiscardRecordParser()
+    {
+        Prepare();
+        RecordParserOptions.AssertSingleThreaded(_filePath, fixedWidth: true);
+        DataCheck.Equal(DiscardChecksum.FixedIdLastChars(DataCheck.DataLines(_filePath, hasHeader: false)),
+            RecordParser_ParseAndDiscard(), "RecordParser parse-and-discard checksum");
+    }
+
+    // Tier A competitor (T11): RecordParser on one thread (see BENCHMARKS.md); FlameCsv has no fixed-width mode.
+
+    [Benchmark]
+    public IReadOnlyList<FixedRecord> ReadAllRows_RecordParser() => CompetitorRuns.RecordParserFixed(_recordParser, _filePath, Rows);
+
+    [Benchmark]
+    public long RecordParser_ParseAndDiscard() => CompetitorRuns.RecordParserFixedDiscard(_recordParser, _filePath);
 
     [Benchmark(Baseline = true)]
     public FixedRecord[] ReadAllRows_Class() => _classEngine.ReadFile(_filePath);

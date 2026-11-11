@@ -152,15 +152,26 @@ methods measure parsing on its own; they are the primary metric of the 4.10 read
 ### Competitor libraries added in 4.10 (T11)
 
 **Tier A**: FlameCsv 0.3.1 and RecordParser 2.3.0 have `ReadAllRows_<Library>` and
-`<Library>_ParseAndDiscard` methods in `DelimitedComparisonBenchmarks`, `QuotedFieldsBenchmarks` (and so
-`QuotedFieldsPeriodicBenchmarks`) and, for RecordParser only, `FixedWidthComparisonBenchmarks` (FlameCsv has no
-fixed-width mode). `DelimitedParseBenchmarks`, `SepComparisonBenchmarks` and `FixedWidthParseBenchmarks` do not
-have them yet. Every method reads into the same row type as the other readers and passes the same `DataCheck`.
+`<Library>_ParseAndDiscard` methods in `DelimitedParseBenchmarks`, `SepComparisonBenchmarks`,
+`DelimitedComparisonBenchmarks`, `QuotedFieldsBenchmarks` (and so `QuotedFieldsPeriodicBenchmarks`), and, for
+RecordParser only, in `FixedWidthParseBenchmarks` and `FixedWidthComparisonBenchmarks` (FlameCsv has no fixed-width
+mode). Every method reads into the same row type as the other readers and passes the same `DataCheck`. The filters
+`*FlameCsv*` and `*RecordParser*` select every method of a library (the read methods are `ReadAllRows_<Library>`, so a
+filter like `*FlameCsv_*` misses them).
+
+**RecordParser runs on one thread.** RecordParser 2.3.0 parses on the thread pool by default
+(`ParallelismOptions.Enabled` is true, one worker per core, original order kept), while every other library here is
+single-threaded. All RecordParser benchmarks get their options from `RecordParserOptions` with
+`ParallelismOptions = new() { Enabled = false }`, so all libraries run on one thread. There is no parallel variant.
+The setup of each RecordParser method calls `RecordParserOptions.AssertSingleThreaded`, which parses the first 20,000
+lines with the same options and a parser that records its thread, and fails the setup unless only the calling thread
+ran (with parallel processing on it reports 24 threads).
 
 **Tier B**: one table each, one `<Library>_ReadAll` method per library, with 10K and 100K rows:
 `TierBComparisonBenchmarks` (25-column delimited file: NReco.Csv 1.0.3, TinyCsvParser 3.0.12, Cursively 1.2.0,
 LumenWorksCsvReader 4.0.0, FlatFiles 5.0.4) and `TierBFixedWidthBenchmarks` (FlatFiles 5.0.4, RecordParser 2.3.0).
-There are no parse-and-discard twins for tier B.
+There are no parse-and-discard twins for tier B and no ModernLibs.FileHelpers row; read them against the same file and
+`Rows` in `DelimitedParseBenchmarks` and `FixedWidthParseBenchmarks`.
 
 Differences between the libraries that the mapping cannot remove:
 
@@ -170,9 +181,10 @@ Differences between the libraries that the mapping cannot remove:
 - NReco.Csv, LumenWorks and Cursively only deliver text fields. The benchmark converts them with `int.Parse`,
   `long.Parse`, `bool.Parse` and `DateTime.Parse` (invariant culture) through one shared `switch`, which is the
   work the object mappers of the other libraries do internally.
-- TinyCsvParser maps by column index and checks every row's result (`IsSuccess`). FlatFiles builds its mapper inside
-  the measured method (once per call), the others build theirs in the setup; at these sizes that is below 1 %.
-- RecordParser needs `ContainsQuotedFields = true` to unquote, set only for the quoted datasets.
+- TinyCsvParser maps by column index and checks every row's result (`IsSuccess`); its converters use the current
+  culture, which its setup sets to the invariant one. FlatFiles and RecordParser build their mappers in the setup.
+- RecordParser is quote-aware by default (`ContainsQuotedFields` is true in 2.3.0); it is set explicitly, for the
+  PackageAssets files too, because every other CSV reader is quote-aware.
 - The fixed-width mappings keep the padding (no trim), like `FixedRecord`.
 
 ### Libraries not included

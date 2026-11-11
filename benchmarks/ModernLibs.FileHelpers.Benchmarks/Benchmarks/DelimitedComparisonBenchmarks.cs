@@ -125,6 +125,7 @@ public class DelimitedComparisonBenchmarks
     public void SetupRecordParser()
     {
         Prepare();
+        RecordParserOptions.AssertSingleThreaded(_filePath, fixedWidth: false);
         var rows = ReadAllRows_RecordParser();
         DataCheck.PackageAssets("RecordParser", DataCheck.DataLines(_filePath, hasHeader: true), rows.Count, i => PackageAssetColumns.Of(rows[i]));
     }
@@ -140,6 +141,7 @@ public class DelimitedComparisonBenchmarks
     public void SetupDiscardRecordParser()
     {
         Prepare();
+        RecordParserOptions.AssertSingleThreaded(_filePath, fixedWidth: false);
         DataCheck.Equal(DiscardChecksum.IdSum(Rows), RecordParser_ParseAndDiscard(), "RecordParser parse-and-discard checksum");
     }
 
@@ -199,7 +201,7 @@ public class DelimitedComparisonBenchmarks
     {
         var results = new List<PackageAssetRow>(Rows);
         using var reader = new StreamReader(_filePath);
-        foreach (var r in reader.ReadRecords(_recordParser, new VariableLengthReaderOptions { HasHeader = true }))
+        foreach (var r in reader.ReadRecords(_recordParser, RecordParserOptions.Variable()))
             results.Add(r);
         return results;
     }
@@ -219,7 +221,7 @@ public class DelimitedComparisonBenchmarks
     {
         long checksum = 0;
         using var reader = new StreamReader(_filePath);
-        foreach (var r in reader.ReadRecords(_recordParser, new VariableLengthReaderOptions { HasHeader = true }))
+        foreach (var r in reader.ReadRecords(_recordParser, RecordParserOptions.Variable()))
             checksum += r.Id;
         return checksum;
     }

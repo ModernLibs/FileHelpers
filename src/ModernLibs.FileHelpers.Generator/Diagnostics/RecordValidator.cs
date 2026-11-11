@@ -91,13 +91,16 @@ internal static class RecordValidator
     /// <summary>
     /// MLFH033: a [FieldQuoted] field whose explicit [FieldTrim] list holds the quote character, with a trim mode that
     /// strips the left side (Left or Both) and a quote mode that reads quotes (OptionalForRead or AlwaysQuoted). The
-    /// opening quote is stripped, so the value is read with a trailing quote or the read throws. Non-suppressing.
+    /// opening quote is stripped, so the value is read with a trailing quote or the read throws. Not reported with
+    /// TrimGivenChars: the quote character is then not skipped before the opening quote (the quoted value is recognised)
+    /// and is trimmed from the value after unquoting, which is what the list asks for. Non-suppressing.
     /// </summary>
     private static void ReportTrimCharsContainQuote(RecordModel model, ReportValidation report)
     {
         foreach (var field in model.Fields)
         {
             if (field.IsHidden || !field.IsQuoted || !field.ExplicitTrimChars || string.IsNullOrEmpty(field.TrimChars)) continue;
+            if (field.TrimGivenChars) continue;                 // quote recognised, then trimmed after unquoting
             if (field.TrimMode is not (1 or 2)) continue;       // Both, Left
             if (field.QuoteMode is not (0 or 1)) continue;      // AlwaysQuoted, OptionalForRead
             if (field.TrimChars!.IndexOf(field.QuoteChar) < 0) continue;
@@ -137,7 +140,9 @@ internal static class RecordValidator
     /// <summary>
     /// MLFH032: explicit [FieldTrim] characters that occur in the delimiter that follows the field (the quote character
     /// is MLFH033). One diagnostic per field. White space in a longer delimiter is ignored: white space is trimmed
-    /// anyway, and delimiters such as " | " are common. Non-suppressing.
+    /// anyway, and delimiters such as " | " are common. Reported as Info with and without TrimGivenChars: without it the
+    /// character is inert on unquoted values; with it the character is trimmed from quoted values, which the list asks
+    /// for but which may be a slip. Non-suppressing.
     /// </summary>
     private static void ReportTrimCharsCollide(RecordModel model, ReportValidation report)
     {

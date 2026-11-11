@@ -43,6 +43,16 @@ The numeric converters are `ByteConverter`, `SByteConverter`, `Int16Converter`, 
 `DateTimeConverter`, `DateOnlyConverter`, `TimeOnlyConverter`, `DateTimeOffsetConverter` and
 `TimeSpanConverter`.
 
+### Added in 4.10
+
+| Member | Bound at |
+|---|---|
+| `FieldDescriptor.TrimGivenChars` `init` accessor, as an object initializer `new(...) { TrimGivenChars = true }` | `EmitFieldDescriptors` in `DescriptorEmitter.cs`; emitted only for a field with `[FieldTrim(..., TrimGivenChars = true)]`, so the code of every other record is unchanged |
+
+A descriptor that sets it needs a 4.10 or later runtime, like any new API. The read helpers of the runtime
+(`RecordParsing.IndexOfLineBreak` and the engine's quote scan) read the flag; with the default `false` they
+behave as in 4.9.1.
+
 A record whose attributes have errors that the build hides gets a descriptor from
 `src/ModernLibs.FileHelpers.Generator/Emission/InvalidRecordEmitter.cs` instead. It binds to a subset of the
 table: `IRecordDescriptor<T>` (`InvalidRecordEmitter:46`) and its five members (`:52-56`), `BadUsageException(string)`

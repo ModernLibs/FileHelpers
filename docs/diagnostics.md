@@ -840,7 +840,21 @@ For an unquoted field the characters change nothing in either version. For a quo
 differ: 3.5.2 throws on every quoted value and 4.9.1 reads them. The 3.5.2 behaviour is not a misread in
 4.9.1, so the rule is informational.
 
-**Fix:** remove the delimiter character from the list.
+**With `TrimGivenChars = true`** (4.10, opt-in) the listed characters are trimmed from the value after
+unquoting, so the delimiter character now really strips content, but only from quoted values (an unquoted
+value cannot contain a one-character delimiter): `"a,b,"` reads as `a,b`, where the default reads `a,b,`.
+The rule stays Info and is reported with and without the option: the option asks for exactly the
+characters in the list to be trimmed, so a delimiter character there may be intended (a trailing comma in
+quoted address lines), and a warning would fail builds that use `TreatWarningsAsErrors` for a deliberate
+layout. The diagnostic still points at the character in case it is a slip.
+
+| Layout (`TrimGivenChars = true`, ModernLibs.FileHelpers 4.10) | Result |
+|--------|--------|
+| delimiter `,` and space in the list, `[FieldQuoted]`, input `"a,b,",y` | `a,b` |
+| the same, unquoted input ` x ,y` | `x` |
+
+**Fix:** remove the delimiter character from the list, or keep it (with `TrimGivenChars`) if trimming it from
+quoted values is intended.
 
 ## MLFH033
 
@@ -872,5 +886,16 @@ back):
 
 Both versions misread or fail, so the rule is a warning.
 
-**Fix:** remove the quote character from the `[FieldTrim]` list. The quotes are removed by `[FieldQuoted]`
-anyway.
+**Not reported with `TrimGivenChars = true`** (4.10, opt-in). With the option the quote character is left out
+of the characters skipped in front of the opening quote, so the quoted value is recognised (escaped quotes and
+delimiters inside it work), and the quote character is then trimmed from the value after unquoting, as the
+list asks:
+
+| Layout (`[FieldQuoted]`, `[FieldTrim(TrimMode.Both, '"', ' ', TrimGivenChars = true)]`, 4.10) | Result |
+|--------|--------|
+| `"x",y` | `x` (the default reads `x"`) |
+| `"a,b",y` | `a,b`, and `y` in the next field |
+| `"""q""",y` | `q` (unescaped to `"q"`, then trimmed) |
+
+**Fix:** remove the quote character from the `[FieldTrim]` list (the quotes are removed by `[FieldQuoted]`
+anyway), use `TrimMode.Right`, or set `TrimGivenChars = true` to trim it from the value after unquoting.

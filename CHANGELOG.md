@@ -19,6 +19,19 @@ file.
 
 ## [Unreleased]
 
+### Added
+
+- **`[FieldTrim(..., TrimGivenChars = true)]` trims the given characters from the value on read.**
+  As in FileHelpers 3.x, the characters of `[FieldTrim(mode, chars...)]` are not trimmed from the value
+  by default: only white space is, and the characters are skipped only in front of the opening quote of a
+  `[FieldQuoted]` field. With the new opt-in property they are trimmed per `TrimMode` after quote removal,
+  for quoted and unquoted values: `[FieldTrim(TrimMode.Both, 'x', ' ', TrimGivenChars = true)]` reads
+  `xxCODExx ` and (with `[FieldQuoted]`) `"xx CODE xx"` as `CODE`. A quote character in the list is trimmed
+  after unquoting and no longer reported as `MLFH033`. Writing is unchanged. Without the property, reading
+  and the generated code are exactly as in 4.9.1. See the
+  [migration guide](docs/MIGRATION.md#trim-characters-and-trimgivenchars).
+  New members: `FieldTrimAttribute.TrimGivenChars`, `FieldDescriptor.TrimGivenChars`.
+
 ## [4.9.1] - 2026-11-11
 
 Runtime-only patch: the public API and the generated code are the same as in 4.9.0, so libraries

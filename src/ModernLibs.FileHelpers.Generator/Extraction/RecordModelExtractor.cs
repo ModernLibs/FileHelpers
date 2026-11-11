@@ -760,6 +760,11 @@ internal static class RecordModelExtractor
                     data.TrimMode = tm;
                     data.TrimChars = ReadTrimChars(mAttr);
                     data.ExplicitTrimChars = mAttr.ConstructorArguments.Length >= 2 && mAttr.ConstructorArguments[1].Kind == TypedConstantKind.Array && !mAttr.ConstructorArguments[1].IsNull;
+                    foreach (var namedArg in mAttr.NamedArguments)
+                    {
+                        if (string.Equals(namedArg.Key, "TrimGivenChars", StringComparison.Ordinal) && namedArg.Value.Value is bool given)
+                            data.TrimGivenChars = given;
+                    }
                     break;
                 case "ModernLibs.FileHelpers.FieldOptionalAttribute":
                     data.IsOptional = true;
@@ -1339,6 +1344,7 @@ internal static class RecordModelExtractor
         public int? TrimMode;
         public string? TrimChars;
         public bool ExplicitTrimChars;
+        public bool TrimGivenChars;
         public bool IsOptional;
         public bool IsHidden;
         public bool IsValueDiscarded;
@@ -1410,7 +1416,8 @@ internal static class RecordModelExtractor
                 Assign: IsCtorBound ? FieldAssignKind.Constructor : Assign,
                 Location: Location,
                 TrimChars: TrimChars,
-                ExplicitTrimChars: ExplicitTrimChars);
+                ExplicitTrimChars: ExplicitTrimChars,
+                TrimGivenChars: TrimGivenChars);
         }
     }
 }

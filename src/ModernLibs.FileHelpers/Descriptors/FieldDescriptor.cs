@@ -54,8 +54,8 @@ namespace ModernLibs.FileHelpers;
 /// </param>
 /// <param name="TrimChars">
 /// The [FieldTrim] characters skipped before an opening quote (Left/Both) and after a closing quote
-/// (Right/Both) of a quoted field (FileHelpers 3.x). <see langword="null"/> means spaces and tabs.
-/// Default: <see langword="null"/>.
+/// (Right/Both) of a quoted field (FileHelpers 3.x), and trimmed from the value when <see cref="TrimGivenChars"/> is set.
+/// <see langword="null"/> means spaces and tabs. Default: <see langword="null"/>.
 /// </param>
 [method: EditorBrowsable(EditorBrowsableState.Never)]
 public readonly record struct FieldDescriptor(
@@ -72,4 +72,16 @@ public readonly record struct FieldDescriptor(
     TrimMode TrimMode = TrimMode.None,
     char QuoteChar = '\0',
     MultilineMode QuoteMultiline = MultilineMode.AllowForBoth,
-    string? TrimChars = null);
+    string? TrimChars = null)
+{
+    /// <summary>
+    /// The [FieldTrim] <c>TrimGivenChars</c> option: the generated parser trims <see cref="TrimChars"/> from the value on
+    /// read (after quote removal) instead of white space, and the quote character is not skipped before an opening
+    /// quote. <see langword="false"/> (FileHelpers 3.x behaviour) unless the option is set.
+    /// </summary>
+    /// <remarks>
+    /// Not a constructor parameter, so the constructor that generated code binds to stays unchanged; generated code
+    /// sets it with an object initializer only for fields that use the option.
+    /// </remarks>
+    public bool TrimGivenChars { get; init; }
+}

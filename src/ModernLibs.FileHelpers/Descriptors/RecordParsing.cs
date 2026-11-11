@@ -93,7 +93,9 @@ public static class RecordParsing
             // 3.x trims the start of the field before looking for the quote.
             string trimChars = field.TrimChars ?? " \t";
             string delimiter = field.Delimiter ?? recordDelimiter;
-            while (i < text.Length && trimChars.Contains(text[i], StringComparison.Ordinal) && !text[i..].StartsWith(delimiter, StringComparison.Ordinal))
+            // [FieldTrim(TrimGivenChars = true)]: the quote char is trimmed after unquoting, never skipped before the quote.
+            bool keepQuote = field.TrimGivenChars;
+            while (i < text.Length && !(keepQuote && text[i] == field.QuoteChar) && trimChars.Contains(text[i], StringComparison.Ordinal) && !text[i..].StartsWith(delimiter, StringComparison.Ordinal))
                 i++;
         }
 

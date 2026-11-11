@@ -166,7 +166,7 @@ Attribute names and the common constructors are unchanged. These signatures diff
 |---|---|
 | `[DelimitedRecord(delimiter, defaultCultureName)]`, `[FixedLengthRecord(fixedMode, defaultCultureName)]` | No culture parameter. Set the culture per field: `[FieldConverter(ConverterKind.Decimal, CultureName = "de-DE")]`. |
 | `[IgnoreCommentedLines("#")]`, `[IgnoreCommentedLines("//", anyPlace)]` (string marker) | `[IgnoreCommentedLines('#')]`, `[IgnoreCommentedLines('#', anyPlace)]`: the marker is a single `char`. `anyPlace` works as in 3.x (default `true`: blanks may precede the marker). |
-| `[FieldTrim(TrimMode, string trimChars)]` | `[FieldTrim(TrimMode, params char[] chars)]`, for example `[FieldTrim(TrimMode.Both, ' ', '*')]`. As in 3.x, the characters are skipped only around the quotes of a `[FieldQuoted]` field; the value itself is trimmed of white space. |
+| `[FieldTrim(TrimMode, string trimChars)]` | `[FieldTrim(TrimMode, params char[] chars)]`, for example `[FieldTrim(TrimMode.Both, ' ', '*')]`. As in 3.x, the characters are skipped only around the quotes of a `[FieldQuoted]` field; the value itself is trimmed of white space. Since 4.10, `TrimGivenChars = true` trims the given characters from the value instead (opt-in, see [3.x trim characters](#trim-characters-and-trimgivenchars)). |
 | `[FieldNullValue(typeof(DateTime), "2000-01-01")]` | Not available. Use a constant of the field type, for example `[FieldNullValue(-1)]` on an `int` field or `[FieldNullValue(0.0)]` on a `double` field. A value that does not fit the field type is reported as `MLFH010`. A `DateTime` value cannot be an attribute constant: declare the field as `DateTime?` (an empty field reads as `null`) and substitute the default in your code. |
 | `[FieldConverter(typeof(MyConverter), params object[] args)]` | `[FieldConverter(typeof(MyConverter), params string[] args)]`: the arguments must be strings. See [3.8](#38-custom-converters). |
 | `RecordCondition.IncludeIfMatchRegex`, `RecordCondition.ExcludeIfMatchRegex` | `RecordCondition.IncludeIfRegex`, `RecordCondition.ExcludeIfRegex` |
@@ -188,6 +188,39 @@ the multiline setting of every `[FieldQuoted]` field in the record.
 
 Enum *numeric values* are not always the same as in 3.x (`ErrorMode`, `RecordAction`, `ConverterKind`).
 This only matters if you store or cast the numbers; use the names.
+
+#### Trim characters and TrimGivenChars
+
+The characters of `[FieldTrim(mode, chars...)]` are **not** trimmed from the value in FileHelpers 3.x, and
+they are not by default here either (checked against 3.5.2: 48 of 48 read cases match):
+
+- On an unquoted value only white space is trimmed: `[FieldTrim(TrimMode.Both, 'x', ' ')]` reads
+  `xxCODExx ` as `xxCODExx`.
+- The characters act only on a `[FieldQuoted]` field (`OptionalForRead` or `AlwaysQuoted`), and only as a
+  run that is skipped in front of the optional opening quote (`Left`/`Both`) or after the closing quote
+  (`Right`/`Both`). An unquoted `xxCODExx ` then reads as `CODExx`; inside quotes nothing but white space is
+  trimmed (`"xxCODExx"` reads as `xxCODExx`).
+
+To trim the given characters, opt in with `TrimGivenChars` (new in 4.10, read only):
+
+```csharp
+[DelimitedRecord(",")]
+public class Row
+{
+    [FieldQuoted('"', QuoteMode.OptionalForRead)]
+    [FieldTrim(TrimMode.Both, 'x', ' ', TrimGivenChars = true)]
+    public string Code = "";   // xxCODExx ,  "xxCODExx" ,  xx CODE xx  and  "  xxCODExx  "  all read as CODE
+    public string Other = "";
+}
+```
+
+With the option the given characters (the 3.x white-space set when none are given) are trimmed per
+`TrimMode` after quote removal, for quoted and unquoted values. They replace the white-space trim, so a
+space that is not in the list stops the trim: with `'x'` alone, ` xxCODExx` reads as ` xxCODE`. A quote
+character in the list is not skipped before the opening quote (the quoted value is still recognised) and is
+trimmed after unquoting. A delimiter character in the list is trimmed from quoted values (`"a,b,"` reads as
+`a,b`; reported as [MLFH032](diagnostics.md#mlfh032)). With `TrimMode.None` the option does nothing, and an
+empty list trims nothing. Values are never trimmed on write.
 
 ### 2.6 Multi-record files
 

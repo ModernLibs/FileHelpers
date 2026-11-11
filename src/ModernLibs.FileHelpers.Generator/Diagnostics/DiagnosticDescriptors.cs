@@ -426,18 +426,18 @@ internal static class DiagnosticDescriptors
         category: "FileHelpers.Generator",
         defaultSeverity: DiagnosticSeverity.Info,
         isEnabledByDefault: true,
-        description: "The explicit characters of [FieldTrim] are not trimmed from unquoted values (only white space is). They are stripped in front of the opening quote of a quoted field. A delimiter character in the list therefore has no effect on an unquoted field. On a quoted field FileHelpers 3.5.2 throws on every value, while this library reads them. The descriptor is still emitted.",
+        description: "The explicit characters of [FieldTrim] are not trimmed from unquoted values (only white space is). They are stripped in front of the opening quote of a quoted field. A delimiter character in the list therefore has no effect on an unquoted field. On a quoted field FileHelpers 3.5.2 throws on every value, while this library reads them. With [FieldTrim(..., TrimGivenChars = true)] the characters are trimmed from the value after unquoting, so a delimiter character in the list is stripped from the start or end of quoted values (\"a,b,\" reads as a,b); the rule stays Info because the list asks for that trim. The descriptor is still emitted.",
         helpLinkUri: "https://github.com/ModernLibs/FileHelpers/blob/main/docs/diagnostics.md#mlfh032");
 
     /// <summary>MLFH033: the explicit [FieldTrim] characters of a [FieldQuoted] field contain the quote character.</summary>
     internal static readonly DiagnosticDescriptor MLFH033TrimCharsContainQuote = new(
         id: "MLFH033",
         title: "Trim characters contain the quote character",
-        messageFormat: "Field '{0}' in type '{1}' is quoted with {2} and its [FieldTrim] characters contain {2}, which strips the opening quote, so the value is read with a trailing quote or the read throws. How to fix: Remove the quote character from the [FieldTrim] list, or use TrimMode.Right.",
+        messageFormat: "Field '{0}' in type '{1}' is quoted with {2} and its [FieldTrim] characters contain {2}, which strips the opening quote, so the value is read with a trailing quote or the read throws. How to fix: Remove the quote character from the [FieldTrim] list, use TrimMode.Right, or set TrimGivenChars = true to trim it from the value after unquoting.",
         category: "FileHelpers.Generator",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "A leading run of the explicit [FieldTrim] characters is stripped in front of the opening quote of a quoted field. When the list contains the quote character (and the trim mode is Left or Both, and the quote mode is OptionalForRead or AlwaysQuoted), the opening quote is stripped: every non-empty value the engine writes is read back with a trailing quote (OptionalForRead) or the read throws (AlwaysQuoted), in this library and in FileHelpers 3.x alike. The descriptor is still emitted.",
+        description: "A leading run of the explicit [FieldTrim] characters is stripped in front of the opening quote of a quoted field. When the list contains the quote character (and the trim mode is Left or Both, and the quote mode is OptionalForRead or AlwaysQuoted), the opening quote is stripped: every non-empty value the engine writes is read back with a trailing quote (OptionalForRead) or the read throws (AlwaysQuoted), in this library and in FileHelpers 3.x alike. Not reported with [FieldTrim(..., TrimGivenChars = true)]: the quote character is then not skipped before the opening quote, and it is trimmed from the value after unquoting. The descriptor is still emitted.",
         helpLinkUri: "https://github.com/ModernLibs/FileHelpers/blob/main/docs/diagnostics.md#mlfh033");
 
     /// <summary>Descriptors reported from <c>DiagnosticInfo</c> models, by id.</summary>

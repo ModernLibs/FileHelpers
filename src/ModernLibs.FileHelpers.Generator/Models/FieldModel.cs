@@ -56,5 +56,6 @@ internal sealed record FieldModel(
     FieldAssignKind Assign = FieldAssignKind.Setter,                    // How the parsed value reaches the record
     LocationInfo? Location = null,                                      // Member declaration location for diagnostics
     string? TrimChars = null,                                           // [FieldTrim] chars (3.x default whitespace set when none given)
-    bool ExplicitTrimChars = false)                                     // [FieldTrim] lists its characters explicitly (not the default whitespace set)
+    bool ExplicitTrimChars = false,                                     // [FieldTrim] lists its characters explicitly (not the default whitespace set)
+    bool TrimGivenChars = false)                                        // [FieldTrim(TrimGivenChars = true)]: TrimChars are trimmed from the value on read
     : IEquatable<FieldModel>;

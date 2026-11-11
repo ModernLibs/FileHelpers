@@ -13,8 +13,9 @@ namespace ModernLibs.FileHelpers.Tests.Fuzz.DiffFuzz;
 /// quote 8, quoted with the delimiter 5, quoted with a line break 3, a quote not at the field start 3, blanks
 /// around a quoted field 3, text after the closing quote 2, plain text with a non-ASCII char 1.</para>
 /// <para>Each record is one of (weight in percent): the asked field count 85, one field short 5, one field extra
-/// 5, an unclosed quote 3 (one field opens a quote and the fields after it have no quote char, so the record ends
-/// inside the quote), an empty line 2.</para>
+/// 5, an unclosed quote 3 (one field opens a quote and the fields after it have no quote char; the fields before
+/// it are ordinary fields and may hold quote chars of their own, so the record usually, not always, ends inside a
+/// quote), an empty line 2.</para>
 /// <para>Plain text never holds the delimiter, the quote char or a line break. It is a word, a number, a bool, a
 /// date, a hex number, text with blanks around it, text with the separators of other record shapes
 /// (<c>; | : # -</c>), or a long text, so that converters both accept and reject values.</para>
@@ -79,6 +80,13 @@ internal sealed class LineGenerator(int seed, char delimiter = ',', char quote =
 
         return record.ToString();
     }
+
+    /// <summary>
+    /// A number in [0, <paramref name="max"/>) from the generator's own <see cref="Random"/>. Code that composes
+    /// input around generated records (<see cref="ShapeInput"/>) picks with it, so the seed stays the only source
+    /// of randomness.
+    /// </summary>
+    internal int Next(int max) => _random.Next(max);
 
     /// <summary><paramref name="records"/> records, each followed by CRLF.</summary>
     public string NextFile(int records, int fieldCount)

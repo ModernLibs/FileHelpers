@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       iterations:
-        description: 'Iterations of the extended fuzz target; also records per shape of the differential target when above 20000'
+        description: 'Iterations of the extended fuzz target; also inputs per shape and pass of the differential target when above 20000 (about 33 s per 20000 per target on a dev box; the job stops at 60 minutes: keep it under about 300000)'
         required: false
         default: '10000'
 
@@ -86,17 +86,20 @@ jobs:
           done
 
       # Differential fuzz: for each Compat49 record shape, the 4.9.1 descriptor and the current one read the same
-      # generated records; the target exits 1 with the input and both results at the first difference. 20000
-      # records per shape on every event; a manual run uses the iterations input when it is larger.
+      # generated input in two passes (one generated record per input; valid rows around one row with one generated
+      # field); the target exits 1 with the input and both results at the first difference. 20000 inputs per shape
+      # and pass on every event; a manual run uses the iterations input when it is larger. Push, pull request and
+      # manual runs use the default seed (4910); the weekly run uses the run number as seed, which the log prints.
       - name: Run differential fuzz target
         env:
           ITERATIONS: ${{ inputs.iterations }}
+          SEED: ${{ github.event_name == 'schedule' && github.run_number || '' }}
         run: |
           set -euo pipefail
           records=20000
           if [ "${ITERATIONS:-0}" -gt "$records" ]; then records="$ITERATIONS"; fi
           for tfm in net10.0 net11.0; do
-            dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests/ -c Release --no-build -f "$tfm" -- differential "$records"
+            dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests/ -c Release --no-build -f "$tfm" -- differential "$records" ${SEED:+"$SEED"}
           done
 
       # Manual extended run; the iteration count comes from the workflow_dispatch input.

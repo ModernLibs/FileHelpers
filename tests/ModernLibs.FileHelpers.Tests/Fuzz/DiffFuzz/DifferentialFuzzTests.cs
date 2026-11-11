@@ -52,12 +52,10 @@ public sealed class DifferentialFuzzTests
     }
 
     /// <summary>
-    /// The agreement above means something only if the generated input reaches the descriptor code. Counts the
-    /// <c>record:</c> and <c>error:</c> lines of the array read of the 4.9.1 descriptor and prints them. Every
-    /// shape must reach the error path. Records are not asserted: a shape-agnostic generator rarely makes a line
-    /// whose every field converts, and some shapes cannot get one from a single comma-delimited record
-    /// (<c>[IgnoreFirst]</c> skips it as the header, another delimiter, <c>[FieldInNewLine]</c>, an exact fixed
-    /// width). The printed counts show the reach of each run.
+    /// The one-record loop above reaches the slicing and error paths of every shape. Its reach into records is small
+    /// and for some shapes zero (<c>[IgnoreFirst]</c> takes the only line as the header, another delimiter,
+    /// <c>[FieldInNewLine]</c>, an exact fixed width); the shape-aware test below covers the record path. The
+    /// <c>differential</c> target of the fuzz project prints the counts of both loops.
     /// </summary>
     [Test]
     [MethodDataSource(typeof(Compat49Matrix), nameof(Compat49Matrix.All))]
@@ -66,18 +64,89 @@ public sealed class DifferentialFuzzTests
         Func<string, string> __, Func<string, string> ___)
     {
         var generator = new LineGenerator(seed: 4910);
-        int records = 0, errors = 0, inputsWithRecords = 0;
-        for (int i = 0; i < 2000; i++)
+        int fieldCount = Compat49Inputs.FieldCount(name);
+        var result = DifferentialLoop.Run(2000, () => generator.NextRecord(fieldCount), readOld, readOld);
+
+        await Assert.That(result.Difference).IsNull();
+        await Assert.That(result.WithError).IsGreaterThan(0);
+    }
+
+    /// <summary>
+    /// The 4.9.1 descriptor and the current one read the same shape-aware input alike (<see cref="ShapeInput"/>:
+    /// valid rows of the shape around one valid row with one field replaced by a generated record). The input must
+    /// reach the record path: the fuzzed row adds a record in some inputs and an error in others, against the
+    /// valid rows alone.
+    /// </summary>
+    [Test]
+    [MethodDataSource(typeof(Compat49Matrix), nameof(Compat49Matrix.All))]
+    public async Task Snapshot_4_9_1_And_Current_Descriptor_Agree_On_Shape_Aware_Input(
+        string name, Func<string, string> readOld, Func<string, string> readNew,
+        Func<string, string> _, Func<string, string> __)
+    {
+        var generator = ShapeInput.CreateGenerator(name, seed: 4910);
+        var result = DifferentialLoop.Run(2000, () => ShapeInput.Next(name, generator), readOld, readNew, ShapeInput.Baseline(name));
+
+        await Assert.That(result.Difference).IsNull();
+        await Assert.That(result.WithRecord).IsGreaterThan(0);
+        await Assert.That(result.WithError).IsGreaterThan(0);
+    }
+
+    [Test]
+    public async Task Shape_Input_Is_Deterministic_And_Keeps_The_Valid_Rows_Around_One_Fuzzed_Row()
+    {
+        foreach (string name in new[] { "Compat49Plain25", "Compat49Optional", "Compat49Struct", "Compat49FixedExact" })
         {
-            string text = readOld(generator.NextRecord(Compat49Inputs.FieldCount(name)));
-            int r = Count(text, "\nrecord:") + (text.StartsWith("record:", StringComparison.Ordinal) ? 1 : 0);
-            records += r;
-            errors += Count(text, "\nerror:") + (text.StartsWith("error:", StringComparison.Ordinal) ? 1 : 0);
-            if (r > 0) inputsWithRecords++;
+            var a = ShapeInput.CreateGenerator(name, 7);
+            var b = ShapeInput.CreateGenerator(name, 7);
+            string baseline = ShapeInput.Baseline(name);
+            IReadOnlyList<string> rows = Compat49Inputs.ValidRows(name);
+            string validBlock = string.Concat(rows.Select(r => r + "\r\n"));
+            string header = Compat49Inputs.Header(name) is { } h ? h + "\r\n" : string.Empty;
+            string footer = Compat49Inputs.Footer(name) is { } f ? f + "\r\n" : string.Empty;
+
+            await Assert.That(baseline).IsEqualTo(header + validBlock + validBlock + footer);
+            int changed = 0;
+            for (int i = 0; i < 200; i++)
+            {
+                string input = ShapeInput.Next(name, a);
+                await Assert.That(ShapeInput.Next(name, b)).IsEqualTo(input);
+                await Assert.That(input.StartsWith(header + validBlock, StringComparison.Ordinal)).IsTrue();
+                await Assert.That(input.EndsWith(validBlock + footer, StringComparison.Ordinal)).IsTrue();
+                string fuzzed = input[(header + validBlock).Length..^(validBlock + footer).Length];
+                await Assert.That(fuzzed.EndsWith("\r\n", StringComparison.Ordinal)).IsTrue();
+                if (!rows.Contains(fuzzed[..^2], StringComparer.Ordinal))
+                    changed++;
+            }
+
+            await Assert.That(changed).IsGreaterThan(100);    // most fuzzed rows differ from every valid row
+        }
+    }
+
+    [Test]
+    public async Task Shape_Input_Replaces_One_Field_Between_The_Shape_Separators()
+    {
+        // Struct: ';' fields, and the generator uses ';'. Fixed: the replaced slice is cut or padded to its width
+        // two times out of three, so many fuzzed rows keep the 19 chars of a valid row.
+        var structGenerator = ShapeInput.CreateGenerator("Compat49Struct", 11);
+        int sameFieldCount = 0, fixedWidth = 0;
+        var fixedGenerator = ShapeInput.CreateGenerator("Compat49FixedExact", 11);
+        string fixedPrefix = string.Concat(Compat49Inputs.ValidRows("Compat49FixedExact").Select(r => r + "\r\n"));
+        for (int i = 0; i < 300; i++)
+        {
+            string input = ShapeInput.Next("Compat49Struct", structGenerator);
+            await Assert.That(input.Contains(',', StringComparison.Ordinal)).IsFalse();
+            string row = input.Split("\r\n")[Compat49Inputs.ValidRows("Compat49Struct").Count];
+            if (row.Count(c => c == ';') == 3)
+                sameFieldCount++;
+
+            string fixedInput = ShapeInput.Next("Compat49FixedExact", fixedGenerator);
+            string fixedRow = fixedInput[fixedPrefix.Length..fixedInput.IndexOf("\r\n", fixedPrefix.Length, StringComparison.Ordinal)];
+            if (fixedRow.Length == 19)
+                fixedWidth++;
         }
 
-        Console.WriteLine($"{name}: inputs with a record {inputsWithRecords}/2000, records {records}, errors {errors}");
-        await Assert.That(errors).IsGreaterThan(0);
+        await Assert.That(sameFieldCount).IsGreaterThan(120);   // one of the 3 valid Struct rows is "   " (no ';')
+        await Assert.That(fixedWidth).IsGreaterThan(140);
     }
 
     /// <summary>
@@ -101,12 +170,23 @@ public sealed class DifferentialFuzzTests
         await Assert.That(first!).Contains("--- A (returned text) ---");
     }
 
-    private static int Count(string text, string value)
+    [Test]
+    public async Task Loop_Counts_Against_The_Baseline_And_Stops_At_The_First_Difference()
     {
-        int count = 0;
-        for (int at = text.IndexOf(value, StringComparison.Ordinal); at >= 0; at = text.IndexOf(value, at + 1, StringComparison.Ordinal))
-            count++;
-        return count;
+        await Assert.That(DifferentialLoop.Count("record:a\nerror:1:x\nrecycled-record:a\nrecord:b\nthrown-throw:x\n"))
+            .IsEqualTo((2, 1));
+
+        string[] inputs = ["a", "b", "c", "d"];
+        int at = 0;
+        // A read: "record:" per char 'b' or 'd', "error:" for 'c'; baseline "a" has none. B differs at "d".
+        string ReadA(string s) => s switch { "b" => "record:1\n", "c" => "error:1\n", "d" => "record:1\nrecord:2\n", _ => "header:\n" };
+        string ReadB(string s) => string.Equals(s, "d", StringComparison.Ordinal) ? "different" : ReadA(s);
+
+        var result = DifferentialLoop.Run(4, () => inputs[at++], ReadA, ReadB, baselineInput: "a");
+        await Assert.That(result.Inputs).IsEqualTo(4);
+        await Assert.That(result.Difference).IsNotNull();
+        await Assert.That(result.WithRecord).IsEqualTo(1);    // "b" only: "d" is the difference and is not counted
+        await Assert.That(result.WithError).IsEqualTo(1);
     }
 
     [Test]

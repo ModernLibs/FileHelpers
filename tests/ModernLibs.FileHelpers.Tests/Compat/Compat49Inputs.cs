@@ -152,6 +152,15 @@ internal static class Compat49Inputs
         yield return File(s, [.. s.Valid, s.Short, s.Long, .. s.Bad, string.Empty, s.Unclosed, first]); // all together
     }
 
+    /// <summary>The valid rows of the record shape <paramref name="name"/>, without line ends (some modes reject a few on purpose).</summary>
+    public static IReadOnlyList<string> ValidRows(string name) => Shapes[name].Valid;
+
+    /// <summary>The header line of the record shape <paramref name="name"/>, or <see langword="null"/> when it has none.</summary>
+    public static string? Header(string name) => Shapes[name].Header;
+
+    /// <summary>The footer line of the record shape <paramref name="name"/>, or <see langword="null"/> when it has none.</summary>
+    public static string? Footer(string name) => Shapes[name].Footer;
+
     private static string File(Shape shape, string[] rows)
     {
         var lines = new List<string>();

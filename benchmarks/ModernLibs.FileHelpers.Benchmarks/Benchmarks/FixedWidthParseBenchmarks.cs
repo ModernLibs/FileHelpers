@@ -118,6 +118,22 @@ public class FixedWidthParseBenchmarks
         DataCheck.Equal(Rows, SliceAllFields_SpanSlicer(), "slicer line count");
     }
 
+    [GlobalSetup(Target = nameof(FileHelpers_ParseAndDiscard))]
+    public void SetupDiscardFileHelpers()
+    {
+        Prepare();
+        DataCheck.Equal(DiscardChecksum.FixedIdLastChars(DataCheck.DataLines(_filePath, hasHeader: false)),
+            FileHelpers_ParseAndDiscard(), "FileHelpers parse-and-discard checksum");
+    }
+
+    [GlobalSetup(Target = nameof(CsvHelper_ParseAndDiscard))]
+    public void SetupDiscardCsvHelper()
+    {
+        Prepare();
+        DataCheck.Equal(DiscardChecksum.FixedIdLastChars(DataCheck.DataLines(_filePath, hasHeader: false)),
+            CsvHelper_ParseAndDiscard(), "CsvHelper parse-and-discard checksum");
+    }
+
     [Benchmark(Baseline = true)]
     public FixedRecord[] ReadAllRows_Class() => _classEngine.ReadFile(_filePath);
 
@@ -129,6 +145,26 @@ public class FixedWidthParseBenchmarks
     {
         using var csv = CsvHelper.CsvReader.FromFile(_filePath, CsvHelperOptions);
         return csv.GetRecords<FixedCsvHelperRow>().ToList();
+    }
+
+    // Parse-and-discard (design B2): every record (class record) parsed completely, none kept (see DiscardChecksum).
+
+    [Benchmark]
+    public long FileHelpers_ParseAndDiscard()
+    {
+        long checksum = 0;
+        _classEngine.ReadFile(_filePath, r => checksum += r.Id[^1]);
+        return checksum;
+    }
+
+    [Benchmark]
+    public long CsvHelper_ParseAndDiscard()
+    {
+        long checksum = 0;
+        using var csv = CsvHelper.CsvReader.FromFile(_filePath, CsvHelperOptions);
+        foreach (var r in csv.GetRecords<FixedCsvHelperRow>())
+            checksum += r.Id[^1];
+        return checksum;
     }
 
     [Benchmark]

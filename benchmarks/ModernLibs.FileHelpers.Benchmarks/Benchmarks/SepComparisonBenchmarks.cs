@@ -75,6 +75,20 @@ public class SepComparisonBenchmarks
         DataCheck.WrittenPackageAssets("Sep", DataCheck.DataLines(_filePath, hasHeader: false), WriteString_Sep());
     }
 
+    [GlobalSetup(Target = nameof(FileHelpers_ParseAndDiscard))]
+    public void SetupDiscardFileHelpers()
+    {
+        Prepare();
+        DataCheck.Equal(DiscardChecksum.IdSum(Rows), FileHelpers_ParseAndDiscard(), "FileHelpers parse-and-discard checksum");
+    }
+
+    [GlobalSetup(Target = nameof(Sep_ParseAndDiscard))]
+    public void SetupDiscardSep()
+    {
+        Prepare();
+        DataCheck.Equal(DiscardChecksum.IdSum(Rows), Sep_ParseAndDiscard(), "Sep parse-and-discard checksum");
+    }
+
     [Benchmark(Baseline = true)]
     public PackageAsset[] ReadAllRows_FileHelpers() => _engine.ReadFile(_filePath);
 
@@ -116,6 +130,26 @@ public class SepComparisonBenchmarks
             });
         }
         return results;
+    }
+
+    // Parse-and-discard (design B2): every record parsed completely, none kept (see DiscardChecksum).
+
+    [Benchmark]
+    public long FileHelpers_ParseAndDiscard()
+    {
+        long checksum = 0;
+        _engine.ReadFile(_filePath, r => checksum += r.Id);
+        return checksum;
+    }
+
+    [Benchmark]
+    public long Sep_ParseAndDiscard()
+    {
+        long checksum = 0;
+        using var reader = Sep.New(',').Reader().FromFile(_filePath);
+        foreach (var row in reader)
+            checksum += PackageAssetColumns.FromSep(row).Id;
+        return checksum;
     }
 
     [Benchmark]

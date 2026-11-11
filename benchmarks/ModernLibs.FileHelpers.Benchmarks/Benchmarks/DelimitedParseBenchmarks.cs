@@ -5,6 +5,7 @@
 
 using BenchmarkDotNet.Attributes;
 using ModernLibs.FileHelpers.Benchmarks.Data;
+using nietras.SeparatedValues;
 using Sylvan.Data.Csv;
 
 namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks;
@@ -83,6 +84,90 @@ internal static class PackageAssetColumns
     public static string?[] Of(PackageAssetRow r) => DataCheck.PackageColumns(
         r.Id, r.Version, r.DownloadCount, r.MinClientVersion, r.IsPrerelease,
         r.Published, r.LastUpdated, r.PackageSize, r.RepositoryType, r.RequireLicenseAcceptance);
+
+    /// <summary>
+    /// One PackageAssets row from Sylvan, for the parse-and-discard benchmarks. The ReadAllRows benchmarks keep
+    /// their own inline initializer, so their code is the same as in earlier published runs.
+    /// </summary>
+    public static PackageAssetRow FromSylvan(CsvDataReader reader) => new()
+    {
+        Id = reader.GetInt32(0),
+        Version = reader.GetString(1),
+        Authors = reader.GetString(2),
+        Description = reader.GetString(3),
+        Tags = reader.GetString(4),
+        DownloadCount = reader.GetInt32(5),
+        ProjectUrl = reader.GetString(6),
+        LicenseUrl = reader.GetString(7),
+        IconUrl = reader.GetString(8),
+        Language = reader.GetString(9),
+        Framework = reader.GetString(10),
+        MinClientVersion = reader.GetString(11),
+        Type = reader.GetInt32(12),
+        IsPrerelease = reader.GetBoolean(13),
+        Published = reader.GetDateTime(14),
+        LastUpdated = reader.GetDateTime(15),
+        PackageSize = reader.GetInt64(16),
+        DependencyCount = reader.GetInt32(17),
+        HasReadme = reader.GetBoolean(18),
+        HasLicense = reader.GetBoolean(19),
+        HasIcon = reader.GetBoolean(20),
+        IsSigned = reader.GetBoolean(21),
+        RepositoryType = reader.GetString(22),
+        RepositoryUrl = reader.GetString(23),
+        RequireLicenseAcceptance = reader.GetBoolean(24),
+    };
+
+    /// <summary>One PackageAssets row from Sep (see <see cref="FromSylvan"/>).</summary>
+    public static PackageAssetRow FromSep(SepReader.Row row) => new()
+    {
+        Id = row[0].Parse<int>(),
+        Version = row[1].ToString(),
+        Authors = row[2].ToString(),
+        Description = row[3].ToString(),
+        Tags = row[4].ToString(),
+        DownloadCount = row[5].Parse<int>(),
+        ProjectUrl = row[6].ToString(),
+        LicenseUrl = row[7].ToString(),
+        IconUrl = row[8].ToString(),
+        Language = row[9].ToString(),
+        Framework = row[10].ToString(),
+        MinClientVersion = row[11].ToString(),
+        Type = row[12].Parse<int>(),
+        IsPrerelease = row[13].Parse<bool>(),
+        Published = row[14].Parse<DateTime>(),
+        LastUpdated = row[15].Parse<DateTime>(),
+        PackageSize = row[16].Parse<long>(),
+        DependencyCount = row[17].Parse<int>(),
+        HasReadme = row[18].Parse<bool>(),
+        HasLicense = row[19].Parse<bool>(),
+        HasIcon = row[20].Parse<bool>(),
+        IsSigned = row[21].Parse<bool>(),
+        RepositoryType = row[22].ToString(),
+        RepositoryUrl = row[23].ToString(),
+        RequireLicenseAcceptance = row[24].Parse<bool>(),
+    };
+}
+
+/// <summary>
+/// Checksums of the parse-and-discard benchmarks (design B2). Each library parses every record completely and
+/// keeps none: ModernLibs.FileHelpers through <c>ReadFile(path, callback)</c>, every other library through its
+/// own read loop. Each record adds one field to the checksum, the benchmark returns it, and its setup compares
+/// it with the value computed here from the dataset.
+/// </summary>
+internal static class DiscardChecksum
+{
+    /// <summary>The PackageAssets and quoted-fields datasets number their rows 0 to rows - 1 in the Id column.</summary>
+    public static long IdSum(int rows) => (long)rows * (rows - 1) / 2;
+
+    /// <summary>Fixed-width records add the last character of their 8-character Id field.</summary>
+    public static long FixedIdLastChars(string[] dataLines)
+    {
+        long sum = 0;
+        foreach (var line in dataLines)
+            sum += line[7];
+        return sum;
+    }
 }
 
 [MemoryDiagnoser]
@@ -153,6 +238,27 @@ public class DelimitedParseBenchmarks
     {
         Prepare();
         CheckFirstColumn("CsvHelper", ReadFirstColumn_CsvHelper());
+    }
+
+    [GlobalSetup(Target = nameof(FileHelpers_ParseAndDiscard))]
+    public void SetupDiscardFileHelpers()
+    {
+        Prepare();
+        DataCheck.Equal(DiscardChecksum.IdSum(Rows), FileHelpers_ParseAndDiscard(), "FileHelpers parse-and-discard checksum");
+    }
+
+    [GlobalSetup(Target = nameof(Sylvan_ParseAndDiscard))]
+    public void SetupDiscardSylvan()
+    {
+        Prepare();
+        DataCheck.Equal(DiscardChecksum.IdSum(Rows), Sylvan_ParseAndDiscard(), "Sylvan parse-and-discard checksum");
+    }
+
+    [GlobalSetup(Target = nameof(CsvHelper_ParseAndDiscard))]
+    public void SetupDiscardCsvHelper()
+    {
+        Prepare();
+        DataCheck.Equal(DiscardChecksum.IdSum(Rows), CsvHelper_ParseAndDiscard(), "CsvHelper parse-and-discard checksum");
     }
 
     [Benchmark(Baseline = true)]
@@ -235,5 +341,35 @@ public class DelimitedParseBenchmarks
         while (csv.Read())
             ids.Add(csv.Parse<int>(id));
         return ids.ToArray();
+    }
+
+    // Parse-and-discard (design B2): every record parsed completely, none kept.
+
+    [Benchmark]
+    public long FileHelpers_ParseAndDiscard()
+    {
+        long checksum = 0;
+        _engine.ReadFile(_filePath, r => checksum += r.Id);
+        return checksum;
+    }
+
+    [Benchmark]
+    public long Sylvan_ParseAndDiscard()
+    {
+        long checksum = 0;
+        using var reader = CsvDataReader.Create(_filePath);
+        while (reader.Read())
+            checksum += PackageAssetColumns.FromSylvan(reader).Id;
+        return checksum;
+    }
+
+    [Benchmark]
+    public long CsvHelper_ParseAndDiscard()
+    {
+        long checksum = 0;
+        using var csv = CsvHelper.CsvReader.FromFile(_filePath, CsvHelper.CsvReaderOptions.Default);
+        foreach (var r in csv.GetRecords<PackageAssetRow>())
+            checksum += r.Id;
+        return checksum;
     }
 }

@@ -54,23 +54,39 @@ the date, the hardware, OS, .NET SDK and runtime, and the BenchmarkDotNet versio
 
 ## Running
 
-Always run in Release on an otherwise idle machine:
+Always run in Release on an otherwise idle machine. The project targets `net10.0` and `net11.0`, so
+`dotnet run` needs `-f`:
 
 ```bash
 # everything (takes a long time)
-dotnet run -c Release --project benchmarks/ModernLibs.FileHelpers.Benchmarks -- --filter '*'
+dotnet run -c Release -f net11.0 --project benchmarks/ModernLibs.FileHelpers.Benchmarks -- --filter '*'
 
 # one class
-dotnet run -c Release --project benchmarks/ModernLibs.FileHelpers.Benchmarks -- --filter '*FixedWidthComparisonBenchmarks*'
+dotnet run -c Release -f net11.0 --project benchmarks/ModernLibs.FileHelpers.Benchmarks -- --filter '*FixedWidthComparisonBenchmarks*'
 
-# quicker, less precise
-dotnet run -c Release --project benchmarks/ModernLibs.FileHelpers.Benchmarks -- --filter '*SepComparison*' --job short
+# quicker, less precise (Default, Dry, Short, Medium, Long, VeryLong)
+dotnet run -c Release -f net10.0 --project benchmarks/ModernLibs.FileHelpers.Benchmarks -- --filter '*SepComparison*' --job short
 
-# as for the published results: default job, markdown tables
-dotnet run -c Release --project benchmarks/ModernLibs.FileHelpers.Benchmarks -- --filter '*SepComparison*' --memory --exporters github
+# one benchmark method in a process of its own (see below)
+dotnet run -c Release -f net11.0 --project benchmarks/ModernLibs.FileHelpers.Benchmarks -- \
+  --filter 'ModernLibs.FileHelpers.Benchmarks.Benchmarks.SepComparisonBenchmarks.FileHelpers_ParseAndDiscard'
 ```
 
-BenchmarkDotNet writes reports to `BenchmarkDotNet.Artifacts/` in the current directory.
+BenchmarkDotNet writes reports to `BenchmarkDotNet.Artifacts/` in the current directory (`--artifacts
+<dir>` changes it): markdown, CSV and HTML tables and the full JSON report (`*-report-full.json`).
+Every table has the columns Gen0, Gen1, Gen2 (collections per 1,000 operations; `-` is zero) and
+Allocated, also when a count is zero for every row.
+
+**The benchmarks run in-process** (`BenchConfig`). BenchmarkDotNet's usual toolchain does not run the
+assembly it is started from: it finds the project file under the current directory and builds it again
+with default properties, which would turn a `net11-ra-off` build back into the default runtime-async
+build (and BenchmarkDotNet 0.15.8 does not recognise .NET 11 there). In-process, the measured code is
+the build that was started. The consequence: all benchmarks selected by one `--filter` run in the same
+process, one after the other, and what one leaves behind (for example buffers in the shared array
+pools) can change the garbage collector's timing in the next. Numbers that are published or compared
+come from one benchmark method per process, which is what `ab.py` does (below). A filter that selects
+several methods is fine for a look at the data, not for a result. `--runtimes` is not supported; build
+one folder per configuration instead.
 
 ## What is measured
 
@@ -94,6 +110,78 @@ Note that the libraries do different amounts of work: ModernLibs.FileHelpers and
 produce typed records with converters and validation, while the CSV readers are measured with the
 row-to-object code written in each benchmark. Compare like with like.
 
+**Parse-and-discard.** Each class that compares libraries (`DelimitedParse`, `SepComparison`,
+`QuotedFields`, `FixedWidthParse`, `DelimitedComparison`, `FixedWidthComparison`) has one method
+`<Library>_ParseAndDiscard` per library, with the library name the class uses elsewhere
+(`FileHelpers`, `Sylvan`, `CsvHelper`, `Sep`; `Modern` and `Legacy` in the two classes that compare
+with FileHelpers 3.5.2). Each one parses every record into the same record or row object as the
+class's `ReadAllRows` methods, adds one field to a checksum and keeps nothing: ModernLibs.FileHelpers
+through `ReadFile(path, callback)`, FileHelpers 3.5.2 through `FileHelperAsyncEngine.ReadNext`, the
+other libraries through their own read loop. The checksum is the sum of the `Id` column (delimited
+files) or of the last character of the `Id` field (fixed-width files); each method's setup compares it
+with the value computed from the dataset. Without the array or list that holds every record, these
+methods measure parsing on its own; they are the primary metric of the 4.10 read work (design B2).
+
+## Configurations and A/B runs
+
+From 4.10 on, the library is measured in three named configurations (design D6). The names are used as
+they stand in result tables and file names:
+
+| Name | Target and runtime | Runtime async | Build |
+|---|---|---|---|
+| `net10` | `net10.0` on .NET 10 | does not exist | `-f net10.0` |
+| `net11-ra-on` | `net11.0` on .NET 11 | on | `-f net11.0` (what ships) |
+| `net11-ra-off` | `net11.0` on .NET 11 | off | `-f net11.0 -p:FileHelpersRuntimeAsync=false` |
+
+`benchmarks/tools/build-variants.sh <out-dir>` builds the benchmark project three times, into
+`<out-dir>/net10`, `<out-dir>/net11-ra-on` and `<out-dir>/net11-ra-off`, each with its own output and
+intermediate folders. After each build it runs `verify-variant` (`benchmarks/tools/verify-variant`) on
+the library DLL of that folder. The tool reads the DLL's metadata, without loading it, and prints the
+target framework and whether `FileHelperEngine<T>.ReadFileAsync` carries the runtime-async flag
+(`0x2000`); the script stops unless that matches the folder's name, and writes the line, the commit and
+the SDK version to `<out-dir>/<name>/variant.txt`. The expected output:
+
+```text
+net10: tfm=net10.0 runtime-async=off
+net11-ra-on: tfm=net11.0 runtime-async=on
+net11-ra-off: tfm=net11.0 runtime-async=off
+```
+
+Run a configuration with its DLL, from any directory:
+
+```bash
+benchmarks/tools/build-variants.sh ~/fh-bench
+dotnet ~/fh-bench/net11-ra-on/ModernLibs.FileHelpers.Benchmarks.dll --filter '*DelimitedParse*ParseAndDiscard*'
+```
+
+**Interleaved A/B with `ab.py`.** `benchmarks/tools/ab.py` (Python 3, standard library only) compares
+two built folders, for example two configurations, or a 4.9.1 build and a 4.10 build:
+
+```bash
+python3 -I benchmarks/tools/ab.py --a ~/fh-bench/net11-ra-off --b ~/fh-bench/net11-ra-on \
+  --launches 10 --filter '*ParseAndDiscard*' --out ra-off-vs-on.json
+```
+
+It lists the benchmark methods that match `--filter` in both folders and runs each method `--launches`
+times per side, alternately: A, B, A, B, ... Each run is one BenchmarkDotNet launch of one method, a
+process of its own. Arguments after `--` go to BenchmarkDotNet (for example `-- --job short`). The raw
+BenchmarkDotNet output of every launch stays in `<out>.runs/`. One sample is the median time of one
+launch; for each benchmark case (method and parameters) the JSON file holds the A and B samples, the
+median ratio B/A (below 1.0: B is faster), its 99.9 % bootstrap interval (ratio of medians, 10,000
+resamples, fixed seed 410) and a `verdict` of `faster`, `slower` or `no-change`.
+
+The verdict applies **rule B4** of the 4.10 design, fixed before any round: a change counts when the
+99.9 % interval of the ratio excludes 1.0 **and** the median ratio differs from 1.0 by at least 0.03
+(3 %). A claim holds only when it holds on at least two Azure virtual machines, one of them the x64
+AVX2 reference machine. `ab.py` refuses fewer than 5 launches: with no real difference, the interval
+excludes 1.0 in about a third of simulated runs with 2 launches per side and in about 1 % with 5. Use
+10 or more. Run the tests of the statistics with
+`python3 -I -m unittest discover -s benchmarks/tools -p test_ab.py`.
+
+**Local numbers are smoke checks (design D1).** A run on a developer machine or under WSL answers
+"does it run", "is the data right" and "is the direction plausible". Its numbers are not evidence and
+go into no report, gate or changelog; results come from Azure rounds only.
+
 ## Datasets
 
 The datasets are generated on the first run and reused afterwards. Each one is a pure function of its
@@ -111,6 +199,7 @@ a format version, bumped whenever the generated text changes.
 Each benchmark has its own `[GlobalSetup(Target = ...)]`. It runs that benchmark method once and
 compares its result with the raw dataset (row count and sampled fields for reads, every line for
 writes), and throws on a difference: a benchmark that parses its data wrongly fails instead of
-reporting a number. The setup runs no other benchmark, because BenchmarkDotNet measures each benchmark
-in a process of its own, and what another library or read leaves in that process (for example pooled
-buffers) changes the garbage collector's timing and with it the measured time.
+reporting a number. The setup runs no other benchmark, because what another library or read leaves in
+the process (for example pooled buffers) changes the garbage collector's timing and with it the
+measured time. For the same reason, results come from one benchmark method per process (see
+"Running").

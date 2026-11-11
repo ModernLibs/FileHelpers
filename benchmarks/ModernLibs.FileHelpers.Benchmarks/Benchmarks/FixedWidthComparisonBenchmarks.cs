@@ -26,12 +26,15 @@ public sealed class OldFixedRecord
 }
 
 [MemoryDiagnoser]
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1001:Types that own disposable fields should be disposable",
+    Justification = "The 3.x async engine is closed after every operation and disposed by the GlobalCleanup of its benchmark.")]
 public class FixedWidthComparisonBenchmarks
 {
     private string _filePath = "";
     private FileHelperEngine<FixedRecord> _modernClassEngine = null!;
     private FileHelperEngine<FixedRecordStruct> _modernStructEngine = null!;
     private Legacy.FileHelperEngine<OldFixedRecord> _oldEngine = null!;
+    private Legacy.FileHelperAsyncEngine<OldFixedRecord> _oldAsyncEngine = null!;
 
     [Params(10_000, 100_000)]
     public int Rows { get; set; }
@@ -77,6 +80,27 @@ public class FixedWidthComparisonBenchmarks
         DataCheck.Equal("FileHelpers", _oldEngine.GetType().Assembly.GetName().Name, "3.x engine assembly");
     }
 
+    [GlobalSetup(Target = nameof(Modern_ParseAndDiscard))]
+    public void SetupDiscardModern()
+    {
+        Prepare();
+        DataCheck.Equal(DiscardChecksum.FixedIdLastChars(DataCheck.DataLines(_filePath, hasHeader: false)),
+            Modern_ParseAndDiscard(), "ModernLibs.FileHelpers parse-and-discard checksum");
+    }
+
+    [GlobalSetup(Target = nameof(Legacy_ParseAndDiscard))]
+    public void SetupDiscardLegacy()
+    {
+        Prepare();
+        _oldAsyncEngine = new Legacy.FileHelperAsyncEngine<OldFixedRecord>();
+        DataCheck.Equal(DiscardChecksum.FixedIdLastChars(DataCheck.DataLines(_filePath, hasHeader: false)),
+            Legacy_ParseAndDiscard(), "FileHelpers 3.x parse-and-discard checksum");
+        DataCheck.Equal("FileHelpers", _oldAsyncEngine.GetType().Assembly.GetName().Name, "3.x async engine assembly");
+    }
+
+    [GlobalCleanup(Target = nameof(Legacy_ParseAndDiscard))]
+    public void CleanupDiscardLegacy() => ((IDisposable)_oldAsyncEngine).Dispose();
+
     [Benchmark(Baseline = true)]
     public FixedRecord[] ReadAllRows_ModernClass() => _modernClassEngine.ReadFile(_filePath);
 
@@ -85,4 +109,33 @@ public class FixedWidthComparisonBenchmarks
 
     [Benchmark]
     public OldFixedRecord[] ReadAllRows_Legacy() => _oldEngine.ReadFile(_filePath);
+
+    // Parse-and-discard (design B2): every record (class record) parsed completely, none kept (see
+    // DiscardChecksum). FileHelpers 3.x has no callback read; its record-by-record read loop is
+    // FileHelperAsyncEngine.ReadNext.
+
+    [Benchmark]
+    public long Modern_ParseAndDiscard()
+    {
+        long checksum = 0;
+        _modernClassEngine.ReadFile(_filePath, r => checksum += r.Id[^1]);
+        return checksum;
+    }
+
+    [Benchmark]
+    public long Legacy_ParseAndDiscard()
+    {
+        long checksum = 0;
+        _oldAsyncEngine.BeginReadFile(_filePath);
+        try
+        {
+            while (_oldAsyncEngine.ReadNext() is { } r)
+                checksum += r.Id[^1];
+        }
+        finally
+        {
+            _oldAsyncEngine.Close();
+        }
+        return checksum;
+    }
 }

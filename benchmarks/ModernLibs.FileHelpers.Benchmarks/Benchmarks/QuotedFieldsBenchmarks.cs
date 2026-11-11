@@ -84,6 +84,37 @@ public class QuotedFieldsBenchmarks
         CheckCompetitor("Sep", ReadAllRows_Sep());
     }
 
+    private void CheckDiscard(string name, long checksum) =>
+        DataCheck.Equal(DiscardChecksum.IdSum(Rows), checksum, name + " parse-and-discard checksum");
+
+    [GlobalSetup(Target = nameof(FileHelpers_ParseAndDiscard))]
+    public void SetupDiscardFileHelpers()
+    {
+        Prepare();
+        CheckDiscard("FileHelpers", FileHelpers_ParseAndDiscard());
+    }
+
+    [GlobalSetup(Target = nameof(Sylvan_ParseAndDiscard))]
+    public void SetupDiscardSylvan()
+    {
+        Prepare();
+        CheckDiscard("Sylvan", Sylvan_ParseAndDiscard());
+    }
+
+    [GlobalSetup(Target = nameof(CsvHelper_ParseAndDiscard))]
+    public void SetupDiscardCsvHelper()
+    {
+        Prepare();
+        CheckDiscard("CsvHelper", CsvHelper_ParseAndDiscard());
+    }
+
+    [GlobalSetup(Target = nameof(Sep_ParseAndDiscard))]
+    public void SetupDiscardSep()
+    {
+        Prepare();
+        CheckDiscard("Sep", Sep_ParseAndDiscard());
+    }
+
     [Benchmark(Baseline = true)]
     public QuotedRecord[] ReadAllRows_FileHelpers() => _engine.ReadFile(_filePath);
 
@@ -132,5 +163,65 @@ public class QuotedFieldsBenchmarks
             });
         }
         return results;
+    }
+
+    // Parse-and-discard (design B2): every record parsed and unquoted completely, none kept (see DiscardChecksum).
+
+    [Benchmark]
+    public long FileHelpers_ParseAndDiscard()
+    {
+        long checksum = 0;
+        _engine.ReadFile(_filePath, r => checksum += r.Id);
+        return checksum;
+    }
+
+    [Benchmark]
+    public long Sylvan_ParseAndDiscard()
+    {
+        long checksum = 0;
+        using var reader = CsvDataReader.Create(_filePath);
+        while (reader.Read())
+        {
+            var r = new QuotedCompetitorRow
+            {
+                Id = reader.GetInt32(0),
+                Name = reader.GetString(1),
+                Description = reader.GetString(2),
+                Notes = reader.GetString(3),
+                Category = reader.GetString(4),
+            };
+            checksum += r.Id;
+        }
+        return checksum;
+    }
+
+    [Benchmark]
+    public long CsvHelper_ParseAndDiscard()
+    {
+        long checksum = 0;
+        using var csv = CsvHelper.CsvReader.FromFile(_filePath, CsvHelper.CsvReaderOptions.Default);
+        foreach (var r in csv.GetRecords<QuotedCompetitorRow>())
+            checksum += r.Id;
+        return checksum;
+    }
+
+    [Benchmark]
+    public long Sep_ParseAndDiscard()
+    {
+        long checksum = 0;
+        using var reader = Sep.New(',').Reader(o => o with { Unescape = true }).FromFile(_filePath);
+        foreach (var row in reader)
+        {
+            var r = new QuotedCompetitorRow
+            {
+                Id = row[0].Parse<int>(),
+                Name = row[1].ToString(),
+                Description = row[2].ToString(),
+                Notes = row[3].ToString(),
+                Category = row[4].ToString(),
+            };
+            checksum += r.Id;
+        }
+        return checksum;
     }
 }

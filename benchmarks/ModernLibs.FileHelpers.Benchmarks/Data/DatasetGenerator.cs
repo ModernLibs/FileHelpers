@@ -10,7 +10,7 @@ namespace ModernLibs.FileHelpers.Benchmarks.Data;
 /// <remarks>
 /// Every dataset is a pure function of its row count: each generator uses its own <see cref="Random"/>
 /// with a fixed seed and dates are offsets from <see cref="BaseDate"/>, so two runs (or two machines)
-/// produce byte-identical files. The file names carry a format version (<c>v2</c>); bump it whenever the
+/// produce byte-identical files. The file names carry a format version (<c>v2</c> for the first datasets, <c>v1</c> for those added in 4.10); bump it whenever the
 /// generated text changes so that stale files cached next to the benchmark assembly are not reused.
 /// </remarks>
 public static class DatasetGenerator

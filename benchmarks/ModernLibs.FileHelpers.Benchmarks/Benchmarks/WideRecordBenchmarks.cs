@@ -11,7 +11,7 @@ namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks;
 
 /// <summary>
 /// 150 columns, no header: the even columns (0, 2, ...) are int, the odd columns are string (the layout of
-/// <see cref="DatasetGenerator.EnsureWideRecords"/>). The properties are generated: Int000, Str001, Int002, ...
+/// <see cref="DatasetGenerator.EnsureWideRecords"/>). The properties were generated once (Int000, Str001, Int002, ...) and the file is maintained by hand.
 /// </summary>
 [DelimitedRecord(",")]
 public sealed class WideRecord
@@ -216,16 +216,27 @@ public class WideRecordBenchmarks
     [Params(1_000, 10_000)]
     public int Rows { get; set; }
 
-    [GlobalSetup]
-    public void Setup()
+    private void Prepare()
     {
         var dataDir = Path.Combine(Path.GetDirectoryName(typeof(WideRecordBenchmarks).Assembly.Location)!, "Data");
         Directory.CreateDirectory(dataDir);
         _filePath = DatasetGenerator.EnsureWideRecords(dataDir, Rows);
         _engine = new FileHelperEngine<WideRecord>();
+    }
 
+    // Correctness guard: each setup runs only the guard of its own benchmark (see FixedWidthParseBenchmarks).
+    [GlobalSetup(Target = nameof(ReadFile))]
+    public void SetupReadFile()
+    {
+        Prepare();
         var records = ReadFile();
         DataCheck.Wide("FileHelpers", _filePath, Rows, records.Length, i => WideRecordText.Of(records[i]));
+    }
+
+    [GlobalSetup(Target = nameof(ReadFile_ParseAndDiscard))]
+    public void SetupDiscard()
+    {
+        Prepare();
         DataCheck.Equal(ExpectedChecksum(), ReadFile_ParseAndDiscard(), "parse-and-discard checksum");
     }
 
@@ -233,7 +244,7 @@ public class WideRecordBenchmarks
     {
         long sum = 0;
         foreach (var line in DataCheck.DataLines(_filePath, hasHeader: false))
-            sum += long.Parse(line.AsSpan(0, line.IndexOf(',')), System.Globalization.CultureInfo.InvariantCulture);
+            sum += long.Parse(line.AsSpan(0, line.IndexOf(',')), CultureInfo.InvariantCulture);
         return sum;
     }
 

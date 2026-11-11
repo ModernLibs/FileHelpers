@@ -18,8 +18,11 @@ public class QuotedWriteBenchmarks
     [Params(10_000, 100_000)]
     public int Rows { get; set; }
 
-    [GlobalSetup]
-    public void Setup()
+    /// <summary>
+    /// Loads the records the writers write. The callback read collects them without the pooled record buffer
+    /// of the array read, so no such buffer stays in the process being measured.
+    /// </summary>
+    private void Prepare()
     {
         var dataDir = Path.Combine(Path.GetDirectoryName(typeof(QuotedWriteBenchmarks).Assembly.Location)!, "Data");
         Directory.CreateDirectory(dataDir);
@@ -30,13 +33,25 @@ public class QuotedWriteBenchmarks
         _engine.ReadFile(file, records.Add);
         _records = records.ToArray();
         DataCheck.QuotedRandom("FileHelpers read", Rows, _records.Length, i => (_records[i].Id, _records[i].Description, _records[i].Notes, _records[i].Category));
+    }
 
+    // Correctness guard: each setup runs only the guard of its own benchmark (see WriteBenchmarks).
+    [GlobalSetup(Target = nameof(WriteString))]
+    public void SetupWriteString()
+    {
+        Prepare();
         // The written text has the header line (FileHelpers writes back the header it skipped) and, read again,
         // gives the same records: quoting on output is correct whatever its style.
         var written = WriteString();
         DataCheck.Equal(Rows + 1, DataCheck.TextLines(written).Length, "written line count");
         var again = _engine.ReadString(written);
         DataCheck.QuotedRandom("FileHelpers written", Rows, again.Length, i => (again[i].Id, again[i].Description, again[i].Notes, again[i].Category));
+    }
+
+    [GlobalSetup(Target = nameof(WriteStream_Null))]
+    public void SetupWriteStream()
+    {
+        Prepare();
         WriteStream_Null();
     }
 

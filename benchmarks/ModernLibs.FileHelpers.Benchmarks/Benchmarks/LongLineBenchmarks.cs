@@ -35,16 +35,28 @@ public class LongLineBenchmarks
     [Params(5_000, 20_000)]
     public int Rows { get; set; }
 
-    [GlobalSetup]
-    public void Setup()
+    private void Prepare()
     {
         var dataDir = Path.Combine(Path.GetDirectoryName(typeof(LongLineBenchmarks).Assembly.Location)!, "Data");
         Directory.CreateDirectory(dataDir);
         _filePath = DatasetGenerator.EnsureLongLines(dataDir, Rows);
         _engine = new FileHelperEngine<LongLineRecord>();
+    }
 
+    // Correctness guard: each setup runs only the guard of its own benchmark, so no other read runs in the
+    // measured process (see FixedWidthParseBenchmarks).
+    [GlobalSetup(Target = nameof(ReadFile))]
+    public void SetupReadFile()
+    {
+        Prepare();
         var records = ReadFile();
         DataCheck.LongLines("FileHelpers", _filePath, Rows, records.Length, i => records[i].ToLine());
+    }
+
+    [GlobalSetup(Target = nameof(ReadFile_ParseAndDiscard))]
+    public void SetupDiscard()
+    {
+        Prepare();
         DataCheck.Equal(DiscardChecksum.IdSum(Rows), ReadFile_ParseAndDiscard(), "parse-and-discard checksum");
     }
 

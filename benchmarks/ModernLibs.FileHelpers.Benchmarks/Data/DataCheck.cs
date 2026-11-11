@@ -184,8 +184,7 @@ public static class DataCheck
         for (int row = 0; row < lines.Length; row++)
         {
             That(lines[row].Length >= DatasetGenerator.LongLineMinLength, $"long lines: line {row} has only {lines[row].Length} characters");
-            if (row < 3 || row >= lines.Length - 3 || row % 1000 == 0)
-                Equal(lines[row], text(row), $"{library} row {row}");
+            Equal(lines[row], text(row), $"{library} row {row}");
         }
     }
 
@@ -211,20 +210,25 @@ public static class DataCheck
     }
 
     /// <summary>
-    /// Checks rows parsed from the 150-column dataset: the row count, that each line has 150 fields, and for
-    /// the first, second and last rows that the record formatted back by <paramref name="text"/> gives the raw line.
+    /// Checks rows parsed from the 150-column dataset: the row count, that each line has 150 fields (even
+    /// columns digits only, odd columns not), and that every record formatted back by <paramref name="text"/> gives the raw line.
     /// </summary>
     public static void Wide(string library, string path, int expectedRows, int count, Func<int, string> text)
     {
         Equal(expectedRows, count, library + " row count");
         var lines = DataLines(path, hasHeader: false);
         Equal(expectedRows, lines.Length, library + " file data lines");
-        foreach (var line in lines)
-            Equal(DatasetGenerator.WideColumns - 1, line.Count(c => c == ','), "wide line separators");
-        foreach (var row in new[] { 0, 1, count - 1 })
+        for (int row = 0; row < lines.Length; row++)
         {
-            if (row >= 0 && row < count)
-                Equal(lines[row], text(row), $"{library} row {row}");
+            var fields = lines[row].Split(',');
+            Equal(DatasetGenerator.WideColumns, fields.Length, $"wide row {row} field count");
+            for (int c = 0; c < fields.Length; c++)
+            {
+                // Even columns are int (digits only), odd columns are string (8 characters, never digits only).
+                bool digits = fields[c].All(char.IsAsciiDigit);
+                That(digits == (c % 2 == 0), $"wide row {row} column {c}: '{fields[c]}' has the wrong kind");
+            }
+            Equal(lines[row], text(row), $"{library} row {row}");
         }
     }
 }

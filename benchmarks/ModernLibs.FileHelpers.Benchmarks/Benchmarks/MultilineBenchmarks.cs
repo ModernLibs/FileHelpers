@@ -28,16 +28,27 @@ public class MultilineBenchmarks
     [Params(10_000, 100_000)]
     public int Rows { get; set; }
 
-    [GlobalSetup]
-    public void Setup()
+    private void Prepare()
     {
         var dataDir = Path.Combine(Path.GetDirectoryName(typeof(MultilineBenchmarks).Assembly.Location)!, "Data");
         Directory.CreateDirectory(dataDir);
         _filePath = DatasetGenerator.EnsureMultilineValues(dataDir, Rows);
         _engine = new FileHelperEngine<MultilineRecord>();
+    }
 
+    // Correctness guard: each setup runs only the guard of its own benchmark (see FixedWidthParseBenchmarks).
+    [GlobalSetup(Target = nameof(ReadFile))]
+    public void SetupReadFile()
+    {
+        Prepare();
         var records = ReadFile();
         DataCheck.Multiline("FileHelpers", _filePath, Rows, records.Length, i => (records[i].Id, records[i].Text));
+    }
+
+    [GlobalSetup(Target = nameof(ReadFile_ParseAndDiscard))]
+    public void SetupDiscard()
+    {
+        Prepare();
         DataCheck.Equal(DiscardChecksum.IdSum(Rows), ReadFile_ParseAndDiscard(), "parse-and-discard checksum");
     }
 

@@ -180,13 +180,19 @@ public sealed class ReadCoreAllocationTests
         return GC.GetAllocatedBytesForCurrentThread() - before;
     }
 
-    /// <summary>Heap bytes per row: (bytes for 10,000 rows - bytes for 100 rows) / 9,900.</summary>
-    private static long BytesPerRow(Action<string> read, Func<int, string> build)
+    /// <summary>
+    /// Heap bytes per row: (bytes for 10,000 rows - bytes for 100 rows) / 9,900. <paramref name="read"/> returns the
+    /// number of rows it read; a read that stops early would allocate less and pass, so the counts are checked.
+    /// </summary>
+    private static long BytesPerRow(Func<string, int> read, Func<int, string> build)
     {
         string small = build(100);
         string large = build(10_000);
-        long smallBytes = MeasureStable(() => read(small));
-        long largeBytes = MeasureStable(() => read(large));
+        int smallRows = 0, largeRows = 0;
+        long smallBytes = MeasureStable(() => smallRows = read(small));
+        long largeBytes = MeasureStable(() => largeRows = read(large));
+        if (smallRows != 100 || largeRows != 10_000)
+            throw new InvalidOperationException($"Rows read: expected 100 and 10000, got {smallRows} and {largeRows}.");
         return (largeBytes - smallBytes) / 9_900;
     }
 
@@ -194,26 +200,31 @@ public sealed class ReadCoreAllocationTests
         where T : new()
     {
         var engine = new FileHelperEngine<T>();
-        return BytesPerRow(s => engine.ReadString(s), build);
+        return BytesPerRow(s => engine.ReadString(s).Length, build);
     }
 
     private static long Callback<T>(Func<int, string> build)
         where T : new()
     {
         var engine = new FileHelperEngine<T>();
-        long count = 0;
-        return BytesPerRow(s => engine.ReadString(s, (T _) => count++), build);
+        return BytesPerRow(s =>
+        {
+            int count = 0;
+            engine.ReadString(s, (T _) => count++);
+            return count;
+        }, build);
     }
 
     private static long Streaming<T>(Func<int, string> build)
         where T : new()
     {
         var engine = new FileHelperEngine<T>();
-        long count = 0;
         return BytesPerRow(s =>
         {
+            int count = 0;
             foreach (var _ in engine.ReadSync(s))
                 count++;
+            return count;
         }, build);
     }
 

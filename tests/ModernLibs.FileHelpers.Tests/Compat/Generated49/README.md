@@ -38,7 +38,8 @@ COMPAT49_GOLDEN_DIR=$PWD/tests/ModernLibs.FileHelpers.Tests/Compat/Golden49 \
   --treenode-filter "/*/*/Compat49Tests/*"
 ```
 
-With the variable set the test writes the files instead of checking them (it still compares old with new).
+With the variable set the test writes the files instead of checking them (it still compares old with new), then
+fails on purpose, so every shape of that run is reported as failed: the run cannot be taken for a check.
 Rebuild, run without the variable on both targets, and put the `git diff` of `Golden49` in the review.
 
 ## How the files were made

@@ -61,7 +61,12 @@ public sealed class Compat49Tests
         }
 
         if (regenerate is not null)
+        {
             Compat49Golden.Write(regenerate, name, golden);
+            // A regeneration run checks nothing against Golden49, so it must never report a pass.
+            Fail.Test($"{name}: Golden49 file written to {regenerate} ({Compat49Golden.RegenerateVariable} is set; "
+                + "the 4.9.1 read and round trip were NOT checked against Golden49). Review the git diff, then run again without the variable.");
+        }
     }
 
     [Test]

@@ -4,8 +4,11 @@
 #pragma warning disable MA0051
 
 using BenchmarkDotNet.Attributes;
+using FlameCsv;
 using ModernLibs.FileHelpers.Benchmarks.Data;
 using nietras.SeparatedValues;
+using RecordParser.Extensions;
+using RecordParser.Parsers;
 using Sylvan.Data.Csv;
 
 namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks;
@@ -62,6 +65,10 @@ public abstract class QuotedFieldsBenchmarksBase
 {
     private string _filePath = "";
     private FileHelperEngine<QuotedRecord> _engine = null!;
+    private IVariableLengthReader<QuotedCompetitorRow> _recordParser = null!;
+
+    // RecordParser must be told that fields are quoted (it then unquotes them, like the other readers).
+    private static readonly VariableLengthReaderOptions s_recordParserOptions = new() { HasHeader = true, ContainsQuotedFields = true };
 
     [Params(10_000, 100_000)]
     public int Rows { get; set; }
@@ -76,6 +83,7 @@ public abstract class QuotedFieldsBenchmarksBase
         Directory.CreateDirectory(dataDir);
         _filePath = EnsureFile(dataDir, Rows);
         _engine = new FileHelperEngine<QuotedRecord>();
+        _recordParser = RecordParserReaders.Quoted();
     }
 
     private void CheckCompetitor(string name, IReadOnlyList<QuotedCompetitorRow> rows) =>
@@ -112,6 +120,20 @@ public abstract class QuotedFieldsBenchmarksBase
         CheckCompetitor("Sep", ReadAllRows_Sep());
     }
 
+    [GlobalSetup(Target = nameof(ReadAllRows_FlameCsv))]
+    public void SetupFlameCsv()
+    {
+        Prepare();
+        CheckCompetitor("FlameCsv", ReadAllRows_FlameCsv());
+    }
+
+    [GlobalSetup(Target = nameof(ReadAllRows_RecordParser))]
+    public void SetupRecordParser()
+    {
+        Prepare();
+        CheckCompetitor("RecordParser", ReadAllRows_RecordParser());
+    }
+
     private void CheckDiscard(string name, long checksum) =>
         DataCheck.Equal(DiscardChecksum.IdSum(Rows), checksum, name + " parse-and-discard checksum");
 
@@ -141,6 +163,20 @@ public abstract class QuotedFieldsBenchmarksBase
     {
         Prepare();
         CheckDiscard("Sep", Sep_ParseAndDiscard());
+    }
+
+    [GlobalSetup(Target = nameof(FlameCsv_ParseAndDiscard))]
+    public void SetupDiscardFlameCsv()
+    {
+        Prepare();
+        CheckDiscard("FlameCsv", FlameCsv_ParseAndDiscard());
+    }
+
+    [GlobalSetup(Target = nameof(RecordParser_ParseAndDiscard))]
+    public void SetupDiscardRecordParser()
+    {
+        Prepare();
+        CheckDiscard("RecordParser", RecordParser_ParseAndDiscard());
     }
 
     [Benchmark(Baseline = true)]
@@ -193,7 +229,50 @@ public abstract class QuotedFieldsBenchmarksBase
         return results;
     }
 
+    // Tier A competitors (T11): FlameCsv (UTF-8 bytes, source-generated binding, quotes removed by default) and
+    // RecordParser (ContainsQuotedFields = true).
+
+    [Benchmark]
+    public IReadOnlyList<QuotedCompetitorRow> ReadAllRows_FlameCsv()
+    {
+        var results = new List<QuotedCompetitorRow>(Rows);
+        using var stream = File.OpenRead(_filePath);
+        foreach (var r in CsvReader.Read(stream, QuotedFlameMap.Default, CsvOptions<byte>.Default))
+            results.Add(r);
+        return results;
+    }
+
+    [Benchmark]
+    public IReadOnlyList<QuotedCompetitorRow> ReadAllRows_RecordParser()
+    {
+        var results = new List<QuotedCompetitorRow>(Rows);
+        using var reader = new StreamReader(_filePath);
+        foreach (var r in reader.ReadRecords(_recordParser, s_recordParserOptions))
+            results.Add(r);
+        return results;
+    }
+
     // Parse-and-discard (design B2): every record parsed and unquoted completely, none kept (see DiscardChecksum).
+
+    [Benchmark]
+    public long FlameCsv_ParseAndDiscard()
+    {
+        long checksum = 0;
+        using var stream = File.OpenRead(_filePath);
+        foreach (var r in CsvReader.Read(stream, QuotedFlameMap.Default, CsvOptions<byte>.Default))
+            checksum += r.Id;
+        return checksum;
+    }
+
+    [Benchmark]
+    public long RecordParser_ParseAndDiscard()
+    {
+        long checksum = 0;
+        using var reader = new StreamReader(_filePath);
+        foreach (var r in reader.ReadRecords(_recordParser, s_recordParserOptions))
+            checksum += r.Id;
+        return checksum;
+    }
 
     [Benchmark]
     public long FileHelpers_ParseAndDiscard()

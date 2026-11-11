@@ -149,6 +149,41 @@ files) or of the last character of the `Id` field (fixed-width files); each meth
 with the value computed from the dataset. Without the array or list that holds every record, these
 methods measure parsing on its own; they are the primary metric of the 4.10 read work (design B2).
 
+### Competitor libraries added in 4.10 (T11)
+
+**Tier A**: FlameCsv 0.3.1 and RecordParser 2.3.0 have `ReadAllRows_<Library>` and
+`<Library>_ParseAndDiscard` methods in `DelimitedComparisonBenchmarks`, `QuotedFieldsBenchmarks` (and so
+`QuotedFieldsPeriodicBenchmarks`) and, for RecordParser only, `FixedWidthComparisonBenchmarks` (FlameCsv has no
+fixed-width mode). `DelimitedParseBenchmarks`, `SepComparisonBenchmarks` and `FixedWidthParseBenchmarks` do not
+have them yet. Every method reads into the same row type as the other readers and passes the same `DataCheck`.
+
+**Tier B**: one table each, one `<Library>_ReadAll` method per library, with 10K and 100K rows:
+`TierBComparisonBenchmarks` (25-column delimited file: NReco.Csv 1.0.3, TinyCsvParser 3.0.12, Cursively 1.2.0,
+LumenWorksCsvReader 4.0.0, FlatFiles 5.0.4) and `TierBFixedWidthBenchmarks` (FlatFiles 5.0.4, RecordParser 2.3.0).
+There are no parse-and-discard twins for tier B.
+
+Differences between the libraries that the mapping cannot remove:
+
+- FlameCsv reads the file as UTF-8 bytes (`CsvOptions<byte>`) through a source-generated binding, which is how it is
+  meant to be used; the other readers decode the file to `char` first. Cursively also reads bytes, so the benchmark
+  decodes each field into a `char` buffer and then converts it exactly as NReco and LumenWorks do.
+- NReco.Csv, LumenWorks and Cursively only deliver text fields. The benchmark converts them with `int.Parse`,
+  `long.Parse`, `bool.Parse` and `DateTime.Parse` (invariant culture) through one shared `switch`, which is the
+  work the object mappers of the other libraries do internally.
+- TinyCsvParser maps by column index and checks every row's result (`IsSuccess`). FlatFiles builds its mapper inside
+  the measured method (once per call), the others build theirs in the setup; at these sizes that is below 1 %.
+- RecordParser needs `ContainsQuotedFields = true` to unquote, set only for the quoted datasets.
+- The fixed-width mappings keep the padding (no trim), like `FixedRecord`.
+
+### Libraries not included
+
+- **ChoETL 1.2.1.72**: its dependency `System.Data.SqlClient` 4.4.3 has known vulnerabilities (NU1902,
+  GHSA-8g2p-5pqh-5jmc, and NU1903, GHSA-98g6-xh36-x2p7). The build restores with NuGet audit as errors, so the
+  package cannot be referenced without suppressing the audit.
+- **Sylvan.Data 0.2.17 (fixed width)**: the package has no fixed-width reader (it holds the `DataBinder`, schema and
+  object-reader types, and Sylvan.Data.Csv reads delimited text only), so there is nothing to map fairly.
+- **ServiceStack.Text**: not added, by decision.
+
 ## Configurations and A/B runs
 
 From 4.10 on, the library is measured in three named configurations (design D6). The names are used as

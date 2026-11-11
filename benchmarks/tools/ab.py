@@ -4,7 +4,12 @@
 Usage (from any directory; see BENCHMARKS.md):
 
     python3 -I benchmarks/tools/ab.py --a <dir> --b <dir> --launches N --filter '<glob>' --out <json> \
-        [--work <dir>] [--expect-a <line>] [--expect-b <line>] [-- <extra BenchmarkDotNet arguments>]
+        [--work <dir>] [--expect-a <line>] [--expect-b <line>] [--smoke] [--allow-dirty] \
+        [-- <extra BenchmarkDotNet arguments>]
+
+A B4 result needs at least 7 launches; --smoke allows 5 and marks the result "b4": false. Folders built from
+a tree with uncommitted changes (variant.txt) are refused unless --allow-dirty. Each launch folder is
+emptied before its launch, and a launch that writes no report stops the run.
 
 <dir> is a folder that holds a built ModernLibs.FileHelpers.Benchmarks.dll, for example one of the folders
 that build-variants.sh writes. The benchmark methods that match --filter in both folders are run N times
@@ -27,6 +32,7 @@ Python standard library only.
 
 import argparse
 import glob
+import hashlib
 import json
 import os
 import random
@@ -40,11 +46,20 @@ RESAMPLES = 10_000
 SEED = 410
 CONFIDENCE = 0.999
 MIN_CHANGE = 0.03
-# Below 5 launches per side the interval is too narrow: with no difference, 2 launches exclude 1.0 in about a
-# third of runs and 5 in about 1 % (simulated, see test_ab.py). BENCHMARKS.md recommends 10.
-MIN_LAUNCHES = 5
+# Launch minimum (lead ruling R20, review-T08 Important 2). With n launches per side and no real difference
+# the 99.9 % interval excludes 1.0 when all B samples lie on one side of all A samples: 2 / C(2n, n), which
+# is 0.79 % for n = 5 (8 times the nominal 0.1 %) and 0.058 % for n = 7. A B4 result needs 7 launches;
+# 5 are allowed with --smoke, and such a result is marked as not meeting B4.
+MIN_LAUNCHES_B4 = 7
+MIN_LAUNCHES_SMOKE = 5
 BENCHMARK_DLL = "ModernLibs.FileHelpers.Benchmarks.dll"
+LIBRARY_DLL = "ModernLibs.FileHelpers.dll"
 VARIANT_FILE = "variant.txt"
+DIRTY_MARK = "(uncommitted changes)"
+
+# BenchmarkDotNet options that make a launch measure nothing or that ab.py sets itself.
+_FORBIDDEN_BDN_ARGS = {"--list", "--help", "-h", "-?", "--info", "--version", "--filter", "-f", "--artifacts",
+                       "-a", "--resume"}
 
 # The three named configurations of design D6: folder name -> (verify-variant line, .NET major version).
 CONFIGURATIONS = {
@@ -180,12 +195,19 @@ def _dotnet():
 
 
 def list_methods(bench_dir, pattern):
-    """The benchmark methods (Namespace.Type.Method) of one build that match the BenchmarkDotNet glob."""
-    out = subprocess.run(
+    """The benchmark methods (Namespace.Type.Method) of one build that match the BenchmarkDotNet glob.
+
+    The benchmark program exits 1 after --list because it measured nothing (Program.cs), so the exit code is
+    not checked here; the start-up lines and at least one listed method are.
+    """
+    proc = subprocess.run(
         [_dotnet(), _dll(bench_dir), "--list", "flat", "--filter", pattern],
-        check=True, capture_output=True, text=True).stdout
+        check=False, capture_output=True, text=True)
+    if not proc.stdout.startswith(_STARTUP_PREFIXES["variant"]):
+        raise RuntimeError("listing the benchmarks of %s failed (exit %d): %s%s"
+                           % (bench_dir, proc.returncode, proc.stdout[-2000:], proc.stderr[-2000:]))
     name = re.compile(r"^[A-Za-z_][\w.]*\.\w+$")
-    return sorted({line.strip() for line in out.splitlines() if name.match(line.strip())})
+    return sorted({line.strip() for line in proc.stdout.splitlines() if name.match(line.strip())})
 
 
 def _variant(bench_dir):
@@ -241,22 +263,103 @@ def check_startup(log_text, bench_dir, expected):
     return found
 
 
-def _process_launcher(bdn_args, expected, startups):
-    """Launches one BenchmarkDotNet process; checks its start-up lines and records them in startups[side]."""
+def launch_policy(launches, smoke):
+    """True when a run with this many launches can meet rule B4; ValueError below the minimum."""
+    minimum = MIN_LAUNCHES_SMOKE if smoke else MIN_LAUNCHES_B4
+    if launches < minimum:
+        raise ValueError("--launches must be at least %d%s" % (minimum, " with --smoke" if smoke else
+                         " for a B4 result (at least %d with --smoke, which is not B4)" % MIN_LAUNCHES_SMOKE))
+    return not smoke
+
+
+def table_header(b4, launches):
+    """First line of the printed result table."""
+    if b4:
+        return "# B4 result: %d launches per side, 99.9 %% interval, 3 %% floor" % launches
+    return "# smoke, not B4: %d launches per side; no verdict below is a B4 result" % launches
+
+
+def check_bdn_args(bdn_args):
+    """Refuses BenchmarkDotNet arguments that make a launch measure nothing or that ab.py sets itself."""
+    for arg in bdn_args:
+        if arg.split("=", 1)[0] in _FORBIDDEN_BDN_ARGS:
+            raise ValueError("BenchmarkDotNet argument %s is not allowed after -- (it measures nothing or ab.py sets it)"
+                             % arg)
+
+
+def _read_variant_file(text):
+    lines = text.strip().splitlines()
+    fields = dict(line.split("=", 1) for line in lines[1:] if "=" in line)
+    return {"line": lines[0] if lines else "", "commit": fields.get("commit"), "sdk": fields.get("sdk")}
+
+
+def check_variant_files(a_text, b_text, allow_dirty):
+    """Warnings about the two folders' variant.txt; ValueError for a build from uncommitted changes.
+
+    A build from a tree with uncommitted changes is refused unless allow_dirty: its commit line does not say
+    what was measured. Different commits on the two sides are legitimate (a 4.9.1 build against a 4.10 build)
+    and give a warning, as does a folder without variant.txt (not built by build-variants.sh).
+    """
+    warnings = []
+    infos = {}
+    for side, text in (("A", a_text), ("B", b_text)):
+        if text is None:
+            warnings.append("side %s has no %s: not built by build-variants.sh, commit unknown" % (side, VARIANT_FILE))
+            continue
+        info = _read_variant_file(text)
+        infos[side] = info
+        if info["commit"] is None or DIRTY_MARK in info["commit"]:
+            message = "side %s was built from a tree with uncommitted changes (%s: commit=%s)" % (
+                side, VARIANT_FILE, info["commit"])
+            if not allow_dirty:
+                raise ValueError(message + "; build from a commit, or pass --allow-dirty for a smoke run")
+            warnings.append(message)
+    def base_commit(info):
+        return (info["commit"] or "").replace(DIRTY_MARK, "").strip()
+
+    if len(infos) == 2 and base_commit(infos["A"]) != base_commit(infos["B"]):
+        warnings.append("A and B were built from different commits: %s and %s" % (infos["A"]["commit"], infos["B"]["commit"]))
+    return warnings
+
+
+def _sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _process_launcher(bdn_args, expected, startups, hashes, run=subprocess.run, dotnet=None):
+    """Launches one BenchmarkDotNet process for one method and returns the medians of its own report.
+
+    The launch folder is emptied first, so no report of an earlier run can be read. The run stops when the
+    process exits non-zero, when its start-up lines do not match the folder (check_startup) or change between
+    launches, when the library DLL changes between launches (SHA-256), or when the process wrote no report.
+    """
     def launch(side, bench_dir, method, artifacts_dir):
-        os.makedirs(artifacts_dir, exist_ok=True)
+        library = os.path.join(bench_dir, LIBRARY_DLL)
+        digest = _sha256(library)
+        if hashes.setdefault(side, digest) != digest:
+            raise RuntimeError("side %s: %s changed between launches (rebuilt during the run?)" % (side, library))
+        if os.path.exists(artifacts_dir):
+            shutil.rmtree(artifacts_dir)
+        os.makedirs(artifacts_dir)
         log_path = os.path.join(artifacts_dir, "console.log")
-        cmd = [_dotnet(), _dll(bench_dir), "--filter", method, "--artifacts", artifacts_dir] + bdn_args
+        cmd = [dotnet or _dotnet(), _dll(bench_dir), "--filter", method, "--artifacts", artifacts_dir] + bdn_args
         print("[%s] %s" % (side.upper(), method), flush=True)
         with open(log_path, "w", encoding="utf-8") as log:
-            code = subprocess.run(cmd, cwd=artifacts_dir, stdout=log, stderr=subprocess.STDOUT, check=False).returncode
+            code = run(cmd, cwd=artifacts_dir, stdout=log, stderr=subprocess.STDOUT, check=False).returncode
+        if code != 0:
+            raise RuntimeError("%s exited with %d, see %s" % (" ".join(cmd), code, log_path))
         with open(log_path, encoding="utf-8") as log:
-            startup = check_startup(log.read(), bench_dir, expected[side])
+            try:
+                startup = check_startup(log.read(), bench_dir, expected[side])
+            except RuntimeError as e:
+                raise RuntimeError("%s (see %s)" % (e, log_path)) from None
         if startups.setdefault(side, startup) != startup:
             raise RuntimeError("side %s: start-up lines changed between launches: %s, then %s"
                                % (side, startups[side], startup))
-        if code != 0:
-            raise RuntimeError("%s exited with %d, see %s" % (" ".join(cmd), code, log_path))
         return parse_reports(artifacts_dir)
     return launch
 
@@ -270,23 +373,32 @@ def main(argv):
     parser = argparse.ArgumentParser(description="Interleaved A/B BenchmarkDotNet runs with the B4 rule.")
     parser.add_argument("--a", required=True, help="folder with the A build (the baseline)")
     parser.add_argument("--b", required=True, help="folder with the B build (the candidate)")
-    parser.add_argument("--launches", required=True, type=int, help="launches per side and method (at least %d)" % MIN_LAUNCHES)
+    parser.add_argument("--launches", required=True, type=int,
+                        help="launches per side and method (at least %d; %d with --smoke)" % (MIN_LAUNCHES_B4, MIN_LAUNCHES_SMOKE))
     parser.add_argument("--filter", required=True, help="BenchmarkDotNet --filter glob")
     parser.add_argument("--out", required=True, help="JSON file to write")
     parser.add_argument("--work", help="folder for the per-launch BenchmarkDotNet artifacts (default: <out>.runs)")
     parser.add_argument("--expect-a", help="variant line the A processes must print, for a folder not named "
                         "net10, net11-ra-on or net11-ra-off (for example 'tfm=net10.0 runtime-async=off')")
     parser.add_argument("--expect-b", help="the same for B")
+    parser.add_argument("--smoke", action="store_true",
+                        help="allow %d to %d launches; the result is marked as not meeting B4"
+                        % (MIN_LAUNCHES_SMOKE, MIN_LAUNCHES_B4 - 1))
+    parser.add_argument("--allow-dirty", action="store_true",
+                        help="accept folders built from a tree with uncommitted changes (smoke runs only)")
     args = parser.parse_args(argv)
-    if args.launches < MIN_LAUNCHES:
-        parser.error("--launches must be at least %d" % MIN_LAUNCHES)
 
     a_dir = os.path.abspath(args.a)
     b_dir = os.path.abspath(args.b)
     try:
+        b4 = launch_policy(args.launches, args.smoke)
+        check_bdn_args(bdn_args)
         expected = {"a": expected_variant(a_dir, args.expect_a), "b": expected_variant(b_dir, args.expect_b)}
+        variant_warnings = check_variant_files(_variant(a_dir), _variant(b_dir), args.allow_dirty)
     except ValueError as e:
         parser.error(str(e))
+    for warning in variant_warnings:
+        print("warning: " + warning, file=sys.stderr, flush=True)
     work_dir = os.path.abspath(args.work or args.out + ".runs")
     a_methods = list_methods(a_dir, args.filter)
     b_methods = list_methods(b_dir, args.filter)
@@ -295,8 +407,12 @@ def main(argv):
         raise RuntimeError("no benchmark matches %r in both builds" % args.filter)
 
     startups = {}
-    results = run_ab(a_dir, b_dir, args.launches, methods, _process_launcher(bdn_args, expected, startups), work_dir)
+    hashes = {}
+    results = run_ab(a_dir, b_dir, args.launches, methods,
+                     _process_launcher(bdn_args, expected, startups, hashes), work_dir)
     document = {
+        "b4": b4,
+        "warnings": variant_warnings,
         "rule": {
             "ratio": "median(B) / median(A) of the per-launch medians; below 1.0 means B is faster",
             "confidence": CONFIDENCE,
@@ -304,8 +420,8 @@ def main(argv):
             "seed": SEED,
             "min_change": MIN_CHANGE,
         },
-        "a": {"dir": a_dir, "variant": _variant(a_dir), "startup": startups.get("a")},
-        "b": {"dir": b_dir, "variant": _variant(b_dir), "startup": startups.get("b")},
+        "a": {"dir": a_dir, "variant": _variant(a_dir), "startup": startups.get("a"), "library_sha256": hashes.get("a")},
+        "b": {"dir": b_dir, "variant": _variant(b_dir), "startup": startups.get("b"), "library_sha256": hashes.get("b")},
         "launches": args.launches,
         "filter": args.filter,
         "bdn_args": bdn_args,
@@ -317,6 +433,7 @@ def main(argv):
         json.dump(document, f, indent=2)
         f.write("\n")
 
+    print(table_header(b4, args.launches))
     for r in results:
         print("%-90s %.4f [%.4f, %.4f] %s" % (r["name"], r["median_ratio"], r["ci_low"], r["ci_high"], r["verdict"]))
     if document["only_in_a"] or document["only_in_b"]:

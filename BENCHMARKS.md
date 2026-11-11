@@ -179,13 +179,26 @@ two built folders, for example two configurations, or a 4.9.1 build and a 4.10 b
 
 ```bash
 python3 -I benchmarks/tools/ab.py --a ~/fh-bench/net11-ra-off --b ~/fh-bench/net11-ra-on \
-  --launches 10 --filter '*ParseAndDiscard*' --out ra-off-vs-on.json
+  --launches 10 --filter '*AsyncStreaming*' --out ra-off-vs-on.json
 ```
+
+(The same command on `*ParseAndDiscard*` is in effect an A/A run: those benchmarks are synchronous, so
+runtime async cannot change them. It is a useful check of the noise.)
 
 It lists the benchmark methods that match `--filter` in both folders and runs each method `--launches`
 times per side, alternately: A, B, A, B, ... Each run is one BenchmarkDotNet launch of one method, a
-process of its own. Arguments after `--` go to BenchmarkDotNet (for example `-- --job short`). The raw
-BenchmarkDotNet output of every launch stays in `<out>.runs/`.
+process of its own. Arguments after `--` go to BenchmarkDotNet (for example `-- --job short`); options
+that measure nothing or that `ab.py` sets itself (`--list`, `--help`, `--info`, `--filter`,
+`--artifacts`, ...) are refused. The raw BenchmarkDotNet output of every launch stays in
+`<out>.runs/`. Each launch folder is emptied before its launch, and a launch that exits non-zero or
+writes no report stops the run; the benchmark program exits 1 whenever it measured nothing. `ab.py`
+also records the SHA-256 of each side's `ModernLibs.FileHelpers.dll` and stops when it changes during
+the run.
+
+Both folders must come from a committed tree: a `variant.txt` that says "uncommitted changes" is
+refused unless `--allow-dirty` is given (for a local smoke run). `ab.py` warns when the two folders
+come from different commits (legitimate, for example a 4.9.1 build against a 4.10 build) or when a
+folder has no `variant.txt`; the warnings go into the JSON file.
 
 Each process's start-up lines are checked. `ab.py` stops when the variant a process printed is not the
 one its folder is named after (`net10`, `net11-ra-on`, `net11-ra-off`), when it loaded
@@ -200,10 +213,17 @@ resamples, fixed seed 410) and a `verdict` of `faster`, `slower` or `no-change`.
 The verdict applies **rule B4** of the 4.10 design, fixed before any round: a change counts when the
 99.9 % interval of the ratio excludes 1.0 **and** the median ratio differs from 1.0 by at least 0.03
 (3 %). A claim holds only when it holds on at least two Azure virtual machines, one of them the x64
-AVX2 reference machine. `ab.py` refuses fewer than 5 launches: with no real difference, the interval
-excludes 1.0 in about a third of simulated runs with 2 launches per side and in about 1 % with 5. Use
-10 or more. Run the tests of the statistics with
-`python3 -I -m unittest discover -s benchmarks/tools -p test_ab.py`.
+AVX2 reference machine; that condition also limits false changes when a round compares dozens of
+cases, each with its own small false-change rate.
+
+**A B4 result needs at least 7 launches per side.** With few samples the interval is not a true
+99.9 % interval: with no real difference it excludes 1.0 exactly when all B samples lie on one side of
+all A samples, which happens with probability 2 / C(2n, n). For n = 5 that is 0.79 % (0.67 % in a
+simulation of 1,500 runs), about 8 times the nominal 0.1 %; for n = 7 it is 0.058 % (0.07 % simulated),
+within the nominal level. `ab.py` therefore refuses fewer than 7 launches. With `--smoke` it accepts 5
+or 6; the JSON file then records `"b4": false` and the printed table starts with "smoke, not B4". A run
+without `--smoke` records `"b4": true`. Run the tests of `ab.py` with
+`python3 -I -m unittest discover -s benchmarks/tools -p 'test_*.py'`.
 
 **Local numbers are smoke checks (design D1).** A run on a developer machine or under WSL answers
 "does it run", "is the data right" and "is the direction plausible". Its numbers are not evidence and

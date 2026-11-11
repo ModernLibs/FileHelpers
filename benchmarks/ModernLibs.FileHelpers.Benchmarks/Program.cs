@@ -12,7 +12,12 @@ namespace ModernLibs.FileHelpers.Benchmarks;
 
 internal static class Program
 {
-    /// <returns>0 when every selected benchmark ran, 1 when one failed, 2 for unusable arguments.</returns>
+    /// <returns>
+    /// 0 when at least one benchmark ran and every selected benchmark ran successfully; 1 when one failed or
+    /// nothing was measured (no match for the filter, <c>--list</c>, <c>--help</c>, <c>--info</c>); 2 for unusable
+    /// arguments. A run that measured nothing is never exit 0, so a launcher cannot take it for a measurement
+    /// (review-T08, Important 1).
+    /// </returns>
     private static int Main(string[] args)
     {
         PrintVariant();
@@ -23,10 +28,14 @@ internal static class Program
             return 2;
         }
 
-        var summaries = BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(arguments, config);
-        bool failed = summaries.Any(s => s.HasCriticalValidationErrors
-            || s.Reports.Length != s.BenchmarksCases.Length
-            || s.Reports.Any(r => !r.Success));
+        var summaries = BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(arguments, config).ToArray();
+        bool measuredNothing = summaries.Sum(s => s.Reports.Length) == 0;
+        if (measuredNothing)
+            Console.Error.WriteLine("// No benchmark was measured; exit code 1.");
+        bool failed = measuredNothing
+            || summaries.Any(s => s.HasCriticalValidationErrors
+                || s.Reports.Length != s.BenchmarksCases.Length
+                || s.Reports.Any(r => !r.Success));
         return failed ? 1 : 0;
     }
 

@@ -1,6 +1,6 @@
 """Tests for ab.py (T08). Run from the repository root:
 
-    python3 -I -m unittest benchmarks/tools/test_ab.py
+    python3 -I -m unittest discover -s benchmarks/tools -p 'test_*.py'
 """
 
 import json
@@ -150,11 +150,37 @@ class RunnerTests(unittest.TestCase):
             self.assertIn(r["verdict"], ("faster", "slower", "no-change"))
 
     def test_fewer_than_five_launches_are_refused(self):
-        # With 2 launches per side the 99.9 % interval excludes 1.0 in about a third of runs without any
-        # difference (simulated), with 5 in about 1 %, with 10 in none of 200.
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(SystemExit):
-                ab.main(["--a", tmp, "--b", tmp, "--launches", "4", "--filter", "*", "--out", os.path.join(tmp, "o.json")])
+                ab.main(["--a", tmp, "--b", tmp, "--launches", "4", "--filter", "*", "--smoke",
+                         "--out", os.path.join(tmp, "o.json")])
+
+    def test_a_b4_result_needs_seven_launches(self):
+        # With n launches per side and no real difference, the interval excludes 1.0 when all B samples lie
+        # on one side of all A samples: 2 / C(2n, n), 0.79 % for n = 5 and 0.058 % for n = 7 (review-T08).
+        self.assertEqual(ab.MIN_LAUNCHES_B4, 7)
+        self.assertEqual(ab.MIN_LAUNCHES_SMOKE, 5)
+        self.assertTrue(ab.launch_policy(7, smoke=False))
+        with self.assertRaises(ValueError):
+            ab.launch_policy(6, smoke=False)
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(SystemExit):
+                ab.main(["--a", tmp, "--b", tmp, "--launches", "6", "--filter", "*", "--out", os.path.join(tmp, "o.json")])
+
+    def test_smoke_allows_five_launches_and_is_not_b4(self):
+        self.assertFalse(ab.launch_policy(5, smoke=True))
+        self.assertFalse(ab.launch_policy(9, smoke=True))
+        with self.assertRaises(ValueError):
+            ab.launch_policy(4, smoke=True)
+        self.assertIn("smoke, not B4", ab.table_header(b4=False, launches=5))
+        self.assertNotIn("smoke", ab.table_header(b4=True, launches=7))
+
+    def test_options_that_measure_nothing_cannot_be_passed_to_benchmarkdotnet(self):
+        for bad in (["--list", "flat"], ["--help"], ["-h"], ["--info"], ["--version"], ["--filter", "*"],
+                    ["--artifacts", "x"]):
+            with self.assertRaises(ValueError):
+                ab.check_bdn_args(bad)
+        ab.check_bdn_args(["--job", "short"])
 
     def test_a_benchmark_missing_from_one_launch_is_an_error(self):
         def launch(side, bench_dir, method, artifacts):
@@ -163,6 +189,109 @@ class RunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(RuntimeError):
                 ab.run_ab("A", "B", 2, ["N.C.M1"], launch, tmp)
+
+
+class _FakeRun:
+    """Stands in for subprocess.run: writes a console log and, optionally, a report into the launch folder."""
+
+    def __init__(self, bench_dir, write_report=True, returncode=0, variant="tfm=net11.0 runtime-async=on"):
+        self.bench_dir = bench_dir
+        self.write_report = write_report
+        self.returncode = returncode
+        self.variant = variant
+
+    def __call__(self, cmd, cwd, stdout, stderr, check):
+        stdout.write(_startup_log(self.bench_dir, variant=self.variant))
+        if self.write_report:
+            os.makedirs(os.path.join(cwd, "results"), exist_ok=True)
+            with open(os.path.join(cwd, "results", "N.C-report-full.json"), "w", encoding="utf-8") as f:
+                json.dump({"Benchmarks": [{"FullName": "N.C.M(Rows: 10)", "Statistics": {"Median": 42.0}}]}, f)
+
+        class Result:
+            pass
+
+        result = Result()
+        result.returncode = self.returncode
+        return result
+
+
+class LauncherTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.bench = os.path.join(self._tmp.name, "net11-ra-on")
+        os.makedirs(self.bench)
+        for name in (ab.BENCHMARK_DLL, ab.LIBRARY_DLL):
+            with open(os.path.join(self.bench, name), "wb") as f:
+                f.write(b"dll")
+        self.artifacts = os.path.join(self._tmp.name, "work", "001-b-N.C.M")
+        self.expected = {"b": ab.expected_variant(self.bench, None)}
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _launcher(self, run, startups=None, hashes=None):
+        return ab._process_launcher([], self.expected, {} if startups is None else startups,
+                                    {} if hashes is None else hashes, run=run, dotnet="dotnet")
+
+    def test_a_launch_reads_its_own_report(self):
+        startups = {}
+        medians = self._launcher(_FakeRun(self.bench), startups)("b", self.bench, "N.C.M", self.artifacts)
+        self.assertEqual(medians, {"N.C.M(Rows: 10)": 42.0})
+        self.assertEqual(startups["b"]["variant"], "tfm=net11.0 runtime-async=on")
+
+    def test_a_stale_report_is_not_read(self):
+        stale = os.path.join(self.artifacts, "results")
+        os.makedirs(stale)
+        with open(os.path.join(stale, "N.C-report-full.json"), "w", encoding="utf-8") as f:
+            json.dump({"Benchmarks": [{"FullName": "N.C.M(Rows: 10)", "Statistics": {"Median": 1.0}}]}, f)
+        with self.assertRaises(RuntimeError):
+            self._launcher(_FakeRun(self.bench, write_report=False))("b", self.bench, "N.C.M", self.artifacts)
+
+    def test_a_launch_that_measures_nothing_refuses_the_run(self):
+        with self.assertRaises(RuntimeError):
+            self._launcher(_FakeRun(self.bench, write_report=False))("b", self.bench, "N.C.M", self.artifacts)
+
+    def test_a_failed_process_is_reported_with_exit_code_and_log(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            self._launcher(_FakeRun(self.bench, returncode=3))("b", self.bench, "N.C.M", self.artifacts)
+        self.assertIn("exited with 3", str(ctx.exception))
+        self.assertIn("console.log", str(ctx.exception))
+
+    def test_a_wrong_variant_refuses_the_run(self):
+        with self.assertRaises(RuntimeError):
+            self._launcher(_FakeRun(self.bench, variant="tfm=net11.0 runtime-async=off"))(
+                "b", self.bench, "N.C.M", self.artifacts)
+
+    def test_a_library_that_changes_between_launches_refuses_the_run(self):
+        launch = self._launcher(_FakeRun(self.bench))
+        launch("b", self.bench, "N.C.M", self.artifacts)
+        with open(os.path.join(self.bench, ab.LIBRARY_DLL), "wb") as f:
+            f.write(b"rebuilt")
+        with self.assertRaises(RuntimeError):
+            launch("b", self.bench, "N.C.M", self.artifacts + "-2")
+
+
+class VariantFileTests(unittest.TestCase):
+    CLEAN_A = "net11-ra-off: tfm=net11.0 runtime-async=off\ncommit=aaa\nsdk=11.0.100\n"
+    CLEAN_B = "net11-ra-on: tfm=net11.0 runtime-async=on\ncommit=aaa\nsdk=11.0.100\n"
+    DIRTY_B = "net11-ra-on: tfm=net11.0 runtime-async=on\ncommit=aaa (uncommitted changes)\nsdk=11.0.100\n"
+    OTHER_B = "net11-ra-on: tfm=net11.0 runtime-async=on\ncommit=bbb\nsdk=11.0.100\n"
+
+    def test_same_clean_commit_gives_no_warning(self):
+        self.assertEqual(ab.check_variant_files(self.CLEAN_A, self.CLEAN_B, allow_dirty=False), [])
+
+    def test_a_build_from_uncommitted_changes_is_refused(self):
+        with self.assertRaises(ValueError):
+            ab.check_variant_files(self.CLEAN_A, self.DIRTY_B, allow_dirty=False)
+        self.assertEqual(len(ab.check_variant_files(self.CLEAN_A, self.DIRTY_B, allow_dirty=True)), 1)
+
+    def test_different_commits_give_a_warning(self):
+        warnings = ab.check_variant_files(self.CLEAN_A, self.OTHER_B, allow_dirty=False)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("commit", warnings[0])
+
+    def test_a_missing_variant_file_gives_a_warning(self):
+        self.assertEqual(len(ab.check_variant_files(None, self.CLEAN_B, allow_dirty=False)), 1)
 
 
 if __name__ == "__main__":

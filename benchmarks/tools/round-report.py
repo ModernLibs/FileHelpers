@@ -18,6 +18,8 @@ What the numbers are:
 - A comparison of two methods inside one build (gates R6 and G2, coding patterns, component benchmarks) uses the
   samples of one ab.py run, where the methods were launched in turn, and ab.py's own rule (compare()).
 - A verdict marked * comes from a run that is not B4 (ab.py --smoke or --allow-dirty): it is no result.
+- Results of ab.py --aot ("harness": "aot", T47) are kept apart from the BenchmarkDotNet results, although their
+  folders have the same names (aot/net10, ...): they fill the "AOT read" section only.
 
 Python standard library only.
 """
@@ -49,6 +51,12 @@ SCENARIO_GROUPS = [
     ("control", "Controls (code that is the same in every build)"),
 ]
 METHOD_GROUPS = ("component", "prototype")
+AOT_GROUP = "aot"
+AOT_NOTE = ("There is no AOT control build (the 4.9.1 source compiled with SDK 11 under AOT), so each 4.9.1 -> 4.10 "
+            "ratio below includes the compiler and SDK effect as well as the code change: read it as what a consumer "
+            "gets. The AOT harness forces a full collection before every timed read and its x64 build does not assume "
+            "AVX2, so its times are not comparable with the BenchmarkDotNet tables (BENCHMARKS.md, \"Native AOT "
+            "timing harness\").")
 
 # Coding-pattern choices of design 2.5 (items 1, 2, 3): (item, class, baseline, variants).
 PATTERN_CHOICES = [
@@ -159,6 +167,7 @@ class Result:
         self.b = os.path.basename(os.path.normpath(document["b"]["dir"]))
         self.filter = document.get("filter", "")
         self.b4 = bool(document.get("b4"))
+        self.aot = document.get("harness") == "aot"
         self.rows = document.get("benchmarks", [])
 
     def side(self, build):
@@ -174,10 +183,11 @@ class Vm:
         self.filters = []          # (group, pairs, glob)
         self.not_run = []          # (pair, group, glob, reason)
         self.machine = ""
+        self.aot = None            # a Vm with the ab.py --aot results of this VM (see load)
 
     @property
     def b4(self):
-        return all(r.b4 for r in self.results)
+        return all(r.b4 for r in self.results) and (self.aot is None or self.aot.b4)
 
     def groups_of(self, glob):
         """The report groups of a glob: a filter line may name several, comma-separated ("async,exception").
@@ -251,12 +261,16 @@ def load(round_dir):
                 if isinstance(document, dict) and "benchmarks" in document and "a" in document:
                     vm.results.append(Result(os.path.join(dirpath, filename), document))
         vm.filters = read_filters(_read_text(os.path.join(path, "filters.txt")))
+        vm.aot = Vm(name, path)
+        vm.aot.results = [r for r in vm.results if r.aot]
+        vm.aot.filters = vm.filters
+        vm.results = [r for r in vm.results if not r.aot]
         for line in _read_text(os.path.join(path, "not-run.txt")).splitlines():
             parts = line.split("\t")
             if len(parts) == 4:
                 vm.not_run.append(tuple(parts))
         vm.machine = _read_text(os.path.join(path, "machine.txt"))
-        if vm.results or vm.filters:
+        if vm.results or vm.aot.results or vm.filters:
             vms.append(vm)
     return vms
 
@@ -319,7 +333,8 @@ def scenario_groups(vm):
         return [("Scenarios", sorted(cases, key=_sort_key), [])]
     groups = []
     known = [g for g, _ in SCENARIO_GROUPS]
-    extra = [g for grp, _, _ in vm.filters for g in grp.split(",") if g not in known and g not in METHOD_GROUPS]
+    extra = [g for grp, _, _ in vm.filters for g in grp.split(",")
+             if g not in known and g not in METHOD_GROUPS and g != AOT_GROUP]
     titles = dict(SCENARIO_GROUPS)
     for group in known + sorted(set(extra), key=extra.index):
         globs = [g for grp, _, g in vm.filters if group in grp.split(",")]
@@ -344,6 +359,25 @@ def scenario_table(vm, cases, missing):
     for glob in missing:
         rows.append(["`%s`" % glob, "-", "-", "-", "-", "-", "not run"])
     return _table(SCENARIO_HEADER, rows)
+
+
+def aot_section(vm):
+    """The AOT read section: the scenario table of the AOT folders and the 4.9.1 -> 4.10 pair of each runtime."""
+    aot = vm.aot
+    globs = [g for grp, _, g in vm.filters if AOT_GROUP in grp.split(",")]
+    if not aot.results:
+        if globs:
+            return ["AOT read: not run on this VM (%s)." % ", ".join("`%s`" % g for g in globs)]
+        return ["AOT read: not run on this VM."]
+    cases = sorted(_cases_in_order(aot, aot.results), key=_sort_key)
+    missing = [g for g in globs if not any(r.filter == g for r in aot.results)]
+    lines = [AOT_NOTE, ""]
+    lines += scenario_table(aot, cases, missing)
+    for a, b in (("pkg-net10", "net10"), ("pkg-net11", "net11-ra-on"), ("pkg-net11", "net11-ra-off")):
+        table = pair_table(aot, a, b, "4.9.1 pkg (AOT)", "4.10 %s (AOT)" % b, "4.10/pkg")
+        if table:
+            lines += ["", "aot/%s -> aot/%s:" % (a, b), ""] + table
+    return lines
 
 
 def pair_table(vm, a, b, a_label, b_label, ratio_label, groups=None):
@@ -629,6 +663,8 @@ def build(round_dir):
             s += ["### %s" % title, ""]
             s += scenario_table(vm, cases, missing) if cases or missing else ["No case ran."]
             s.append("")
+        s += ["### AOT read", ""]
+        s += aot_section(vm) + [""]
         s += ["### Gate R6", ""]
         r6_lines, r6 = gate_r6(vm)
         s += r6_lines + [""]

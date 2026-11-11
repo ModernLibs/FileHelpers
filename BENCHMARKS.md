@@ -355,6 +355,40 @@ without `--smoke` records `"b4": true`. Run the tests of `ab.py` with
 "does it run", "is the data right" and "is the direction plausible". Its numbers are not evidence and
 go into no report, gate or changelog; results come from Azure rounds only.
 
+### 4.9.1 baselines and a whole round (T12)
+
+The benchmark project can measure another library than this repository's, with the same benchmark code:
+
+| Property | Library measured |
+|---|---|
+| (none) | this repository's library and generator |
+| `-p:FileHelpersPackageVersion=4.9.1` | the published package (its `lib/net10.0` and the generator it bundles) |
+| `-p:FileHelpersSourceRoot=<dir>` | the library and generator of another source tree, compiled with this repository's SDK |
+
+A build with either property defines `FILEHELPERS_BASELINE`, which leaves out the benchmarks of 4.10 APIs that 4.9.1
+does not have (the four `EngineAsyncBenchmarks` methods named above); `round.sh` reports them as "not run" in a pair
+with such a build.
+
+`benchmarks/tools/build-baselines.sh <out-dir>` builds the 4.9.1 baselines next to the folders of
+`build-variants.sh`: `pkg-net10` and `pkg-net11` (the package, run on .NET 10 and .NET 11; the script checks that the
+folder holds the package's own DLL) and `control-net10`, `control-net11-ra-on`, `control-net11-ra-off` (the `v4.9.1`
+tag with `control-v4.9.1.patch`, which names SDK 11 in `global.json` and lets the library target `net11.0` with the
+runtime-async switch). Each folder gets a `variant.txt`; `ab.py` needs `--expect-a`/`--expect-b` for these names.
+
+`benchmarks/tools/round.sh <round-name> <commit> <filter-file>` runs a whole round on one machine: it records the
+machine (the native toolchain included), clones this repository at the commit, builds all eight folders and
+publishes the five folders of the Native AOT harness (`build-aot-variants.sh`, see "Native AOT timing harness"
+below) one after the other, checks each one (`verify-variant`, the start-up lines, distinct library DLLs,
+`--check-competitors`, `--check-prototypes`; for the AOT folders their `variant.txt` and `--info`) and stops with
+`VARIANT MISMATCH <dir>` or `CHECK FAILED <check> <dir>` before anything is measured. Then it runs `ab.py` with 7
+launches for every A/B pair and line of the filter file and ends with `ROUND COMPLETE <n> result files`. Filter lines of
+group `aot` run the four AOT pairs with `ab.py --aot`. The filter
+file names the pairs each glob runs in (`benchmarks/tools/filters-step0.txt` describes the format and the pairs).
+`--dry` is the local smoke run (`--smoke`, 5 launches, job Dry): `round.sh dry-local HEAD
+benchmarks/tools/filters-dry.txt --dry`. `benchmarks/tools/round-report.py <root>/raw/<round-name>` prints the report
+tables; [docs/benchmarks/step0-4.10.md](docs/benchmarks/step0-4.10.md) is the Step 0 report and
+[docs/benchmarks/raw/README.md](docs/benchmarks/raw/README.md) describes the raw files.
+
 ## Native AOT timing harness
 
 BenchmarkDotNet runs the benchmarks in its own process with the JIT (see "Running"), so it cannot measure a
@@ -473,37 +507,6 @@ python3 -I benchmarks/tools/ab.py --aot --a <bin>/aot/pkg-net11 --b <bin>/aot/ne
 python3 -I benchmarks/tools/ab.py --aot --a <bin>/aot/pkg-net11 --b <bin>/aot/net11-ra-off --expect-a 'tfm=net10.0 runtime-async=off' --launches 7 --out <raw>/aot/v410-net11-ra-off.json -- --rows 100000 --warmup 5 --iterations 20
 python3 -I benchmarks/tools/ab.py --aot --a <bin>/aot/net11-ra-off --b <bin>/aot/net11-ra-on --launches 7 --out <raw>/aot/ra.json -- --rows 100000 --warmup 5 --iterations 20
 ```
-
-### 4.9.1 baselines and a whole round (T12)
-
-The benchmark project can measure another library than this repository's, with the same benchmark code:
-
-| Property | Library measured |
-|---|---|
-| (none) | this repository's library and generator |
-| `-p:FileHelpersPackageVersion=4.9.1` | the published package (its `lib/net10.0` and the generator it bundles) |
-| `-p:FileHelpersSourceRoot=<dir>` | the library and generator of another source tree, compiled with this repository's SDK |
-
-A build with either property defines `FILEHELPERS_BASELINE`, which leaves out the benchmarks of 4.10 APIs that 4.9.1
-does not have (the four `EngineAsyncBenchmarks` methods named above); `round.sh` reports them as "not run" in a pair
-with such a build.
-
-`benchmarks/tools/build-baselines.sh <out-dir>` builds the 4.9.1 baselines next to the folders of
-`build-variants.sh`: `pkg-net10` and `pkg-net11` (the package, run on .NET 10 and .NET 11; the script checks that the
-folder holds the package's own DLL) and `control-net10`, `control-net11-ra-on`, `control-net11-ra-off` (the `v4.9.1`
-tag with `control-v4.9.1.patch`, which names SDK 11 in `global.json` and lets the library target `net11.0` with the
-runtime-async switch). Each folder gets a `variant.txt`; `ab.py` needs `--expect-a`/`--expect-b` for these names.
-
-`benchmarks/tools/round.sh <round-name> <commit> <filter-file>` runs a whole round on one machine: it records the
-machine, clones this repository at the commit, builds all eight folders one after the other, checks each one
-(`verify-variant`, the start-up lines, distinct library DLLs, `--check-competitors`, `--check-prototypes`) and stops
-with `VARIANT MISMATCH <dir>` or `CHECK FAILED <check> <dir>` before anything is measured. Then it runs `ab.py` with 7
-launches for every A/B pair and line of the filter file and ends with `ROUND COMPLETE <n> result files`. The filter
-file names the pairs each glob runs in (`benchmarks/tools/filters-step0.txt` describes the format and the pairs).
-`--dry` is the local smoke run (`--smoke`, 5 launches, job Dry): `round.sh dry-local HEAD
-benchmarks/tools/filters-dry.txt --dry`. `benchmarks/tools/round-report.py <root>/raw/<round-name>` prints the report
-tables; [docs/benchmarks/step0-4.10.md](docs/benchmarks/step0-4.10.md) is the Step 0 report and
-[docs/benchmarks/raw/README.md](docs/benchmarks/raw/README.md) describes the raw files.
 
 ## Datasets
 

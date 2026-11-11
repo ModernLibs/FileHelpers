@@ -14,8 +14,14 @@
 #          v410-net11   pkg-net11 -> net11-ra-on                   the same on .NET 11
 #          ra           net11-ra-off -> net11-ra-on                runtime async (D6)
 #          runtime-410  net10 -> net11-ra-on                       the 4.10 build on .NET 10 against .NET 11
+#          Native AOT harness (T47, ab.py --aot; group aot only, and group aot runs in these pairs only):
+#          aot-v410-net10         aot/pkg-net10 -> aot/net10          4.9.1 package against 4.10, .NET 10
+#          aot-v410-net11         aot/pkg-net11 -> aot/net11-ra-on    the same on .NET 11, runtime async on
+#          aot-v410-net11-ra-off  aot/pkg-net11 -> aot/net11-ra-off   the same on .NET 11, runtime async off
+#          aot-ra                 aot/net11-ra-off -> aot/net11-ra-on runtime async under AOT (a synchronous read: A/A)
 # <glob>   a BenchmarkDotNet --filter glob, passed to ab.py as it stands. Each line is one ab.py run per pair, so
 #          the methods one glob selects are interleaved with each other (the gates compare methods of one run).
+#          For group aot, a glob over the AOT harness's scenarios (ab.py AOT_SCENARIOS).
 #
 # A glob that selects nothing in one of the two builds of a pair is skipped and reported as "not run" (for example a
 # benchmark of a 4.10 API in a pair with a 4.9.1 build). Lines starting with # and blank lines are ignored.
@@ -84,5 +90,7 @@ component  runtime-410                                          *Components.Form
 prototype  v410-net10,v410-net11                                *Prototypes.R6UpperBoundBenchmarks*
 prototype  v410-net10,v410-net11                                *Prototypes.G2PrototypeBenchmarks*
 
-# PLACEHOLDER, filled by T46/T47 integration: how a round runs the AOT read timing harness of T47 (a line here or a
-# step of round.sh) is added after T47 lands.
+# Native AOT read (design 3.1 C2, T47): the 25-column parse-and-discard under Native AOT, 100,000 rows, 5 untimed and
+# 20 timed reads per launch (round.sh sets the harness arguments). There is no AOT control build, so the 4.9.1 -> 4.10
+# ratios include the compiler and SDK effect: read them as "what a consumer gets".
+aot        aot-v410-net10,aot-v410-net11,aot-v410-net11-ra-off,aot-ra *PackageAssets_ParseAndDiscard

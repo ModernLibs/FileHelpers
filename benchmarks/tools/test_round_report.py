@@ -210,5 +210,62 @@ class GateAndGapTests(unittest.TestCase):
             self.assertIn(label, section, title)
 
 
+class AotTests(unittest.TestCase):
+    """ab.py --aot results (T47): their own table, never mixed with the BenchmarkDotNet folders of the same name."""
+
+    AOT_CASE = "ModernLibs.FileHelpers.Benchmarks.Aot.PackageAssets_ParseAndDiscard(Rows: 100000)"
+    GLOB = "*PackageAssets_ParseAndDiscard"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.round = os.path.join(self.tmp.name, "raw", "r3")
+        vm = os.path.join(self.round, "vm1")
+        bdn = "/w/bin/"
+        aot = "/w/bin/aot/"
+        for pair, a, b, fa, fb in (("aot-v410-net10", "pkg-net10", "net10", 10_000, 9_000),
+                                   ("aot-v410-net11", "pkg-net11", "net11-ra-on", 9_500, 8_000),
+                                   ("aot-v410-net11-ra-off", "pkg-net11", "net11-ra-off", 9_500, 8_100),
+                                   ("aot-ra", "net11-ra-off", "net11-ra-on", 8_100, 8_000)):
+            document = doc(aot + a, aot + b, self.GLOB, [bench(self.AOT_CASE, scaled(fa), scaled(fb))])
+            document["harness"] = "aot"
+            write(os.path.join(vm, pair, "090-aot-x.json"), document)
+        # A BenchmarkDotNet result for folders with the same names: it must not take the AOT values.
+        write(os.path.join(vm, "ra", "006-quoted-x.json"), doc(
+            bdn + "net11-ra-off", bdn + "net11-ra-on", "*QuotedFieldsBenchmarks.FileHelpers_ParseAndDiscard",
+            [bench(QUOTED + "(Rows: 100000)", scaled(50_000), scaled(50_000))]))
+        with open(os.path.join(vm, "filters.txt"), "w", encoding="utf-8") as f:
+            f.write("quoted ra *QuotedFieldsBenchmarks.FileHelpers_ParseAndDiscard\n"
+                    "aot aot-v410-net10,aot-v410-net11,aot-v410-net11-ra-off,aot-ra %s\n" % self.GLOB)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def aot_section(self):
+        markdown = round_report.build(self.round)
+        return markdown.split("### AOT read\n", 1)[1].split("\n### ", 1)[0]
+
+    def test_aot_table_has_every_column(self):
+        section = self.aot_section()
+        rows = table_rows(section, HEADER)
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row[0], "Aot.PackageAssets_ParseAndDiscard (Rows 100K)")
+        self.assertEqual(row[1], "1.000 ms / 950.0 μs")
+        self.assertEqual(row[2:5], ["900.0 μs", "800.0 μs", "810.0 μs"])
+        self.assertTrue(row[5].startswith("0.988"), row[5])
+
+    def test_aot_results_stay_out_of_the_benchmarkdotnet_tables(self):
+        markdown = round_report.build(self.round)
+        before_aot = markdown.split("### AOT read\n", 1)[0]
+        self.assertNotIn("PackageAssets_ParseAndDiscard", before_aot)
+        quoted = table_rows(markdown, HEADER)[0]          # the first scenario table is the quoted one
+        self.assertEqual(quoted[3], "5.000 ms")           # net11-ra-on of the BenchmarkDotNet folder only
+
+    def test_aot_section_names_the_missing_control_build(self):
+        section = self.aot_section()
+        self.assertIn("compiler and SDK effect", section)
+        self.assertIn("4.9.1 pkg (AOT)", section)       # the per-runtime pair tables
+
+
 if __name__ == "__main__":
     unittest.main()

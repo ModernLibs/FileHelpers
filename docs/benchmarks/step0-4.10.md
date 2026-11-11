@@ -48,6 +48,12 @@ A/B pairs (`ab.py`, A and B launched alternately, one benchmark method per proce
 | `v410-net11` | `pkg-net11` | `net11-ra-on` | R6 and G2 on `net11-ra-on`, `R6_Current` against the package |
 | `ra` | `net11-ra-off` | `net11-ra-on` | Runtime async, all scenarios (D6) |
 | `runtime-410` | `net10` | `net11-ra-on` | Component benchmarks on both runtimes (coding-pattern choices) |
+| `aot-v410-net10` | `aot/pkg-net10` | `aot/net10` | Native AOT read, 4.9.1 package against 4.10, .NET 10 |
+| `aot-v410-net11` | `aot/pkg-net11` | `aot/net11-ra-on` | The same on .NET 11, runtime async on |
+| `aot-v410-net11-ra-off` | `aot/pkg-net11` | `aot/net11-ra-off` | The same on .NET 11, runtime async off |
+| `aot-ra` | `aot/net11-ra-off` | `aot/net11-ra-on` | Runtime async under AOT (synchronous read: A/A) |
+
+The `aot-*` pairs run the Native AOT harness (`ab.py --aot`) on the folders under `aot/`; see "AOT read".
 
 **Rule B4.** A change counts when the 99.9 % bootstrap interval of the ratio of medians excludes 1.0 and the median
 ratio differs from 1.0 by at least 3 %. A claim holds only when it holds on at least two VMs, one of them the x64 AVX2
@@ -135,12 +141,36 @@ and `WriteStreamAsync` from a source that throws after 3 records, `Rows / 100` c
 
 ### AOT read
 
-Not measured in Step 0. The Native AOT smoke test (T04, `tests/ModernLibs.FileHelpers.Aot.Tests`) publishes with
-`PublishAot` for `net10.0` and `net11.0` and checks that reads and writes give the right results; it measures no time,
-and no benchmark runs under AOT (the gate prototypes need reflection, and BenchmarkDotNet runs in-process). Design 3.1
-(C2) asks for one AOT benchmark run of the 25-column read on each runtime; that run does not exist yet.
+Design 3.1 (C2): the 25-column parse-and-discard read under Native AOT, on each runtime. BenchmarkDotNet cannot run an
+AOT build, so this is the timing harness of T47 (`benchmarks/ModernLibs.FileHelpers.Benchmarks.Aot`, see
+BENCHMARKS.md, "Native AOT timing harness"). It does the work of `DelimitedParseBenchmarks.FileHelpers_ParseAndDiscard`
+with the same record type and the same dataset, at 100,000 rows: per launch 5 untimed and 20 timed reads, and one
+sample is the median of the 20. Every launch first checks that both builds of the pair read the same values (a
+checksum over every field), and times nothing otherwise. `ab.py --aot` interleaves the launches with rule B4, as for
+the other tables.
 
-PLACEHOLDER, filled by T46/T47 integration: the AOT read timing harness of T47, its table and how the round runs it.
+AOT folders (`round.sh` publishes them with `build-aot-variants.sh` into `<bin>/aot/`): `pkg-net10` and `pkg-net11`
+(the 4.9.1 package, harness on .NET 10 and on .NET 11), `net10`, `net11-ra-on` and `net11-ra-off` (the 4.10 commit).
+Pairs: `aot-v410-net10` (`pkg-net10` -> `net10`), `aot-v410-net11` (`pkg-net11` -> `net11-ra-on`),
+`aot-v410-net11-ra-off` (`pkg-net11` -> `net11-ra-off`) and `aot-ra` (`net11-ra-off` -> `net11-ra-on`; the read is
+synchronous, so this is an A/A check under AOT).
+
+**No AOT control build.** There is no AOT build of the 4.9.1 source with SDK 11, so each 4.9.1 -> 4.10 ratio under
+AOT includes the compiler and SDK effect (design 2.5 item 9) as well as the code change: read it as what a consumer
+gets, not as the effect of the 4.10 code. Also: the harness forces a full collection before every timed read
+(BenchmarkDotNet does so between iterations), and its x64 build does not assume AVX2 (no `IlcInstructionSet`), so its
+times are not comparable with the BenchmarkDotNet tables; compare AOT only with AOT.
+
+| Scenario | 4.9.1 pkg | net10 | net11-ra-on | net11-ra-off | on/off | verdict |
+|---|---|---|---|---|---|---|
+
+4.9.1 package against 4.10 under AOT, per runtime (one table per pair and VM):
+
+| Scenario | 4.9.1 pkg (AOT) | 4.10 (AOT) | 4.10/pkg [99.9 % CI] | verdict |
+|---|---|---|---|---|
+
+The Native AOT smoke test (T04, `tests/ModernLibs.FileHelpers.Aot.Tests`) checks correctness under AOT and measures no
+time.
 
 ### Controls
 

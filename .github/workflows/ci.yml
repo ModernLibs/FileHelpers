@@ -15,10 +15,27 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
 
 jobs:
-  build-and-test:
-    name: Build and Test
-    # Linux only for now.
-    runs-on: ubuntu-latest
+  test:
+    name: test (${{ matrix.os }}, ${{ matrix.variant }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            variant: default
+          - os: windows-latest
+            variant: default
+          - os: ubuntu-24.04-arm
+            variant: default
+          # SIMD knobs: run the same binaries with a narrower instruction set.
+          - os: ubuntu-latest
+            variant: avx2-off
+          - os: ubuntu-latest
+            variant: hw-off
+    defaults:
+      run:
+        shell: bash
 
     steps:
       # Supply chain: every action is pinned to a full commit SHA (tags are mutable); the trailing
@@ -26,20 +43,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # global.json pins SDK 11 (latestPatch roll-forward); 10.0.x provides the net10.0 runtime for
+      # the test binaries. Unverified until the first CI run: if only one of the two is installed,
+      # split this into two setup-dotnet steps.
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          # global.json pins the SDK (latestPatch roll-forward)
           global-json-file: global.json
+          dotnet-version: 10.0.x
 
-      # Cache NuGet packages — keyed on Directory.Packages.props + all .csproj files
+      # Cache NuGet packages - keyed on Directory.Packages.props + all .csproj files
       - name: Cache NuGet packages
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-nuget-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
           restore-keys: |
-            ${{ runner.os }}-nuget-
+            ${{ runner.os }}-${{ runner.arch }}-nuget-
 
       - name: Restore
         run: dotnet restore
@@ -53,20 +73,90 @@ jobs:
           dotnet build samples/MigrationSamples --configuration Release
           dotnet build tests/ModernLibs.FileHelpers.Fuzz.Tests --configuration Release
 
-      # SDK 10 + Microsoft.Testing.Platform: run the test binaries directly. MTP exits with code 8
-      # when no test ran, which fails the job.
+      # The knobs apply to the test and sample steps only, not to the build.
+      - name: Apply SIMD knob
+        run: |
+          case "${{ matrix.variant }}" in
+            avx2-off) echo "DOTNET_EnableAVX2=0" >> "$GITHUB_ENV" ;;
+            hw-off) echo "DOTNET_EnableHWIntrinsic=0" >> "$GITHUB_ENV" ;;
+          esac
+
+      # Microsoft.Testing.Platform: run the test binaries directly. MTP exits with code 8 when no
+      # test ran, which fails the job.
       - name: Test (TUnit)
-        run: ./tests/ModernLibs.FileHelpers.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Tests
+        run: |
+          set -euo pipefail
+          EXE=""; if [ "$RUNNER_OS" = "Windows" ]; then EXE=".exe"; fi
+          for tfm in net10.0 net11.0; do
+            echo "::group::TUnit $tfm"
+            "./tests/ModernLibs.FileHelpers.Tests/bin/Release/$tfm/ModernLibs.FileHelpers.Tests$EXE"
+            echo "::endgroup::"
+          done
 
       # The xUnit v3 runner exits 0 when no test ran, so require a non-zero total.
       - name: Test (xUnit mutation)
         run: |
-          set -o pipefail
-          ./tests/ModernLibs.FileHelpers.Mutation.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Mutation.Tests | tee mutation-tests.log
-          grep -Eq 'Total: [1-9][0-9]*' mutation-tests.log || { echo "::error::No mutation tests ran."; exit 1; }
+          set -euo pipefail
+          EXE=""; if [ "$RUNNER_OS" = "Windows" ]; then EXE=".exe"; fi
+          for tfm in net10.0 net11.0; do
+            echo "::group::xUnit mutation $tfm"
+            "./tests/ModernLibs.FileHelpers.Mutation.Tests/bin/Release/$tfm/ModernLibs.FileHelpers.Mutation.Tests$EXE" | tee "mutation-tests-$tfm.log"
+            grep -Eq 'Total: [1-9][0-9]*' "mutation-tests-$tfm.log" || { echo "::error::No mutation tests ran ($tfm)."; exit 1; }
+            echo "::endgroup::"
+          done
 
-      # The migration sample runs end to end (exit code 0).
+      # The migration sample runs end to end (exit code 0) on both targets.
       - name: Run migration sample
-        run: dotnet run --project samples/MigrationSamples --configuration Release --no-build
+        run: |
+          set -euo pipefail
+          for tfm in net10.0 net11.0; do
+            dotnet run --project samples/MigrationSamples --configuration Release --no-build -f "$tfm"
+          done
 
-      # Stryker.NET runs in mutation.yml (manual and weekly), not on every push.
+  # Escape-hatch build: runtime async off for net11.0 (-p:FileHelpersRuntimeAsync=false).
+  runtime-async-off:
+    name: runtime-async-off
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # global.json pins SDK 11 (latestPatch roll-forward); 10.0.x provides the net10.0 runtime for
+      # the test binaries. Unverified until the first CI run: if only one of the two is installed,
+      # split this into two setup-dotnet steps.
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+          dotnet-version: 10.0.x
+
+      # Cache NuGet packages - keyed on Directory.Packages.props + all .csproj files
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-${{ runner.arch }}-nuget-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-nuget-
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build (runtime async off)
+        run: dotnet build --no-restore --configuration Release -p:FileHelpersRuntimeAsync=false
+
+      - name: Test (TUnit, net11.0)
+        env:
+          FH_EXPECT_RUNTIME_ASYNC: '0'
+        run: ./tests/ModernLibs.FileHelpers.Tests/bin/Release/net11.0/ModernLibs.FileHelpers.Tests
+
+      - name: Test (TUnit, Category=Fuzz, net11.0)
+        env:
+          FH_EXPECT_RUNTIME_ASYNC: '0'
+        run: >-
+          ./tests/ModernLibs.FileHelpers.Tests/bin/Release/net11.0/ModernLibs.FileHelpers.Tests
+          --disable-logo
+          --treenode-filter "/*/*/*/*[Category=Fuzz]"
+
+  # Stryker.NET runs in mutation.yml (manual and weekly), not on every push.

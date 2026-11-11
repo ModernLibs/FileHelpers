@@ -8,6 +8,12 @@ on:
   schedule:
     # Weekly extended fuzzing run — Sunday at 00:00 UTC
     - cron: '0 0 * * 0'
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: 'Iterations of the extended fuzz target'
+        required: false
+        default: '10000'
 
 permissions:
   contents: read
@@ -29,7 +35,9 @@ jobs:
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
+          # global.json pins SDK 11; 10.0.x provides the net10.0 runtime for the test binary.
           global-json-file: global.json
+          dotnet-version: 10.0.x
 
       - name: Cache NuGet packages
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -55,21 +63,37 @@ jobs:
           shopt -s nullglob
           files=(tests/ModernLibs.FileHelpers.Fuzz.Tests/FuzzCorpus/*.txt)
           if [ ${#files[@]} -eq 0 ]; then echo "::error::Seed corpus is empty."; exit 1; fi
-          for target in delimited spanline fixedlength converters; do
-            echo "Running fuzz target: $target"
-            for file in "${files[@]}"; do
-              dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests/ -c Release --no-build -- "$target" < "$file"
+          for tfm in net10.0 net11.0; do
+            for target in delimited spanline fixedlength converters; do
+              echo "Running fuzz target: $target ($tfm)"
+              for file in "${files[@]}"; do
+                dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests/ -c Release --no-build -f "$tfm" -- "$target" < "$file"
+              done
             done
           done
 
-      # Category "Fuzz" of the TUnit suite (property-style random inputs). MTP exits with code 8 when
-      # no test matches the filter, which fails the job.
+      # Category "Fuzz" of the TUnit suite (property-style random inputs), on both targets. MTP exits
+      # with code 8 when no test matches the filter, which fails the job.
       - name: Run TUnit fuzz tests
-        run: >-
-          ./tests/ModernLibs.FileHelpers.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Tests
-          --disable-logo
-          --output Detailed
-          --treenode-filter "/*/*/*/*[Category=Fuzz]"
+        run: |
+          set -euo pipefail
+          for tfm in net10.0 net11.0; do
+            ./tests/ModernLibs.FileHelpers.Tests/bin/Release/$tfm/ModernLibs.FileHelpers.Tests \
+              --disable-logo \
+              --output Detailed \
+              --treenode-filter "/*/*/*/*[Category=Fuzz]"
+          done
+
+      # Manual extended run; the iteration count comes from the workflow_dispatch input.
+      - name: Run extended fuzz target
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          ITERATIONS: ${{ inputs.iterations }}
+        run: |
+          set -euo pipefail
+          for tfm in net10.0 net11.0; do
+            dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests/ -c Release --no-build -f "$tfm" -- extended "$ITERATIONS"
+          done
 
       # Weekly extended run — save corpus artifacts
       - name: Save corpus artifacts (weekly)

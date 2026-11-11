@@ -764,7 +764,7 @@ written and read back with six value sets, 3.5.2 and 4.9.1 gave the same result)
 |--------|-------------------------|
 | delimiter `"`, `[FieldQuoted]` first field | throws for all six value sets |
 | delimiter `"|`; delimiter `","` with both fields quoted; delimiter `ba` with quote `b` | throws for all six |
-| `QuoteMode.AlwaysQuoted` or `OptionalForWrite`, delimiter `"` | throws |
+| `QuoteMode.AlwaysQuoted`, delimiter `"` | throws |
 | `QuoteMode.OptionalForBoth`, delimiter `"` | fails on empty values and on values that contain the quote |
 | delimiter `|"` (one or both fields quoted), `ab` with quote `b`, `a"b` | reads back all six value sets (not reported) |
 | quoted last field, record delimiter `"` | reads back (not reported) |
@@ -816,7 +816,7 @@ reported. The descriptor is still emitted. The quote character in the list is ML
 
 What the characters really do (identical in FileHelpers 3.5.2 and ModernLibs.FileHelpers 4.9.1; 48 of 48
 read cases of the trim probe matched): on an **unquoted** value only white space is trimmed, whatever the
-list says. The listed characters matter only for a `[FieldQuoted(..., QuoteMode.OptionalForRead)]` field,
+list says. The listed characters matter only for a `[FieldQuoted]` field with `QuoteMode.OptionalForRead` or `AlwaysQuoted`,
 where a leading run of them is stripped in front of the optional opening quote. Nothing is trimmed on write.
 
 ```csharp

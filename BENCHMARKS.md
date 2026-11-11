@@ -128,6 +128,10 @@ Running in-process has costs, which every result has to live with:
 | `FixedWidthParseBenchmarks` | Fixed-width reads, class versus struct records | CsvHelper | 10K, 100K |
 | `OptimizedParseBenchmarks` | `ReadFile`, `ReadString`, `ReadSpan` and their callback and async variants | - | 10K, 100K |
 | `AsyncStreamingBenchmarks` | `MultiRecordAsyncEngine.ReadAsync` versus `MultiRecordEngine.ReadFile`, with and without cancellation | - | 10K, 100K |
+| `EngineAsyncBenchmarks` | `FileHelperEngine<T>.ReadAsync(path)` and `ReadFileAsync(path, callback)` on the 25-column file, and `ReadAsync(path)` with a conversion error in every 100th row (`ErrorMode.SaveAndContinue`), for the runtime-async A/B | - | 10K, 100K |
+| `R6UpperBoundBenchmarks` | Gate R6: quoted parse-and-discard with the generated descriptor and with a descriptor that takes precomputed field ends (see below) | - | 10K, 100K |
+| `G2PrototypeBenchmarks` | Gate G2: `WriteString` of the 25-column records with the generated `Format` and with a single-span `Format` (see below) | - | 100K |
+| Component classes (namespace `...Benchmarks.Components`) | Tokenizers, the scan loop shape, converter call shapes, unquoting, string creation and one-record `Format` (see below) | - | fixed per class |
 
 Competitor versions are pinned in `Directory.Packages.props`: FileHelpers 3.5.2, Sep 0.17.1,
 Sylvan.Data.Csv 1.4.4, CsvHelper 34.0.0, BenchmarkDotNet 0.15.8. The 4.8.0 and 4.8.1 results were
@@ -171,6 +175,25 @@ thread, prints the result and exits (0, or 1 when any row was parsed off the cal
 starts. It never runs in a measurement run. Run it after every RecordParser version bump (with parallel processing on
 it reports 24 threads).
 
+**Prototype check.** `--check-prototypes` is the same kind of switch for the component and prototype benchmarks (T10,
+below):
+`dotnet run -c Release -f net10.0 --project benchmarks/ModernLibs.FileHelpers.Benchmarks -- --check-prototypes`
+generates small datasets in a temporary folder, runs the comparisons between code paths that a benchmark's setup must
+not run (see "Datasets" for why), prints one line per check and exits (0, or 1 when any check fails, with the first
+difference) before BenchmarkDotNet starts:
+
+- `R6_PrecomputedEnds` gives the same records as `R6_Current`, field by field (10,000 rows of the seeded quoted set);
+- `G2_SingleSpan` writes the same text as `G2_Current` (10,000 records of the 25-column file, header included);
+- the four `Tokenizer_*` methods give the same field ends on every line of the 25-column, 150-column and long-line
+  sets, and agree on random lines with too few, the right number and too many fields;
+- `Scan_SpanCreate` gives the same result as `Scan_LoadUnsafe` (and both as a scalar reference) on every line of
+  those sets, the seeded quoted set and random lines of delimiters, quotes and text.
+
+**A Step 0 round runs both checks before it measures**, `--check-competitors` and `--check-prototypes`, on every
+configuration it measures (`dotnet <folder>/ModernLibs.FileHelpers.Benchmarks.dll --check-prototypes` for a built
+configuration), and stops when either exits non-zero. A prototype that gives a different result measures something
+else, and its gate would be decided on the wrong number.
+
 **Tier B**: one table each, one `<Library>_ReadAll` method per library, with 10K and 100K rows:
 `TierBComparisonBenchmarks` (25-column delimited file: NReco.Csv 1.0.3, TinyCsvParser 3.0.12, Cursively 1.2.0,
 LumenWorksCsvReader 4.0.0, FlatFiles 5.0.4) and `TierBFixedWidthBenchmarks` (FlatFiles 5.0.4, RecordParser 2.3.0).
@@ -199,6 +222,33 @@ Differences between the libraries that the mapping cannot remove:
 - **Sylvan.Data 0.2.17 (fixed width)**: the package has no fixed-width reader (it holds the `DataBinder`, schema and
   object-reader types, and Sylvan.Data.Csv reads delimited text only), so there is nothing to map fairly.
 - **ServiceStack.Text**: not added, by decision.
+
+### Component benchmarks and prototypes (T10)
+
+These classes measure parts of the read and write path on their own (design B3 and 2.5) and the two prototypes whose
+numbers decide gates R6 and G2 of the 4.10 design. Their method names are fixed; the Step 0 report uses them as they
+stand. The filter `*Components*` selects the component classes, `*Prototypes*` the two gate classes.
+
+| Class | Methods (baseline first) | What it measures |
+|---|---|---|
+| `TokenizerBenchmarks` | `Tokenizer_CountPlusIndexOf`, `Tokenizer_SinglePassScalar`, `Tokenizer_SinglePassVector`, `Tokenizer_SinglePassVector_AnyMatchFirst` | The field ends of every line of a plain dataset (`Dataset`: 10,000 lines of the 25-column file, 1,000 of the 150-column file, 5,000 long lines) written into one preallocated `int[]`. The baseline is today's work: one `Count(',')` for the field-count check and N - 1 sequential `IndexOf(',')` in the generated parser. The vector tokenizers compare 16 (`Vector256`) or 8 (`Vector128`) characters at a time and walk the bits; `_AnyMatchFirst` tests the compare for a match before extracting the bits (expensive on Arm64). |
+| `VectorLoopShapeBenchmarks` | `Scan_LoadUnsafe`, `Scan_SpanCreate` | The delimiter-and-quote loop of `QuoteBalanceScanner.ScanSingleQuote`, reduced to counting, written with `Vector256.LoadUnsafe` from a `ref` (as in the library) and with `Vector256.Create(span.Slice(i, n))` (`Dataset`: the seeded quoted set, long lines). |
+| `ConverterCallShapeBenchmarks` | `Format_GenericHelper`, `Format_GenericWriter`, `Format_DirectCall` | One `int`, one `DateTime` and one `string` field written 1,000 times into the engine's record buffer: through today's generic helper into a `stackalloc` buffer and a copy, through a generic `Format<TConverter, TValue>` on a `ref struct` writer, and through direct `TryFormat` calls into one span. |
+| `UnquoteBenchmarks` | `Unquote_Current`, `Unquote_IndexOf` | Every quoted value of 10,000 lines of the seeded quoted set unquoted to a string: today's emitted strip pass (scalar search, rented buffer) against an `IndexOf` and `string.Create` helper (R3). |
+| `CreateStringBenchmarks` | `CreateString_New`, `CreateString_Cached` | `new string(span)` against a helper that returns `string.Empty` and cached one-character strings (R4), on the string columns of the 25-column file and the Name and Category columns of the quoted set. |
+| `FormatOneRecordBenchmarks` | `FormatRecord_Current`, `FormatRecord_SingleSpan` | `Format` of 1,000 PackageAssets records into the engine's record buffer, with the generated descriptor and with the G2 prototype: `Format` without the rest of `WriteString`. |
+| `R6UpperBoundBenchmarks` | `R6_Current`, `R6_PrecomputedEnds` | Gate R6. `ReadFile(path, callback)` of the seeded quoted set (the work of `QuotedFieldsBenchmarks.FileHelpers_ParseAndDiscard`) with the generated descriptor, and in the same engine with a hand-written descriptor whose `Parse` takes the field ends of each row from an array computed in the setup. It only slices, unquotes, converts and constructs, so it pays nothing for tokenizing: the most that R6 can give. Its unquoting is the fastest correct code (no rented buffer), so the bound includes the gain of R3 on those fields. |
+| `G2PrototypeBenchmarks` | `G2_Current`, `G2_SingleSpan` | Gate G2. `WriteString` of 100,000 records with the generated `Format`, and in the same engine with a hand-written `Format` that takes one `GetSpan(4096)`, writes the 25 fields with direct `TryFormat` calls and calls `Advance` once: the most that G2 can give. |
+
+**How the prototypes run.** `FileHelperEngine<T>` takes its descriptor from the registry, which holds the generated
+one. The prototypes are run through `PrototypeEngine`, which builds a normal engine and replaces its descriptor and its
+read core by reflection, so the prototype runs inside exactly the engine code the generated descriptor runs in: the line
+reader, the multiline assembler and its quote scan, the field-count check, the `TextWriter` pipeline. Only the
+descriptor's `Parse` (R6) or `Format` (G2) differs. If the engine's private fields change, `PrototypeEngine` throws
+instead of measuring the generated descriptor.
+
+`EngineAsyncBenchmarks` has no `Engine_WriteStreamAsync_Null` method yet; it is added when
+`FileHelperEngine<T>.WriteStreamAsync` exists.
 
 ## Configurations and A/B runs
 
@@ -304,6 +354,8 @@ a format version, bumped whenever the generated text changes.
 - **Long lines** (`long_lines_v1_*`): 8 columns, 505 characters per line, no header
 - **Multiline values** (`multiline_v1_*`): every tenth row has a quoted value with one line break, no header
 - **Wide records** (`wide_150_v1_*`): 150 columns, 75 int and 75 string, no header
+- **PackageAssets with bad rows** (`package_assets_bad100_v1_*`): the PackageAssets file with an `x` before the
+  DownloadCount of every 100th data row, so each of those rows fails to convert (read by `EngineAsyncBenchmarks`)
 - **Multi-record**: alternating `H|…` and `D|…` lines (generated by `AsyncStreamingBenchmarks`)
 - **Floats**: numeric data (generator only; no benchmark reads it yet)
 
@@ -313,4 +365,5 @@ writes), and throws on a difference: a benchmark that parses its data wrongly fa
 reporting a number. The setup runs no other benchmark, because what another library or read leaves in
 the process (for example pooled buffers) changes the garbage collector's timing and with it the
 measured time. For the same reason, results come from one benchmark method per process (see
-"Running").
+"Running"). A check that needs two code paths, such as a prototype against the current code, is therefore not
+in any setup: it is in `--check-prototypes` (see "Prototype check" above), which a round runs before it measures.

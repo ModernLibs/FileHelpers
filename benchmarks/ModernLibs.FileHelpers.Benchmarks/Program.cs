@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using BenchmarkDotNet.Running;
 using ModernLibs.FileHelpers.Benchmarks.Benchmarks;
+using ModernLibs.FileHelpers.Benchmarks.Benchmarks.Prototypes;
 
 namespace ModernLibs.FileHelpers.Benchmarks;
 
@@ -22,6 +23,8 @@ internal static class Program
     {
         if (args.Contains("--check-competitors"))
             return CompetitorCheck.Run();
+        if (args.Contains("--check-prototypes"))
+            return PrototypeCheck.Run();
 
         PrintVariant();
         var (config, arguments, error) = BenchConfig.FromArguments(args);

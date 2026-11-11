@@ -92,6 +92,42 @@ public static class DatasetGenerator
         return path;
     }
 
+    /// <summary>
+    /// In <see cref="EnsurePackageAssetsBadEvery100"/>, the rows whose zero-based index is <c>BadRowEvery - 1</c>
+    /// modulo this value have a bad integer: <c>rows / BadRowEvery</c> of them when <c>rows</c> is a multiple.
+    /// </summary>
+    public const int BadRowEvery = 100;
+
+    /// <summary>
+    /// The PackageAssets file of <see cref="EnsurePackageAssets"/> with an <c>x</c> before the DownloadCount (column 6)
+    /// of every 100th data row (rows 99, 199, ...), so that each of those rows fails to convert.
+    /// </summary>
+    public static string EnsurePackageAssetsBadEvery100(string dataDir, int rows)
+    {
+        var path = Path.Combine(dataDir, $"package_assets_bad100_v1_{rows}.csv");
+        if (File.Exists(path)) return path;
+
+        string source = EnsurePackageAssets(dataDir, rows);
+        using var writer = new StreamWriter(path, false, Encoding.UTF8, 65536);
+        int row = -1; // the header line
+        foreach (string line in File.ReadLines(source))
+        {
+            if (row % BadRowEvery == BadRowEvery - 1)
+            {
+                var fields = line.Split(',');
+                fields[5] = "x" + fields[5];
+                writer.WriteLine(string.Join(',', fields));
+            }
+            else
+            {
+                writer.WriteLine(line);
+            }
+            row++;
+        }
+
+        return path;
+    }
+
     public static string EnsureFloats(string dataDir, int rows = 100_000)
     {
         var path = Path.Combine(dataDir, $"floats_v2_{rows}.csv");

@@ -55,12 +55,12 @@ async      ra,ra-control,v410-net10                             *EngineAsyncBenc
 async      ra,ra-control,v410-net10                             *AsyncStreamingBenchmarks.ReadAsync_MultiRecord
 async      ra,ra-control,v410-net10                             *OptimizedParseBenchmarks.ReadFileAsync_Callback_ProcessAndDiscard
 # 4.10-only API (T43, T46): WriteStreamAsync, ReadAsync(Stream), ReadAsync(TextReader). The 4.9.1 builds leave these
-# methods out (FILEHELPERS_BASELINE), so they run only between 4.10 builds (runtime-410 gives their net10 column).
-# The fault-path write is in two report groups: async and exception.
-async      ra,runtime-410                                       *EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null
-async      ra,runtime-410                                       *EngineAsyncBenchmarks.Engine_ReadAsync_Stream
-async      ra,runtime-410                                       *EngineAsyncBenchmarks.Engine_ReadAsync_TextReader
-async,exception ra,runtime-410                                  *EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null_SourceThrows
+# methods out (FILEHELPERS_BASELINE), so they run only in the runtime-async pair ra (net11-ra-off -> net11-ra-on);
+# their 4.9.1 pkg and net10 cells stay empty. The fault-path write is in two report groups: async and exception.
+async      ra                                                   *EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null
+async      ra                                                   *EngineAsyncBenchmarks.Engine_ReadAsync_Stream
+async      ra                                                   *EngineAsyncBenchmarks.Engine_ReadAsync_TextReader
+async,exception ra                                              *EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null_SourceThrows
 
 # Exception path: a conversion error in every 100th row, ErrorMode.SaveAndContinue
 exception  ra,ra-control,v410-net10                             *EngineAsyncBenchmarks.Engine_ReadAsync_Path_ExceptionEvery100

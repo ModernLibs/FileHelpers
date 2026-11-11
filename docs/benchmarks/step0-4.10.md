@@ -118,8 +118,8 @@ One table per scenario group and VM. Rows key on the benchmark method and its pa
 
 Four methods of `EngineAsyncBenchmarks` use APIs that 4.9.1 does not have (T43, T46): `Engine_WriteStreamAsync_Null`,
 `Engine_ReadAsync_Stream`, `Engine_ReadAsync_TextReader` and `Engine_WriteStreamAsync_Null_SourceThrows`. The 4.9.1
-builds leave them out (`FILEHELPERS_BASELINE`), so their `4.9.1 pkg` cell stays empty and they run only in the pairs
-`ra` and `runtime-410`. `Engine_WriteStreamAsync_Null_SourceThrows` is also in the exception-path table.
+builds leave them out (`FILEHELPERS_BASELINE`), so they run only in the pair `ra` and their `4.9.1 pkg` and `net10`
+cells stay empty. `Engine_WriteStreamAsync_Null_SourceThrows` is also in the exception-path table.
 
 | Scenario | 4.9.1 pkg | net10 | net11-ra-on | net11-ra-off | on/off | verdict |
 |---|---|---|---|---|---|---|

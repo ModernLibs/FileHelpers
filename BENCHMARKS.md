@@ -81,12 +81,32 @@ Allocated, also when a count is zero for every row.
 assembly it is started from: it finds the project file under the current directory and builds it again
 with default properties, which would turn a `net11-ra-off` build back into the default runtime-async
 build (and BenchmarkDotNet 0.15.8 does not recognise .NET 11 there). In-process, the measured code is
-the build that was started. The consequence: all benchmarks selected by one `--filter` run in the same
-process, one after the other, and what one leaves behind (for example buffers in the shared array
-pools) can change the garbage collector's timing in the next. Numbers that are published or compared
-come from one benchmark method per process, which is what `ab.py` does (below). A filter that selects
-several methods is fine for a look at the data, not for a result. `--runtimes` is not supported; build
-one folder per configuration instead.
+the build that was started. There is no silent way back to the usual toolchain: a run in which any
+benchmark would use another toolchain (for example through `--coreRun` or a job attribute) stops with a
+validation error and exit code 1, `--runtimes` is refused, `--inProcess` is accepted and changes
+nothing, and `--job <name>` keeps the in-process toolchain.
+
+Every process prints, before BenchmarkDotNet starts, which library it measures:
+
+```text
+// ModernLibs.FileHelpers variant: tfm=net11.0 runtime-async=on
+// ModernLibs.FileHelpers assembly: /home/me/fh-bench/net11-ra-on/ModernLibs.FileHelpers.dll
+// Runtime: .NET 11.0.0
+```
+
+Running in-process has costs, which every result has to live with:
+
+- **One process for everything a filter selects.** All benchmarks selected by one `--filter` run in the
+  same process, one after the other, and what one leaves behind (for example buffers in the shared
+  array pools) can change the garbage collector's timing in the next. Numbers that are published or
+  compared come from one benchmark method per process, which is what `ab.py` does (below). Even then
+  the `Rows` values of one method share that process. A filter that selects several methods is fine
+  for a look at the data, not for a result.
+- **No per-job process settings.** The environment variables and garbage-collector settings of a
+  BenchmarkDotNet job (server or concurrent GC, `--envVars`, ...) cannot apply: the process already
+  runs. They come from the process that starts the benchmark. If a round ever needs them, the
+  launcher (`ab.py`) has to set them for each process, for example as `DOTNET_gcServer=1`.
+- **No `--runtimes`.** A process runs on one runtime; build one folder per configuration instead.
 
 ## What is measured
 
@@ -165,7 +185,14 @@ python3 -I benchmarks/tools/ab.py --a ~/fh-bench/net11-ra-off --b ~/fh-bench/net
 It lists the benchmark methods that match `--filter` in both folders and runs each method `--launches`
 times per side, alternately: A, B, A, B, ... Each run is one BenchmarkDotNet launch of one method, a
 process of its own. Arguments after `--` go to BenchmarkDotNet (for example `-- --job short`). The raw
-BenchmarkDotNet output of every launch stays in `<out>.runs/`. One sample is the median time of one
+BenchmarkDotNet output of every launch stays in `<out>.runs/`.
+
+Each process's start-up lines are checked. `ab.py` stops when the variant a process printed is not the
+one its folder is named after (`net10`, `net11-ra-on`, `net11-ra-off`), when it loaded
+ModernLibs.FileHelpers from another folder, when its .NET major version is not the configuration's, or
+when the lines change between launches. A folder with another name, for example a 4.9.1 build, needs
+the expected line stated: `--expect-a 'tfm=net10.0 runtime-async=off'`. The checked lines go into the
+JSON file (`a.startup`, `b.startup`), next to the folder's `variant.txt`. One sample is the median time of one
 launch; for each benchmark case (method and parameters) the JSON file holds the A and B samples, the
 median ratio B/A (below 1.0: B is faster), its 99.9 % bootstrap interval (ratio of medians, 10,000
 resamples, fixed seed 410) and a `verdict` of `faster`, `slower` or `no-change`.

@@ -4,13 +4,19 @@
 Usage (from any directory; see BENCHMARKS.md):
 
     python3 -I benchmarks/tools/ab.py --a <dir> --b <dir> --launches N --filter '<glob>' --out <json> \
-        [--work <dir>] [-- <extra BenchmarkDotNet arguments>]
+        [--work <dir>] [--expect-a <line>] [--expect-b <line>] [-- <extra BenchmarkDotNet arguments>]
 
 <dir> is a folder that holds a built ModernLibs.FileHelpers.Benchmarks.dll, for example one of the folders
 that build-variants.sh writes. The benchmark methods that match --filter in both folders are run N times
 each, A and B alternately: A, B, A, B, ... with one method per BenchmarkDotNet launch, so every launch is
 a process of its own and no other benchmark runs in it. One sample is the median time of one launch (the
 "Median" statistic of the BenchmarkDotNet JSON report); the samples of N launches go into the rule.
+
+Every process prints, before BenchmarkDotNet starts, the variant of the ModernLibs.FileHelpers it loaded,
+where it loaded it from and the runtime (Program.cs). The run stops unless that variant is the one the
+folder is named after (net10, net11-ra-on, net11-ra-off; --expect-a/--expect-b for other folders), the
+library comes from the folder itself and, for a named folder, the .NET major version matches. The lines
+go into the result file.
 
 Rule (B4): B differs from A when the 99.9 % bootstrap interval of the ratio median(B) / median(A) excludes
 1.0 and the median ratio differs from 1.0 by at least 0.03. The bootstrap draws 10,000 resamples with the
@@ -39,6 +45,20 @@ MIN_CHANGE = 0.03
 MIN_LAUNCHES = 5
 BENCHMARK_DLL = "ModernLibs.FileHelpers.Benchmarks.dll"
 VARIANT_FILE = "variant.txt"
+
+# The three named configurations of design D6: folder name -> (verify-variant line, .NET major version).
+CONFIGURATIONS = {
+    "net10": ("tfm=net10.0 runtime-async=off", "10"),
+    "net11-ra-on": ("tfm=net11.0 runtime-async=on", "11"),
+    "net11-ra-off": ("tfm=net11.0 runtime-async=off", "11"),
+}
+
+# Start-up lines every benchmark process prints (Program.cs), before BenchmarkDotNet starts.
+_STARTUP_PREFIXES = {
+    "variant": "// ModernLibs.FileHelpers variant: ",
+    "assembly": "// ModernLibs.FileHelpers assembly: ",
+    "runtime": "// Runtime: ",
+}
 
 # Floating-point slack for the 3 % floor: 1.0 - 0.97 is 0.030000000000000027, 1.03 - 1.0 likewise.
 _EPSILON = 1e-9
@@ -176,7 +196,53 @@ def _variant(bench_dir):
         return f.read().strip()
 
 
-def _process_launcher(bdn_args):
+def expected_variant(bench_dir, override):
+    """(variant line, runtime major or None) that the processes started from bench_dir must print.
+
+    For a folder named after a configuration (net10, net11-ra-on, net11-ra-off, as build-variants.sh names
+    them) the line and the .NET major version follow from the name; for any other folder the caller states
+    the line (--expect-a / --expect-b) and the runtime is recorded but not checked.
+    """
+    name = os.path.basename(os.path.normpath(bench_dir))
+    if override is not None:
+        if name in CONFIGURATIONS and CONFIGURATIONS[name][0] != override:
+            raise ValueError("%s is the %s configuration, which is '%s', not '%s'"
+                             % (bench_dir, name, CONFIGURATIONS[name][0], override))
+        return (override, CONFIGURATIONS[name][1] if name in CONFIGURATIONS else None)
+    if name not in CONFIGURATIONS:
+        raise ValueError("%s is not named after a configuration (%s); state its variant with --expect-a/--expect-b"
+                         % (bench_dir, ", ".join(sorted(CONFIGURATIONS))))
+    return CONFIGURATIONS[name]
+
+
+def check_startup(log_text, bench_dir, expected):
+    """The start-up lines of one benchmark process (printed by Program.cs), checked against the folder.
+
+    Refuses a process whose library variant is not the expected one, whose ModernLibs.FileHelpers.dll was not
+    loaded from bench_dir, or whose .NET major version is not the expected one.
+    """
+    found = {}
+    for line in log_text.splitlines():
+        for key, prefix in _STARTUP_PREFIXES.items():
+            if line.startswith(prefix) and key not in found:
+                found[key] = line[len(prefix):].strip()
+    missing = [key for key in _STARTUP_PREFIXES if key not in found]
+    if missing:
+        raise RuntimeError("no start-up %s line in the output of a process from %s" % (", ".join(missing), bench_dir))
+
+    variant, runtime_major = expected
+    if found["variant"] != variant:
+        raise RuntimeError("process from %s printed '%s', expected '%s'" % (bench_dir, found["variant"], variant))
+    loaded_from = os.path.dirname(os.path.realpath(found["assembly"]))
+    if loaded_from != os.path.realpath(bench_dir):
+        raise RuntimeError("process from %s loaded ModernLibs.FileHelpers from %s" % (bench_dir, found["assembly"]))
+    if runtime_major is not None and not found["runtime"].startswith(".NET %s." % runtime_major):
+        raise RuntimeError("process from %s ran on '%s', expected .NET %s" % (bench_dir, found["runtime"], runtime_major))
+    return found
+
+
+def _process_launcher(bdn_args, expected, startups):
+    """Launches one BenchmarkDotNet process; checks its start-up lines and records them in startups[side]."""
     def launch(side, bench_dir, method, artifacts_dir):
         os.makedirs(artifacts_dir, exist_ok=True)
         log_path = os.path.join(artifacts_dir, "console.log")
@@ -184,6 +250,11 @@ def _process_launcher(bdn_args):
         print("[%s] %s" % (side.upper(), method), flush=True)
         with open(log_path, "w", encoding="utf-8") as log:
             code = subprocess.run(cmd, cwd=artifacts_dir, stdout=log, stderr=subprocess.STDOUT, check=False).returncode
+        with open(log_path, encoding="utf-8") as log:
+            startup = check_startup(log.read(), bench_dir, expected[side])
+        if startups.setdefault(side, startup) != startup:
+            raise RuntimeError("side %s: start-up lines changed between launches: %s, then %s"
+                               % (side, startups[side], startup))
         if code != 0:
             raise RuntimeError("%s exited with %d, see %s" % (" ".join(cmd), code, log_path))
         return parse_reports(artifacts_dir)
@@ -203,12 +274,19 @@ def main(argv):
     parser.add_argument("--filter", required=True, help="BenchmarkDotNet --filter glob")
     parser.add_argument("--out", required=True, help="JSON file to write")
     parser.add_argument("--work", help="folder for the per-launch BenchmarkDotNet artifacts (default: <out>.runs)")
+    parser.add_argument("--expect-a", help="variant line the A processes must print, for a folder not named "
+                        "net10, net11-ra-on or net11-ra-off (for example 'tfm=net10.0 runtime-async=off')")
+    parser.add_argument("--expect-b", help="the same for B")
     args = parser.parse_args(argv)
     if args.launches < MIN_LAUNCHES:
         parser.error("--launches must be at least %d" % MIN_LAUNCHES)
 
     a_dir = os.path.abspath(args.a)
     b_dir = os.path.abspath(args.b)
+    try:
+        expected = {"a": expected_variant(a_dir, args.expect_a), "b": expected_variant(b_dir, args.expect_b)}
+    except ValueError as e:
+        parser.error(str(e))
     work_dir = os.path.abspath(args.work or args.out + ".runs")
     a_methods = list_methods(a_dir, args.filter)
     b_methods = list_methods(b_dir, args.filter)
@@ -216,7 +294,8 @@ def main(argv):
     if not methods:
         raise RuntimeError("no benchmark matches %r in both builds" % args.filter)
 
-    results = run_ab(a_dir, b_dir, args.launches, methods, _process_launcher(bdn_args), work_dir)
+    startups = {}
+    results = run_ab(a_dir, b_dir, args.launches, methods, _process_launcher(bdn_args, expected, startups), work_dir)
     document = {
         "rule": {
             "ratio": "median(B) / median(A) of the per-launch medians; below 1.0 means B is faster",
@@ -225,8 +304,8 @@ def main(argv):
             "seed": SEED,
             "min_change": MIN_CHANGE,
         },
-        "a": {"dir": a_dir, "variant": _variant(a_dir)},
-        "b": {"dir": b_dir, "variant": _variant(b_dir)},
+        "a": {"dir": a_dir, "variant": _variant(a_dir), "startup": startups.get("a")},
+        "b": {"dir": b_dir, "variant": _variant(b_dir), "startup": startups.get("b")},
         "launches": args.launches,
         "filter": args.filter,
         "bdn_args": bdn_args,

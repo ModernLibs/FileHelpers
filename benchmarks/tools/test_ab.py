@@ -73,6 +73,58 @@ class ReportTests(unittest.TestCase):
                 ab.parse_reports(tmp)
 
 
+def _startup_log(bench_dir, variant="tfm=net11.0 runtime-async=on", runtime=".NET 11.0.0"):
+    return (
+        "// ModernLibs.FileHelpers variant: %s\n"
+        "// ModernLibs.FileHelpers assembly: %s\n"
+        "// Runtime: %s\n"
+        "// Validating benchmarks:\n" % (variant, os.path.join(bench_dir, "ModernLibs.FileHelpers.dll"), runtime))
+
+
+class StartupTests(unittest.TestCase):
+    def test_expected_variant_comes_from_the_configuration_name(self):
+        self.assertEqual(ab.expected_variant("/x/net10", None), ("tfm=net10.0 runtime-async=off", "10"))
+        self.assertEqual(ab.expected_variant("/x/net11-ra-on", None), ("tfm=net11.0 runtime-async=on", "11"))
+        self.assertEqual(ab.expected_variant("/x/net11-ra-off/", None), ("tfm=net11.0 runtime-async=off", "11"))
+
+    def test_a_folder_with_another_name_needs_an_explicit_expectation(self):
+        with self.assertRaises(ValueError):
+            ab.expected_variant("/x/fh491", None)
+        self.assertEqual(ab.expected_variant("/x/fh491", "tfm=net10.0 runtime-async=off"),
+                         ("tfm=net10.0 runtime-async=off", None))
+
+    def test_an_expectation_cannot_contradict_the_configuration_name(self):
+        with self.assertRaises(ValueError):
+            ab.expected_variant("/x/net11-ra-off", "tfm=net11.0 runtime-async=on")
+
+    def test_check_startup_accepts_the_matching_variant(self):
+        bench = "/x/net11-ra-on"
+        startup = ab.check_startup(_startup_log(bench), bench, ab.expected_variant(bench, None))
+        self.assertEqual(startup, {
+            "variant": "tfm=net11.0 runtime-async=on",
+            "assembly": "/x/net11-ra-on/ModernLibs.FileHelpers.dll",
+            "runtime": ".NET 11.0.0",
+        })
+
+    def test_check_startup_refuses_another_variant(self):
+        bench = "/x/net11-ra-off"
+        with self.assertRaises(RuntimeError):
+            ab.check_startup(_startup_log(bench), bench, ab.expected_variant(bench, None))
+
+    def test_check_startup_refuses_a_library_from_another_folder(self):
+        with self.assertRaises(RuntimeError):
+            ab.check_startup(_startup_log("/elsewhere"), "/x/net11-ra-on", ab.expected_variant("/x/net11-ra-on", None))
+
+    def test_check_startup_refuses_another_runtime(self):
+        bench = "/x/net11-ra-on"
+        with self.assertRaises(RuntimeError):
+            ab.check_startup(_startup_log(bench, runtime=".NET 10.0.15"), bench, ab.expected_variant(bench, None))
+
+    def test_check_startup_refuses_a_log_without_the_lines(self):
+        with self.assertRaises(RuntimeError):
+            ab.check_startup("// Validating benchmarks:\n", "/x/net10", ab.expected_variant("/x/net10", None))
+
+
 class RunnerTests(unittest.TestCase):
     def test_launches_alternate_a_and_b_one_method_per_launch(self):
         calls = []

@@ -7,6 +7,7 @@ using BenchmarkDotNet.Reports;
 using BenchmarkDotNet.Running;
 using BenchmarkDotNet.Toolchains;
 using BenchmarkDotNet.Toolchains.InProcess.Emit;
+using BenchmarkDotNet.Validators;
 
 namespace ModernLibs.FileHelpers.Benchmarks;
 
@@ -34,6 +35,13 @@ namespace ModernLibs.FileHelpers.Benchmarks;
 /// <c>--job</c> replaces the job, and with it the toolchain. The other job options (<c>--iterationCount</c>,
 /// <c>--warmupCount</c>, ...) apply on top as usual.
 /// </para>
+/// <para>
+/// No silent fallback: <see cref="InProcessToolchainValidator"/> stops the run (a critical validation error, exit
+/// code 1) when any benchmark case would run with another toolchain than <see cref="s_toolchain"/>, whatever put
+/// it there: a command-line option such as <c>--coreRun</c> or <c>--monoPath</c>, or a job attribute on a benchmark
+/// class. (<see cref="FromArguments"/> already drops <c>--inProcess</c> and refuses <c>--runtimes</c>.) Program.cs
+/// never runs the suite without this configuration.
+/// </para>
 /// </remarks>
 internal sealed class BenchConfig : ManualConfig
 {
@@ -50,6 +58,30 @@ internal sealed class BenchConfig : ManualConfig
         AddDiagnoser(MemoryDiagnoser.Default);
         AddColumn(new GcCountColumn(0), new GcCountColumn(1), new GcCountColumn(2));
         AddExporter(JsonExporter.Full);
+        AddValidator(new InProcessToolchainValidator());
+    }
+
+    /// <summary>Fails the run when a benchmark case would not use <see cref="s_toolchain"/> (see the remarks of <see cref="BenchConfig"/>).</summary>
+    private sealed class InProcessToolchainValidator : IValidator
+    {
+        public bool TreatsWarningsAsErrors => true;
+
+        public IEnumerable<ValidationError> Validate(ValidationParameters validationParameters)
+        {
+            foreach (var benchmark in validationParameters.Benchmarks)
+            {
+                var toolchain = benchmark.Job.Infrastructure.Toolchain;
+                if (!ReferenceEquals(toolchain, s_toolchain))
+                {
+                    yield return new ValidationError(
+                        isCritical: true,
+                        $"{benchmark.DisplayInfo} would run with the toolchain '{toolchain?.Name ?? "default (rebuilds the project from source)"}'. "
+                        + "This suite runs only with its in-process toolchain, so that the measured library is the build that was "
+                        + "started (BenchConfig, BENCHMARKS.md). Remove the option that changes the toolchain.",
+                        benchmark);
+                }
+            }
+        }
     }
 
     /// <summary>

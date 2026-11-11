@@ -322,7 +322,8 @@ public sealed class AsyncStreamTests
         _ => throw new ArgumentOutOfRangeException(nameof(name), name, null),
     };
 
-    private static byte[] WriteFileBytes(FileHelperEngine<CsvOrder> engine, IEnumerable<CsvOrder> records)
+    private static byte[] WriteFileBytes<T>(FileHelperEngine<T> engine, IEnumerable<T> records)
+        where T : class
     {
         string temp = Path.GetTempFileName();
         try
@@ -381,6 +382,36 @@ public sealed class AsyncStreamTests
                 await Assert.That(appended.ToArray().SequenceEqual(expectedAppended)).IsTrue();
             }
         }
+    }
+
+    /// <summary>
+    /// Every record starts with a low and ends with a high surrogate and the terminator is empty, so a pair is formed
+    /// across each record boundary, also where a 16,384-character block ends. 1,000-character records: a block ends
+    /// after the 17th record, so 17 records leave an empty final block with the high surrogate still pending in the
+    /// encoder, and 34 records end exactly on a block end.
+    /// </summary>
+    [Test]
+    [Arguments("utf-8", 17)]
+    [Arguments("utf-8", 34)]
+    [Arguments("utf-8", 40)]
+    [Arguments("utf-16", 17)]
+    [Arguments("utf-16", 34)]
+    [Arguments("utf-16", 40)]
+    [Arguments("utf-32", 17)]
+    [Arguments("utf-32", 34)]
+    [Arguments("utf-32", 40)]
+    public async Task WriteStreamAsync_Stream_Splits_A_Surrogate_Pair_At_A_Block_End_Like_WriteFile(string encodingName, int count)
+    {
+        var engine = new FileHelperEngine<SurrogateTail>(EncodingNamed(encodingName)) { NewLineForWrite = string.Empty };
+        var records = new List<SurrogateTail>();
+        for (int i = 0; i < count; i++)
+            records.Add(new SurrogateTail { Text = "\uDE00" + new string('a', 998) + "\uD83D" });
+        byte[] expected = WriteFileBytes(engine, records);
+
+        var stream = new MemoryStream();
+        await engine.WriteStreamAsync(stream, records);
+
+        await Assert.That(stream.ToArray().SequenceEqual(expected)).IsTrue();
     }
 
     [Test]

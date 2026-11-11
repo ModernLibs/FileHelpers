@@ -531,7 +531,8 @@ None of this is needed to migrate, but it is available once you have:
   `FileHelperEngine<T>` and `FileHelperAsyncEngine<T>`, and `WriteStreamAsync(TextWriter, records)` /
   `WriteStreamAsync(Stream, records)` on `FileHelperEngine<T>`, with a `CancellationToken`. They use
   asynchronous I/O only and never dispose the caller's stream, reader or writer. `WriteStreamAsync(Stream)`
-  writes the bytes of `WriteFile`; after a cancellation the stream holds whole records only. Since these
+  writes the bytes of `WriteFile`; after a cancellation the stream holds whole records only (unless the stream writes
+  part of a buffer before it honours the cancellation, which is outside the engine's control). Since these
   overloads exist, `engine.ReadAsync(null)` and `engine.ReadAsync(default)` are ambiguous on the classes:
   cast the argument, `engine.ReadAsync((string)null!)`. The same holds for `ReadStream(null)` since
   `ReadStream(Stream)` was added.

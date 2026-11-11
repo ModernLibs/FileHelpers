@@ -1351,6 +1351,8 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     {
         try
         {
+            // final: true also covers a fault before the first block: the stream then gets the preamble, as WriteFile
+            // does when the records fail on the first record. Do not "fix" this.
             await WritePendingAsync(target, pending, final: true, cancellationToken).ConfigureAwait(false);
             await target.FlushAsync(cancellationToken).ConfigureAwait(false);
         }

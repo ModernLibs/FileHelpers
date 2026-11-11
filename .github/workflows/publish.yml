@@ -141,15 +141,6 @@ jobs:
             ./tests/ModernLibs.FileHelpers.Tests/bin/Release/$tfm/ModernLibs.FileHelpers.Tests
           done
 
-      # The xUnit v3 runner exits 0 when no test ran, so require a non-zero total.
-      - name: Test (xUnit mutation)
-        run: |
-          set -o pipefail
-          for tfm in net10.0 net11.0; do
-            ./tests/ModernLibs.FileHelpers.Mutation.Tests/bin/Release/$tfm/ModernLibs.FileHelpers.Mutation.Tests | tee "mutation-tests-$tfm.log"
-            grep -Eq 'Total: [1-9][0-9]*' "mutation-tests-$tfm.log" || { echo "::error::No mutation tests ran ($tfm)."; exit 1; }
-          done
-
       # Only the library is packed: the source generator ships inside it (analyzers/dotnet/cs).
       # Package validation (EnablePackageValidation, baseline 4.9.1, set in the csproj) runs in this step:
       # an API or compatibility break (CP diagnostic) is an error and fails the step, so nothing is published.

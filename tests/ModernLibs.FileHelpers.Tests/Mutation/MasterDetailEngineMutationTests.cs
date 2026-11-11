@@ -1,11 +1,19 @@
+// CA1707: Test method names use underscores intentionally.
 #pragma warning disable CA1707
+// MA0004: ConfigureAwait not needed in test bodies.
 #pragma warning disable MA0004
+// CA2007: ConfigureAwait not needed in test code.
+#pragma warning disable CA2007
+// CA1849: Synchronous file I/O is appropriate in tests.
+#pragma warning disable CA1849
+// CA1859: Interface-typed variables are intentional — tests verify interface-based usage.
+#pragma warning disable CA1859
 #pragma warning disable MA0074
 #pragma warning disable MA0048
 
-using Xunit;
+using TUnit.Core;
 
-namespace ModernLibs.FileHelpers.Mutation.Tests;
+namespace ModernLibs.FileHelpers.Tests.Mutation;
 
 [DelimitedRecord("|")]
 internal sealed class MasterRec
@@ -23,14 +31,15 @@ internal sealed class DetailRec
 }
 
 /// <summary>
-/// xUnit mutation-target tests for <see cref="MasterDetailEngine{TMaster,TDetail}"/>.
+/// Mutation-target tests for <see cref="MasterDetailEngine{TMaster,TDetail}"/> (moved from the former xUnit project).
 /// Covers classification, multi-line buffering, error modes, I/O parity,
 /// write path, and empty input.
 /// </summary>
+[Category("Mutation")]
 public sealed class MasterDetailEngineMutationTests
 {
-    [Fact]
-    public void ReadString_ClassificationCallback_GroupsDetailsUnderMaster()
+    [Test]
+    public async Task ReadString_ClassificationCallback_GroupsDetailsUnderMaster()
     {
         // Arrange: prefix-based classification
         var engine = new MasterDetailEngine<MasterRec, DetailRec>(line =>
@@ -42,15 +51,15 @@ public sealed class MasterDetailEngineMutationTests
         var groups = engine.ReadString("M|A\nD|A|10\nD|A|20");
 
         // Assert: details grouped under master
-        Assert.Single(groups);
-        Assert.Equal("A", groups[0].Master.Id);
-        Assert.Equal(2, groups[0].Details.Count);
-        Assert.Equal(10, groups[0].Details[0].Quantity);
-        Assert.Equal(20, groups[0].Details[1].Quantity);
+        await Assert.That(groups).HasSingleItem();
+        await Assert.That(groups[0].Master.Id).IsEqualTo("A");
+        await Assert.That(groups[0].Details.Count).IsEqualTo(2);
+        await Assert.That(groups[0].Details[0].Quantity).IsEqualTo(10);
+        await Assert.That(groups[0].Details[1].Quantity).IsEqualTo(20);
     }
 
-    [Fact]
-    public void ReadString_MultiLineDetail_BuffersUnclosedQuotes()
+    [Test]
+    public async Task ReadString_MultiLineDetail_BuffersUnclosedQuotes()
     {
         // Arrange: unclosed quote on detail line triggers buffering
         var engine = new MasterDetailEngine<MasterRec, DetailRec>(line =>
@@ -62,15 +71,15 @@ public sealed class MasterDetailEngineMutationTests
         // The unclosed quote triggers buffering; combined line is then parsed.
         // The multi-line content in the third field causes a parse error (not an int),
         // but the buffering path is exercised for mutation coverage.
-        var ex = Assert.Throws<ConvertException>(() => engine.ReadString("M|A\nD|A|\"hello\nworld\""));
+        var ex = await Assert.That(() => engine.ReadString("M|A\nD|A|\"hello\nworld\"")).ThrowsExactly<ConvertException>();
 
         // Assert: ConvertException (a failed conversion is never silently defaulted for the int field) confirms the
         // buffering + parse path was exercised
-        Assert.NotNull(ex);
+        await Assert.That(ex).IsNotNull();
     }
 
-    [Fact]
-    public void ReadString_UnknownLine_Skipped()
+    [Test]
+    public async Task ReadString_UnknownLine_Skipped()
     {
         // Arrange: selector returns Skip for non-matching lines
         var engine = new MasterDetailEngine<MasterRec, DetailRec>(line =>
@@ -82,13 +91,13 @@ public sealed class MasterDetailEngineMutationTests
         var groups = engine.ReadString("X|unknown\nM|A\nX|skip\nD|A|5\nX|skip2");
 
         // Assert: unknown lines skipped, valid records parsed
-        Assert.Single(groups);
-        Assert.Equal("A", groups[0].Master.Id);
-        Assert.Single(groups[0].Details);
+        await Assert.That(groups).HasSingleItem();
+        await Assert.That(groups[0].Master.Id).IsEqualTo("A");
+        await Assert.That(groups[0].Details).HasSingleItem();
     }
 
-    [Fact]
-    public void ReadString_MultipleMasters_CreatesMultipleGroups()
+    [Test]
+    public async Task ReadString_MultipleMasters_CreatesMultipleGroups()
     {
         // Arrange
         var engine = new MasterDetailEngine<MasterRec, DetailRec>(line =>
@@ -100,15 +109,15 @@ public sealed class MasterDetailEngineMutationTests
         var groups = engine.ReadString("M|A\nD|A|1\nM|B\nD|B|2\nD|B|3");
 
         // Assert: two groups created
-        Assert.Equal(2, groups.Length);
-        Assert.Equal("A", groups[0].Master.Id);
-        Assert.Single(groups[0].Details);
-        Assert.Equal("B", groups[1].Master.Id);
-        Assert.Equal(2, groups[1].Details.Count);
+        await Assert.That(groups.Length).IsEqualTo(2);
+        await Assert.That(groups[0].Master.Id).IsEqualTo("A");
+        await Assert.That(groups[0].Details).HasSingleItem();
+        await Assert.That(groups[1].Master.Id).IsEqualTo("B");
+        await Assert.That(groups[1].Details.Count).IsEqualTo(2);
     }
 
-    [Fact]
-    public void ReadString_EmptyInput_ReturnsEmptyArray()
+    [Test]
+    public async Task ReadString_EmptyInput_ReturnsEmptyArray()
     {
         // Arrange
         var engine = new MasterDetailEngine<MasterRec, DetailRec>(_ => RecordAction.Skip);
@@ -117,11 +126,11 @@ public sealed class MasterDetailEngineMutationTests
         var groups = engine.ReadString("");
 
         // Assert
-        Assert.Empty(groups);
+        await Assert.That(groups).IsEmpty();
     }
 
-    [Fact]
-    public void ReadString_EmptyLinesOnly_ReturnsEmptyArray()
+    [Test]
+    public async Task ReadString_EmptyLinesOnly_ReturnsEmptyArray()
     {
         // Arrange
         var engine = new MasterDetailEngine<MasterRec, DetailRec>(line =>
@@ -132,31 +141,31 @@ public sealed class MasterDetailEngineMutationTests
         var groups = engine.ReadString("\n\n\n");
 
         // Assert
-        Assert.Empty(groups);
+        await Assert.That(groups).IsEmpty();
     }
 
-    [Fact]
-    public void ReadString_NullInput_ThrowsArgumentNullException()
+    [Test]
+    public async Task ReadString_NullInput_ThrowsArgumentNullException()
     {
         // Arrange
         var engine = new MasterDetailEngine<MasterRec, DetailRec>(_ => RecordAction.Skip);
 
         // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => engine.ReadString(null!));
+        await Assert.That(() => engine.ReadString(null!)).ThrowsExactly<ArgumentNullException>();
     }
 
-    [Fact]
-    public void ReadStream_NullReader_ThrowsArgumentNullException()
+    [Test]
+    public async Task ReadStream_NullReader_ThrowsArgumentNullException()
     {
         // Arrange
         var engine = new MasterDetailEngine<MasterRec, DetailRec>(_ => RecordAction.Skip);
 
         // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => engine.ReadStream(null!));
+        await Assert.That(() => engine.ReadStream(null!)).ThrowsExactly<ArgumentNullException>();
     }
 
-    [Fact]
-    public void ReadStream_StringReader_ParsesGroups()
+    [Test]
+    public async Task ReadStream_StringReader_ParsesGroups()
     {
         // Arrange
         var engine = new MasterDetailEngine<MasterRec, DetailRec>(line =>
@@ -169,13 +178,13 @@ public sealed class MasterDetailEngineMutationTests
         var groups = engine.ReadStream(reader);
 
         // Assert
-        Assert.Single(groups);
-        Assert.Equal("A", groups[0].Master.Id);
-        Assert.Equal(42, groups[0].Details[0].Quantity);
+        await Assert.That(groups).HasSingleItem();
+        await Assert.That(groups[0].Master.Id).IsEqualTo("A");
+        await Assert.That(groups[0].Details[0].Quantity).IsEqualTo(42);
     }
 
-    [Fact]
-    public void WriteString_MasterDetailGroups_FormatsCorrectly()
+    [Test]
+    public async Task WriteString_MasterDetailGroups_FormatsCorrectly()
     {
         // Arrange: create grouped records
         var engine = new MasterDetailEngine<MasterRec, DetailRec>(_ => RecordAction.Skip);
@@ -190,33 +199,33 @@ public sealed class MasterDetailEngineMutationTests
         var output = engine.WriteString([group]);
 
         // Assert: master row followed by detail rows
-        Assert.Contains("M|A", output);
-        Assert.Contains("D|A|10", output);
-        Assert.Contains("D|A|20", output);
+        await Assert.That(output).Contains("M|A");
+        await Assert.That(output).Contains("D|A|10");
+        await Assert.That(output).Contains("D|A|20");
     }
 
-    [Fact]
-    public void WriteStream_NullWriter_ThrowsArgumentNullException()
+    [Test]
+    public async Task WriteStream_NullWriter_ThrowsArgumentNullException()
     {
         // Arrange
         var engine = new MasterDetailEngine<MasterRec, DetailRec>(_ => RecordAction.Skip);
 
         // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => engine.WriteStream(null!, Array.Empty<MasterDetails<MasterRec, DetailRec>>()));
+        await Assert.That(() => engine.WriteStream(null!, Array.Empty<MasterDetails<MasterRec, DetailRec>>())).ThrowsExactly<ArgumentNullException>();
     }
 
-    [Fact]
-    public void WriteStream_NullGroups_ThrowsArgumentNullException()
+    [Test]
+    public async Task WriteStream_NullGroups_ThrowsArgumentNullException()
     {
         // Arrange
         var engine = new MasterDetailEngine<MasterRec, DetailRec>(_ => RecordAction.Skip);
 
         // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => engine.WriteStream(new StringWriter(), null!));
+        await Assert.That(() => engine.WriteStream(new StringWriter(), null!)).ThrowsExactly<ArgumentNullException>();
     }
 
-    [Fact]
-    public void ReadString_DetailBeforeMaster_ThrowsBadUsageException()
+    [Test]
+    public async Task ReadString_DetailBeforeMaster_ThrowsBadUsageException()
     {
         // Arrange: detail appears before any master
         var engine = new MasterDetailEngine<MasterRec, DetailRec>(line =>
@@ -225,26 +234,26 @@ public sealed class MasterDetailEngineMutationTests
             RecordAction.Skip);
 
         // Act & Assert: detail without preceding master throws
-        Assert.Throws<BadUsageException>(() => engine.ReadString("D|X|5"));
+        await Assert.That(() => engine.ReadString("D|X|5")).ThrowsExactly<BadUsageException>();
     }
 
-    [Fact]
-    public void ReadString_NullSelector_DoesNotThrowAtConstruction()
+    [Test]
+    public async Task ReadString_NullSelector_DoesNotThrowAtConstruction()
     {
         // Act: null selector is accepted at construction (deferred validation)
         var engine = new MasterDetailEngine<MasterRec, DetailRec>(null!);
 
         // Assert: engine created, null reference will surface during parsing
-        Assert.NotNull(engine);
+        await Assert.That(engine).IsNotNull();
     }
 
-    [Fact]
-    public void ReadFile_NonexistentFile_ThrowsIOException()
+    [Test]
+    public async Task ReadFile_NonexistentFile_ThrowsIOException()
     {
         // Arrange
         var engine = new MasterDetailEngine<MasterRec, DetailRec>(_ => RecordAction.Skip);
 
         // Act & Assert: non-existent path throws IOException-derived exception
-        Assert.ThrowsAny<IOException>(() => engine.ReadFile("/nonexistent/path/file.txt"));
+        await Assert.That(() => engine.ReadFile("/nonexistent/path/file.txt")).Throws<IOException>();
     }
 }

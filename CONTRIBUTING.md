@@ -14,8 +14,7 @@ Thank you for your interest. Bug reports, documentation fixes and pull requests 
 |---|---|
 | `src/ModernLibs.FileHelpers` | The library (`net10.0`, `net11.0`) |
 | `src/ModernLibs.FileHelpers.Generator` | The source generator and the analyzer that reports the `MLFH` diagnostics (`netstandard2.0`, packed into the library package) |
-| `tests/ModernLibs.FileHelpers.Tests` | Main test suite (TUnit) |
-| `tests/ModernLibs.FileHelpers.Mutation.Tests` | xUnit tests used as the Stryker.NET mutation-testing target |
+| `tests/ModernLibs.FileHelpers.Tests` | Main test suite (TUnit), also the Stryker.NET mutation-testing target |
 | `tests/ModernLibs.FileHelpers.Fuzz.Tests` | SharpFuzz targets and seed corpus |
 | `benchmarks/ModernLibs.FileHelpers.Benchmarks` | BenchmarkDotNet suite, see [BENCHMARKS.md](BENCHMARKS.md) |
 | `samples/` | Sample applications |
@@ -29,18 +28,14 @@ You need the .NET 11 SDK version pinned in `global.json` (or a later patch of it
 dotnet build -c Release
 ```
 
-The test projects run on [Microsoft.Testing.Platform](https://learn.microsoft.com/dotnet/core/testing/microsoft-testing-platform-intro)
+The test project runs on [Microsoft.Testing.Platform](https://learn.microsoft.com/dotnet/core/testing/microsoft-testing-platform-intro)
 (`global.json` selects it for `dotnet test`):
 
 ```bash
-# main suite (TUnit)
 dotnet test --project tests/ModernLibs.FileHelpers.Tests -c Release
-
-# mutation-target suite (xUnit)
-dotnet test --project tests/ModernLibs.FileHelpers.Mutation.Tests -c Release
 ```
 
-The test projects are also executables, which is how CI runs them:
+The test project is also an executable, which is how CI runs it:
 
 ```bash
 ./tests/ModernLibs.FileHelpers.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Tests
@@ -57,19 +52,25 @@ dotnet run --project samples/MigrationSamples -c Release
 ### Mutation testing
 
 [Stryker.NET](https://stryker-mutator.io/docs/stryker-net/introduction/) mutates the library and runs
-the xUnit suite against each mutant. The configuration and thresholds are in `stryker-config.json`.
+the TUnit suite against each mutant, through its Microsoft.Testing.Platform runner (`"test-runner": "mtp"`)
+on `net10.0`. The configuration and thresholds are in `stryker-config.json`. Stryker runs in solution
+context (`ModernLibs.FileHelpers.slnx`), so every test project in the solution is a Stryker test project;
+today that is only the TUnit project. The tests written for the mutated parsers and engines carry
+`[Category("Mutation")]`.
+
+`dotnet-stryker` is a local tool, pinned in `dotnet-tools.json`:
 
 ```bash
-dotnet tool install -g dotnet-stryker
+dotnet tool restore
 dotnet stryker --config-file stryker-config.json
+
+# run the Mutation category only
+./tests/ModernLibs.FileHelpers.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Tests --treenode-filter "/*/*/*/*[Category=Mutation]"
 ```
 
-The HTML report is written to `StrykerOutput/`.
-
-> **Currently informational only.** With Stryker.NET 5 and the xUnit v3 test project, coverage
-> capture does not work and every mutant is reported as survived, so the mutation score is not
-> meaningful. Stryker runs in its own workflow (`mutation.yml`, started manually and once a week) with
-> `continue-on-error` until this is fixed; CI still requires the mutation-target xUnit suite to pass.
+The HTML report is written to `StrykerOutput/`. A full run takes a long time; to try a change, narrow
+the `mutate` list to the files you touched and lower the parallelism with `--concurrency`. Stryker runs
+in its own workflow (`mutation.yml`, started manually and once a week), not on every push.
 
 ### Fuzzing
 
@@ -202,8 +203,8 @@ link to that section. Messages say what is wrong and how to fix it.
 - Generator changes need generator tests (diagnostics and generated output) as well as engine tests.
   Add new record shapes or emission paths to the corpus in `GeneratedCodeWarningTests`, which requires
   warning-free generated code.
-- Parsing changes should keep the allocation tests passing. Once mutation testing works again (see
-  above), they should also keep the mutation score above the thresholds in `stryker-config.json`.
+- Parsing changes should keep the allocation tests passing and the mutation score above the thresholds
+  in `stryker-config.json` (see above).
 
 ## Commits and pull requests
 

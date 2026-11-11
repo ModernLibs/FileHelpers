@@ -1,11 +1,19 @@
+// CA1707: Test method names use underscores intentionally.
 #pragma warning disable CA1707
+// MA0004: ConfigureAwait not needed in test bodies.
 #pragma warning disable MA0004
+// CA2007: ConfigureAwait not needed in test code.
+#pragma warning disable CA2007
+// CA1849: Synchronous file I/O is appropriate in tests.
+#pragma warning disable CA1849
+// CA1859: Interface-typed variables are intentional — tests verify interface-based usage.
+#pragma warning disable CA1859
 #pragma warning disable MA0074
 #pragma warning disable MA0048
 
-using Xunit;
+using TUnit.Core;
 
-namespace ModernLibs.FileHelpers.Mutation.Tests;
+namespace ModernLibs.FileHelpers.Tests.Mutation;
 
 [DelimitedRecord("|")]
 internal sealed class HeaderRecord
@@ -25,14 +33,15 @@ internal sealed class DetailRecord
 internal sealed class UnknownRecord { }
 
 /// <summary>
-/// xUnit mutation-target tests for <see cref="MultiRecordEngine"/>.
+/// Mutation-target tests for <see cref="MultiRecordEngine"/> (moved from the former xUnit project).
 /// Covers selector dispatch, error modes, multi-type parsing, empty input,
 /// and sync I/O parity.
 /// </summary>
+[Category("Mutation")]
 public sealed class MultiRecordEngineMutationTests
 {
-    [Fact]
-    public void ReadString_MatchingSelectors_ParsesMixedRecords()
+    [Test]
+    public async Task ReadString_MatchingSelectors_ParsesMixedRecords()
     {
         // Arrange: two record types with prefix-based selectors
         var engine = new MultiRecordEngine(
@@ -43,17 +52,17 @@ public sealed class MultiRecordEngineMutationTests
         var records = engine.ReadString("H|BATCH1\nD|1|10.5\nH|BATCH2\nD|2|20.0");
 
         // Assert: all records parsed with correct types
-        Assert.Equal(4, records.Length);
-        Assert.IsType<HeaderRecord>(records[0]);
-        Assert.IsType<DetailRecord>(records[1]);
-        Assert.IsType<HeaderRecord>(records[2]);
-        Assert.IsType<DetailRecord>(records[3]);
-        Assert.Equal("BATCH1", ((HeaderRecord)records[0]).Batch);
-        Assert.Equal(1, ((DetailRecord)records[1]).Id);
+        await Assert.That(records.Length).IsEqualTo(4);
+        await Assert.That(records[0]).IsTypeOf<HeaderRecord>();
+        await Assert.That(records[1]).IsTypeOf<DetailRecord>();
+        await Assert.That(records[2]).IsTypeOf<HeaderRecord>();
+        await Assert.That(records[3]).IsTypeOf<DetailRecord>();
+        await Assert.That(((HeaderRecord)records[0]).Batch).IsEqualTo("BATCH1");
+        await Assert.That(((DetailRecord)records[1]).Id).IsEqualTo(1);
     }
 
-    [Fact]
-    public void ReadString_NoSelectorMatch_ThrowException_SkipsLine()
+    [Test]
+    public async Task ReadString_NoSelectorMatch_ThrowException_SkipsLine()
     {
         // Arrange: engine with narrow selector that won't match
         var engine = new MultiRecordEngine(
@@ -64,11 +73,11 @@ public sealed class MultiRecordEngineMutationTests
         var records = engine.ReadString("X|unknown");
 
         // Assert: nothing read, nothing thrown
-        Assert.Empty(records);
+        await Assert.That(records).IsEmpty();
     }
 
-    [Fact]
-    public void ReadString_NoSelectorMatch_IgnoreAndContinue_SkipsLine()
+    [Test]
+    public async Task ReadString_NoSelectorMatch_IgnoreAndContinue_SkipsLine()
     {
         // Arrange: engine with IgnoreAndContinue error mode
         var engine = new MultiRecordEngine(
@@ -79,13 +88,13 @@ public sealed class MultiRecordEngineMutationTests
         var records = engine.ReadString("H|BATCH\nX|unknown\nH|BATCH2");
 
         // Assert: non-matching line skipped, matching lines returned
-        Assert.Equal(2, records.Length);
-        Assert.IsType<HeaderRecord>(records[0]);
-        Assert.IsType<HeaderRecord>(records[1]);
+        await Assert.That(records.Length).IsEqualTo(2);
+        await Assert.That(records[0]).IsTypeOf<HeaderRecord>();
+        await Assert.That(records[1]).IsTypeOf<HeaderRecord>();
     }
 
-    [Fact]
-    public void ReadString_NoSelectorMatch_SaveAndContinue_SkipsWithoutError()
+    [Test]
+    public async Task ReadString_NoSelectorMatch_SaveAndContinue_SkipsWithoutError()
     {
         // Arrange: engine with SaveAndContinue error mode
         var engine = new MultiRecordEngine(
@@ -96,12 +105,12 @@ public sealed class MultiRecordEngineMutationTests
         var records = engine.ReadString("H|BATCH\nX|unknown\nH|BATCH2");
 
         // Assert: matching records returned; a selector miss is not an error (3.x)
-        Assert.Equal(2, records.Length);
-        Assert.Empty(engine.ErrorManager.Errors);
+        await Assert.That(records.Length).IsEqualTo(2);
+        await Assert.That(engine.ErrorManager.Errors).IsEmpty();
     }
 
-    [Fact]
-    public void ReadString_EmptyInput_ReturnsEmptyArray()
+    [Test]
+    public async Task ReadString_EmptyInput_ReturnsEmptyArray()
     {
         // Arrange: engine with valid record types
         var engine = new MultiRecordEngine(
@@ -111,11 +120,11 @@ public sealed class MultiRecordEngineMutationTests
         var records = engine.ReadString("");
 
         // Assert: no records produced
-        Assert.Empty(records);
+        await Assert.That(records).IsEmpty();
     }
 
-    [Fact]
-    public void ReadString_EmptyLinesOnly_SkipsAll()
+    [Test]
+    public async Task ReadString_EmptyLinesOnly_SkipsAll()
     {
         // Arrange
         var engine = new MultiRecordEngine(
@@ -125,33 +134,33 @@ public sealed class MultiRecordEngineMutationTests
         var records = engine.ReadString("\n\n\n");
 
         // Assert: empty lines are skipped
-        Assert.Empty(records);
+        await Assert.That(records).IsEmpty();
     }
 
-    [Fact]
-    public void ReadString_NullInput_ThrowsArgumentNullException()
+    [Test]
+    public async Task ReadString_NullInput_ThrowsArgumentNullException()
     {
         // Arrange
         var engine = new MultiRecordEngine(
             MultiRecordType.For<HeaderRecord>(line => line.StartsWith("H|", StringComparison.Ordinal)));
 
         // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => engine.ReadString(null!));
+        await Assert.That(() => engine.ReadString(null!)).ThrowsExactly<ArgumentNullException>();
     }
 
-    [Fact]
-    public void ReadStream_NullReader_ThrowsArgumentNullException()
+    [Test]
+    public async Task ReadStream_NullReader_ThrowsArgumentNullException()
     {
         // Arrange
         var engine = new MultiRecordEngine(
             MultiRecordType.For<HeaderRecord>(line => line.StartsWith("H|", StringComparison.Ordinal)));
 
         // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => engine.ReadStream(null!));
+        await Assert.That(() => engine.ReadStream(null!)).ThrowsExactly<ArgumentNullException>();
     }
 
-    [Fact]
-    public void ReadStream_StringReader_ParsesMixedRecords()
+    [Test]
+    public async Task ReadStream_StringReader_ParsesMixedRecords()
     {
         // Arrange: engine with two record types
         var engine = new MultiRecordEngine(
@@ -163,13 +172,13 @@ public sealed class MultiRecordEngineMutationTests
         var records = engine.ReadStream(reader);
 
         // Assert
-        Assert.Equal(2, records.Length);
-        Assert.IsType<HeaderRecord>(records[0]);
-        Assert.IsType<DetailRecord>(records[1]);
+        await Assert.That(records.Length).IsEqualTo(2);
+        await Assert.That(records[0]).IsTypeOf<HeaderRecord>();
+        await Assert.That(records[1]).IsTypeOf<DetailRecord>();
     }
 
-    [Fact]
-    public void WriteString_MixedRecords_FormatsCorrectly()
+    [Test]
+    public async Task WriteString_MixedRecords_FormatsCorrectly()
     {
         // Arrange: engine with two record types
         var engine = new MultiRecordEngine(
@@ -185,12 +194,12 @@ public sealed class MultiRecordEngineMutationTests
         var output = engine.WriteString(records);
 
         // Assert: output contains both formatted records
-        Assert.Contains("H|B001", output);
-        Assert.Contains("D|5|99.9", output);
+        await Assert.That(output).Contains("H|B001");
+        await Assert.That(output).Contains("D|5|99.9");
     }
 
-    [Fact]
-    public void WriteString_UnknownRecordType_ThrowsArgumentException()
+    [Test]
+    public async Task WriteString_UnknownRecordType_ThrowsArgumentException()
     {
         // Arrange: engine with one record type
         var engine = new MultiRecordEngine(
@@ -198,46 +207,46 @@ public sealed class MultiRecordEngineMutationTests
 
         // Act & Assert: writing a non-registered type throws
         var records = new object[] { new UnknownRecord() };
-        Assert.Throws<ArgumentException>(() => engine.WriteString(records));
+        await Assert.That(() => engine.WriteString(records)).ThrowsExactly<ArgumentException>();
     }
 
-    [Fact]
-    public void WriteStream_NullWriter_ThrowsArgumentNullException()
+    [Test]
+    public async Task WriteStream_NullWriter_ThrowsArgumentNullException()
     {
         // Arrange
         var engine = new MultiRecordEngine(
             MultiRecordType.For<HeaderRecord>(line => line.StartsWith("H|", StringComparison.Ordinal)));
 
         // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => engine.WriteStream(null!, Array.Empty<object>()));
+        await Assert.That(() => engine.WriteStream(null!, Array.Empty<object>())).ThrowsExactly<ArgumentNullException>();
     }
 
-    [Fact]
-    public void WriteStream_NullRecords_ThrowsArgumentNullException()
+    [Test]
+    public async Task WriteStream_NullRecords_ThrowsArgumentNullException()
     {
         // Arrange
         var engine = new MultiRecordEngine(
             MultiRecordType.For<HeaderRecord>(line => line.StartsWith("H|", StringComparison.Ordinal)));
 
         // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => engine.WriteStream(new StringWriter(), null!));
+        await Assert.That(() => engine.WriteStream(new StringWriter(), null!)).ThrowsExactly<ArgumentNullException>();
     }
 
-    [Fact]
-    public void Constructor_EmptyArray_ThrowsArgumentException()
+    [Test]
+    public async Task Constructor_EmptyArray_ThrowsArgumentException()
     {
         // Act & Assert: no record types provided
-        Assert.Throws<ArgumentException>(() => new MultiRecordEngine(Array.Empty<IMultiRecordType>()));
+        await Assert.That(() => new MultiRecordEngine(Array.Empty<IMultiRecordType>())).ThrowsExactly<ArgumentException>();
     }
 
-    [Fact]
-    public void ReadFile_NonexistentFile_ThrowsIOException()
+    [Test]
+    public async Task ReadFile_NonexistentFile_ThrowsIOException()
     {
         // Arrange
         var engine = new MultiRecordEngine(
             MultiRecordType.For<HeaderRecord>(line => line.StartsWith("H|", StringComparison.Ordinal)));
 
         // Act & Assert: non-existent path throws IOException-derived exception
-        Assert.ThrowsAny<IOException>(() => engine.ReadFile("/nonexistent/path/file.txt"));
+        await Assert.That(() => engine.ReadFile("/nonexistent/path/file.txt")).Throws<IOException>();
     }
 }

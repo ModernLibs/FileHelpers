@@ -118,7 +118,7 @@ milestone tag cannot publish only because that secret does not exist (see the wa
 ### Triggers
 
 - **Pushing a tag** `v*`: validate, build (with `-p:Version`, so the assemblies carry the release
-  version), run the TUnit and xUnit suites (a run with no tests fails), pack the library, verify the
+  version), run the TUnit suite on both targets (a run with no tests fails), pack the library, verify the
   package contents and version stamp, then publish and create a GitHub release. Versions with a `-`
   suffix are marked as pre-releases.
 - **Manual run** (`workflow_dispatch`) with inputs `tag` (an existing tag, for example `v4.8.0`) and
@@ -150,7 +150,7 @@ SHA and the comment together.
 
 ## Release checklist
 
-1. All tests pass (see [CONTRIBUTING.md](../CONTRIBUTING.md)): TUnit tests, mutation-target tests and
+1. All tests pass (see [CONTRIBUTING.md](../CONTRIBUTING.md)): TUnit tests (the Mutation category included) and
    the fuzz seed corpus.
 2. `CHANGELOG.md`: move the `Unreleased` entries under the new version and set the date.
 3. Public API: move the entries of `src/ModernLibs.FileHelpers/PublicAPI.Unshipped.txt` to

@@ -98,18 +98,6 @@ jobs:
             echo "::endgroup::"
           done
 
-      # The xUnit v3 runner exits 0 when no test ran, so require a non-zero total.
-      - name: Test (xUnit mutation)
-        run: |
-          set -euo pipefail
-          EXE=""; if [ "$RUNNER_OS" = "Windows" ]; then EXE=".exe"; fi
-          for tfm in net10.0 net11.0; do
-            echo "::group::xUnit mutation $tfm"
-            "./tests/ModernLibs.FileHelpers.Mutation.Tests/bin/Release/$tfm/ModernLibs.FileHelpers.Mutation.Tests$EXE" | tee "mutation-tests-$tfm.log"
-            grep -Eq 'Total: [1-9][0-9]*' "mutation-tests-$tfm.log" || { echo "::error::No mutation tests ran ($tfm)."; exit 1; }
-            echo "::endgroup::"
-          done
-
       # The migration sample runs end to end (exit code 0) on both targets.
       - name: Run migration sample
         run: |

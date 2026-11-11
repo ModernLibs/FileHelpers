@@ -20,9 +20,17 @@ public sealed class ListReadTests
     // FooteredRecord: [IgnoreLast(1)], so "total" is the footer.
     private const string Csv = "1,a\r\n2,b\r\n3,c\r\ntotal\r\n";
 
+    // HeaderFooterListRecord: "id,name" is the header, "total" the footer.
+    private const string CsvHeaderFooter = "id,name\r\n1,a\r\n2,b\r\n3,c\r\ntotal\r\n";
+
     private const string CsvWithBadRow = "1,a\r\nx,b\r\n3,c\r\ntotal\r\n";
 
-    private static async Task AssertSameState(FileHelperEngine<FooteredRecord> list, FileHelperEngine<FooteredRecord> array)
+    private static string KeyOf(FooteredRecord r) => $"{r.Id}|{r.Name}";
+
+    private static string KeyOf(HeaderFooterListRecord r) => $"{r.Id}|{r.Name}";
+
+    private static async Task AssertSameState<T>(FileHelperEngine<T> list, FileHelperEngine<T> array)
+        where T : class
     {
         await Assert.That(list.HeaderText).IsEqualTo(array.HeaderText);
         await Assert.That(list.FooterText).IsEqualTo(array.FooterText);
@@ -30,44 +38,41 @@ public sealed class ListReadTests
         await Assert.That(list.TotalRecords).IsEqualTo(array.TotalRecords);
     }
 
-    private static async Task AssertSameRecords(List<FooteredRecord> list, FooteredRecord[] array)
+    private static async Task AssertSameRecords<T>(List<T> list, T[] array, Func<T, string> key)
     {
         await Assert.That(list.Count).IsEqualTo(array.Length);
         for (int i = 0; i < array.Length; i++)
-        {
-            await Assert.That(list[i].Id).IsEqualTo(array[i].Id);
-            await Assert.That(list[i].Name).IsEqualTo(array[i].Name);
-        }
+            await Assert.That(key(list[i])).IsEqualTo(key(array[i]));
     }
 
-    [Test]
-    public async Task Each_List_Method_Equals_Its_Array_Twin()
+    private static async Task RunTwins<T>(string csv, Func<T, string> key)
+        where T : class
     {
         string path = Path.GetTempFileName();
         try
         {
-            File.WriteAllText(path, Csv);
+            File.WriteAllText(path, csv);
 
-            var a = new FileHelperEngine<FooteredRecord>();
-            var b = new FileHelperEngine<FooteredRecord>();
-            await AssertSameRecords(b.ReadStringAsList(Csv), a.ReadString(Csv));
+            var a = new FileHelperEngine<T>();
+            var b = new FileHelperEngine<T>();
+            await AssertSameRecords(b.ReadStringAsList(csv), a.ReadString(csv), key);
             await AssertSameState(b, a);
 
-            a = new FileHelperEngine<FooteredRecord>();
-            b = new FileHelperEngine<FooteredRecord>();
-            using (var r1 = new StringReader(Csv))
-            using (var r2 = new StringReader(Csv))
+            a = new FileHelperEngine<T>();
+            b = new FileHelperEngine<T>();
+            using (var r1 = new StringReader(csv))
+            using (var r2 = new StringReader(csv))
             {
                 var array = a.ReadStream(r1);
                 var list = b.ReadStreamAsList(r2);
-                await AssertSameRecords(list, array);
+                await AssertSameRecords(list, array, key);
                 await AssertSameState(b, a);
                 await Assert.That(r2.Peek()).IsEqualTo(r1.Peek());
             }
 
-            a = new FileHelperEngine<FooteredRecord>();
-            b = new FileHelperEngine<FooteredRecord>();
-            await AssertSameRecords(b.ReadFileAsList(path), a.ReadFile(path));
+            a = new FileHelperEngine<T>();
+            b = new FileHelperEngine<T>();
+            await AssertSameRecords(b.ReadFileAsList(path), a.ReadFile(path), key);
             await AssertSameState(b, a);
 
             await Assert.That(b.FooterText).IsEqualTo("total");
@@ -79,36 +84,31 @@ public sealed class ListReadTests
         }
     }
 
-    [Test]
-    [Arguments(0)]
-    [Arguments(-1)]
-    [Arguments(1)]
-    [Arguments(2)]
-    [Arguments(99)]
-    public async Task MaxRecords_Behaves_As_In_The_Array_Twin(int maxRecords)
+    private static async Task RunMaxRecords<T>(string csv, int maxRecords, Func<T, string> key)
+        where T : class
     {
         string path = Path.GetTempFileName();
         try
         {
-            File.WriteAllText(path, Csv);
+            File.WriteAllText(path, csv);
 
-            var a = new FileHelperEngine<FooteredRecord>();
-            var b = new FileHelperEngine<FooteredRecord>();
-            await AssertSameRecords(b.ReadStringAsList(Csv, maxRecords), a.ReadString(Csv, maxRecords));
+            var a = new FileHelperEngine<T>();
+            var b = new FileHelperEngine<T>();
+            await AssertSameRecords(b.ReadStringAsList(csv, maxRecords), a.ReadString(csv, maxRecords), key);
             await AssertSameState(b, a);
 
-            a = new FileHelperEngine<FooteredRecord>();
-            b = new FileHelperEngine<FooteredRecord>();
-            using (var r1 = new StringReader(Csv))
-            using (var r2 = new StringReader(Csv))
+            a = new FileHelperEngine<T>();
+            b = new FileHelperEngine<T>();
+            using (var r1 = new StringReader(csv))
+            using (var r2 = new StringReader(csv))
             {
-                await AssertSameRecords(b.ReadStreamAsList(r2, maxRecords), a.ReadStream(r1, maxRecords));
+                await AssertSameRecords(b.ReadStreamAsList(r2, maxRecords), a.ReadStream(r1, maxRecords), key);
                 await AssertSameState(b, a);
             }
 
-            a = new FileHelperEngine<FooteredRecord>();
-            b = new FileHelperEngine<FooteredRecord>();
-            await AssertSameRecords(b.ReadFileAsList(path, maxRecords), a.ReadFile(path, maxRecords));
+            a = new FileHelperEngine<T>();
+            b = new FileHelperEngine<T>();
+            await AssertSameRecords(b.ReadFileAsList(path, maxRecords), a.ReadFile(path, maxRecords), key);
             await AssertSameState(b, a);
         }
         finally
@@ -116,6 +116,40 @@ public sealed class ListReadTests
             File.Delete(path);
         }
     }
+
+    [Test]
+    public async Task Each_List_Method_Equals_Its_Array_Twin() => await RunTwins<FooteredRecord>(Csv, KeyOf);
+
+    [Test]
+    public async Task Each_List_Method_Equals_Its_Array_Twin_With_Header_And_Footer()
+    {
+        await RunTwins<HeaderFooterListRecord>(CsvHeaderFooter, KeyOf);
+
+        var engine = new FileHelperEngine<HeaderFooterListRecord>();
+        var list = engine.ReadStringAsList(CsvHeaderFooter);
+        await Assert.That(list.Count).IsEqualTo(3);
+        await Assert.That(engine.HeaderText).IsNotNull();
+        await Assert.That(engine.HeaderText!.TrimEnd('\r', '\n')).IsEqualTo("id,name");
+        await Assert.That(engine.FooterText).IsEqualTo("total");
+    }
+
+    [Test]
+    [Arguments(0)]
+    [Arguments(-1)]
+    [Arguments(1)]
+    [Arguments(2)]
+    [Arguments(99)]
+    public async Task MaxRecords_Behaves_As_In_The_Array_Twin(int maxRecords) =>
+        await RunMaxRecords<FooteredRecord>(Csv, maxRecords, KeyOf);
+
+    [Test]
+    [Arguments(0)]
+    [Arguments(-1)]
+    [Arguments(1)]
+    [Arguments(2)]
+    [Arguments(99)]
+    public async Task MaxRecords_Behaves_As_In_The_Array_Twin_With_Header_And_Footer(int maxRecords) =>
+        await RunMaxRecords<HeaderFooterListRecord>(CsvHeaderFooter, maxRecords, KeyOf);
 
     [Test]
     public async Task Large_Input_Spans_Several_Chunks_And_Matches()
@@ -130,7 +164,7 @@ public sealed class ListReadTests
         var b = new FileHelperEngine<FooteredRecord>();
         using var r1 = new StringReader(text);
         using var r2 = new StringReader(text);
-        await AssertSameRecords(b.ReadStreamAsList(r2), a.ReadStream(r1));
+        await AssertSameRecords(b.ReadStreamAsList(r2), a.ReadStream(r1), KeyOf);
         await AssertSameState(b, a);
         await Assert.That(b.TotalRecords).IsEqualTo(1000);
     }
@@ -145,7 +179,7 @@ public sealed class ListReadTests
         var list = b.ReadStringAsList(CsvWithBadRow);
 
         await Assert.That(array.Length).IsEqualTo(2);
-        await AssertSameRecords(list, array);
+        await AssertSameRecords(list, array, KeyOf);
         await Assert.That(b.ErrorManager.ErrorCount).IsEqualTo(a.ErrorManager.ErrorCount);
         await Assert.That(b.ErrorManager.ErrorCount).IsEqualTo(1);
         await Assert.That(b.ErrorManager.Errors[0].LineNumber).IsEqualTo(a.ErrorManager.Errors[0].LineNumber);

@@ -12,7 +12,7 @@ Thank you for your interest. Bug reports, documentation fixes and pull requests 
 
 | Path | Contents |
 |---|---|
-| `src/ModernLibs.FileHelpers` | The library (`net10.0`) |
+| `src/ModernLibs.FileHelpers` | The library (`net10.0`, `net11.0`) |
 | `src/ModernLibs.FileHelpers.Generator` | The source generator and the analyzer that reports the `MLFH` diagnostics (`netstandard2.0`, packed into the library package) |
 | `tests/ModernLibs.FileHelpers.Tests` | Main test suite (TUnit) |
 | `tests/ModernLibs.FileHelpers.Mutation.Tests` | xUnit tests used as the Stryker.NET mutation-testing target |
@@ -23,7 +23,7 @@ Thank you for your interest. Bug reports, documentation fixes and pull requests 
 
 ## Building and testing
 
-You need the .NET 10 SDK version pinned in `global.json` (or a later patch of it).
+You need the .NET 11 SDK version pinned in `global.json` (or a later patch of it); it builds both targets. In WSL or when the SDK sits outside the system path, set `export DOTNET_ROOT=$HOME/.dotnet` first, otherwise the `net11.0` test binary starts on the wrong host runtime and exits with code 150.
 
 ```bash
 dotnet build -c Release
@@ -44,7 +44,8 @@ The test projects are also executables, which is how CI runs them:
 
 ```bash
 ./tests/ModernLibs.FileHelpers.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Tests
-./tests/ModernLibs.FileHelpers.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Tests --treenode-filter "/*/*/ReadCoreAllocationTests/*"
+./tests/ModernLibs.FileHelpers.Tests/bin/Release/net11.0/ModernLibs.FileHelpers.Tests
+./tests/ModernLibs.FileHelpers.Tests/bin/Release/net11.0/ModernLibs.FileHelpers.Tests --treenode-filter "/*/*/ReadCoreAllocationTests/*"
 ```
 
 CI also builds and runs the migration sample, which must keep working:
@@ -85,7 +86,7 @@ done
 dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests -c Release -- extended 10000
 
 # property-style random-input tests in the TUnit suite
-./tests/ModernLibs.FileHelpers.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Tests --treenode-filter "/*/*/*/*[Category=Fuzz]"
+./tests/ModernLibs.FileHelpers.Tests/bin/Release/net11.0/ModernLibs.FileHelpers.Tests --treenode-filter "/*/*/*/*[Category=Fuzz]"
 ```
 
 For coverage-guided fuzzing, instrument the library with the SharpFuzz tool and run the targets
@@ -105,7 +106,7 @@ performance change. See [BENCHMARKS.md](BENCHMARKS.md).
 
 These are requirements, not preferences. Pull requests that break them cannot be merged.
 
-- **.NET 10 only.** The library targets `net10.0`; there is no multi-targeting.
+- **Two targets: `net10.0` and `net11.0`.** The library is built for both and every test runs on both. Runtime async is switched on for `net11.0` only (`FileHelpersRuntimeAsync`, default `true`).
 - **AOT and trimming safe.** No reflection, `System.Reflection.Emit`, `Expression` compilation,
   `DynamicMethod`, `TypeDescriptor` or `MakeGenericType` in the library. Everything that depends on the
   record type is generated at compile time. The library is built with `IsAotCompatible` and

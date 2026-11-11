@@ -54,7 +54,7 @@ original project: please report problems with this library
 dotnet add package ModernLibs.FileHelpers
 ```
 
-Requirements: .NET 10 (`net10.0`). Requires C# 11 or later (`MLFH026`): the .NET 10 SDK defaults to
+Requirements: .NET 10 or .NET 11 (`net10.0`, `net11.0`). Requires C# 11 or later (`MLFH026`): the .NET 10 SDK defaults to
 C# 14, so this only matters if your project pins an older `<LangVersion>`. The package has no runtime
 dependencies. The source generator is included as an analyzer;
 there is nothing else to install.

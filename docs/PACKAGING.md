@@ -12,6 +12,8 @@ package; it is embedded in the library package as an analyzer.
 ModernLibs.FileHelpers.<version>.nupkg
 ├── lib/net10.0/ModernLibs.FileHelpers.dll
 ├── lib/net10.0/ModernLibs.FileHelpers.xml                 XML documentation
+├── lib/net11.0/ModernLibs.FileHelpers.dll                 compiled with runtime async
+├── lib/net11.0/ModernLibs.FileHelpers.xml                 XML documentation
 ├── analyzers/dotnet/cs/ModernLibs.FileHelpers.Generator.dll  source generator and analyzer
 ├── build/ModernLibs.FileHelpers.props                      FileHelpersMaxFieldWidth (direct references)
 ├── buildTransitive/ModernLibs.FileHelpers.props            the same, for transitive references
@@ -20,10 +22,14 @@ ModernLibs.FileHelpers.<version>.nupkg
 └── LICENSE
 ```
 
-- The package targets `net10.0` only and has no package dependencies. It requires C# 11 or later
+- The package targets `net10.0` and `net11.0` and has no package dependencies. It requires C# 11 or later
   (`MLFH026`): the generated code uses `file`-scoped types, so below C# 11 nothing is generated and
   every record type reports `MLFH026`. The .NET 10 default is C# 14, so this only affects projects that
   pin an older `LangVersion`.
+- The `net11.0` asset is compiled with runtime async (`Features=runtime-async=on`, set by the MSBuild
+  property `FileHelpersRuntimeAsync`, default `true`, applied to `net11.0` only). Building with
+  `-p:FileHelpersRuntimeAsync=false` gives the escape-hatch build without it. MSBuild does not rebuild
+  when only this property changes, so add `--no-incremental` when you switch between the two.
 - `ModernLibs.FileHelpers.Generator.dll` contains both the source generator and the analyzer
   (`FileHelpersAnalyzer`) that reports the `MLFH` diagnostics; the generator reports only `MLFH020`
   itself. `MLFH` warnings can be suppressed as usual; errors that block the descriptor cannot

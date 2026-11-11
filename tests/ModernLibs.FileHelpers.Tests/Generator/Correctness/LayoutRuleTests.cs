@@ -1,6 +1,7 @@
 // CA1707: Test method names use underscores intentionally.
 #pragma warning disable CA1707
 
+using System.Globalization;
 using Microsoft.CodeAnalysis;
 using TUnit.Core;
 
@@ -288,5 +289,171 @@ public sealed class LayoutRuleTests
 
         // Assert
         await Assert.That(run.Diagnostics("MLFH029").Count).IsEqualTo(0);
+    }
+
+    private const string Usings = "using ModernLibs.FileHelpers;\n";
+
+    [Test]
+    [DisplayName("MLFH030-032: a layout that cannot round-trip is reported once and still emitted")]
+    [Arguments("[DelimitedRecord(\"\\\"\")] public partial class R { [FieldQuoted] public string A = \"\"; public string B = \"\"; }", "MLFH030")]
+    [Arguments("[DelimitedRecord(\",\\n\")] public partial class R { public string A = \"\"; public string B = \"\"; }", "MLFH031")]
+    [Arguments("[DelimitedRecord(\",\")] public partial class R { [FieldTrim(TrimMode.Both, ',', ' ')] public string A = \"\"; public string B = \"\"; }", "MLFH032")]
+    public async Task Layout_That_Cannot_Round_Trip_Is_Reported(string source, string id)
+    {
+        var run = GeneratorHarness.RunGenerator(Usings + source);
+        await Assert.That(run.Diagnostics(id).Count).IsEqualTo(1);
+        await Assert.That(run.Result.GeneratedTrees.Length).IsGreaterThan(0);          // still emitted
+        await Assert.That(run.CompileErrors.IsEmpty).IsTrue().Because(run.ErrorText);
+    }
+
+    [Test]
+    [DisplayName("MLFH030-032: an ordinary CSV record reports none of the new diagnostics")]
+    public async Task Ordinary_Csv_Record_Reports_None_Of_The_New_Diagnostics()
+    {
+        var run = GeneratorHarness.RunGenerator(Usings + "[DelimitedRecord(\",\")] public partial class R { [FieldQuoted] [FieldTrim(TrimMode.Both)] public string A = \"\"; public int B; }");
+        await Assert.That(run.Diagnostics("MLFH030").Count + run.Diagnostics("MLFH031").Count + run.Diagnostics("MLFH032").Count).IsEqualTo(0);
+    }
+
+    [Test]
+    [DisplayName("MLFH030-032: severities (030 and 031 Warning, 032 Info)")]
+    public async Task New_Diagnostics_Have_The_Severity_Backed_By_The_Evidence()
+    {
+        const string source = """
+            using ModernLibs.FileHelpers;
+            [DelimitedRecord("\"")] public partial class A { [FieldQuoted] public string X = ""; public string Y = ""; }
+            [DelimitedRecord(",\r\n")] public partial class B { public string X = ""; public string Y = ""; }
+            [DelimitedRecord(",")] public partial class C { [FieldTrim(TrimMode.Both, ',')] public string X = ""; public string Y = ""; }
+            """;
+
+        var run = GeneratorHarness.RunGenerator(source);
+
+        await Assert.That(run.Diagnostics("MLFH030").Single().Severity).IsEqualTo(DiagnosticSeverity.Warning);
+        await Assert.That(run.Diagnostics("MLFH031").Single().Severity).IsEqualTo(DiagnosticSeverity.Warning);
+        await Assert.That(run.Diagnostics("MLFH032").Single().Severity).IsEqualTo(DiagnosticSeverity.Info);
+    }
+
+    [Test]
+    [DisplayName("MLFH030: the quote character inside a longer delimiter, or inside a [FieldDelimiter], is reported per field")]
+    public async Task QuoteChar_InLongerDelimiter_Or_FieldDelimiter_Reports030()
+    {
+        const string source = """
+            using ModernLibs.FileHelpers;
+            [DelimitedRecord("\",\"")] public partial class A { [FieldQuoted] public string X = ""; [FieldQuoted] public string Y = ""; public string Z = ""; }
+            [DelimitedRecord(",")] public partial class B { [FieldQuoted] [FieldDelimiter(";'")] public string X = ""; [FieldQuoted('\'')] [FieldDelimiter(";'")] public string Y = ""; public string Z = ""; }
+            [DelimitedRecord(",")] public partial class C { [FieldQuoted('\'')] public string X = ""; public string Z = ""; }
+            """;
+
+        var run = GeneratorHarness.RunGenerator(source);
+
+        // A: X and Y; B: only Y (its quote is the apostrophe); C: none
+        await Assert.That(run.Diagnostics("MLFH030").Count).IsEqualTo(3);
+    }
+
+    [Test]
+    [DisplayName("MLFH031: a line break in a [FieldDelimiter] is reported at the field; a tab or a space delimiter is fine")]
+    public async Task LineBreak_InFieldDelimiter_Reports031()
+    {
+        const string source = """
+            using ModernLibs.FileHelpers;
+            [DelimitedRecord(",")] public partial class A { public string X = ""; [FieldDelimiter(";\r")] public string Y = ""; public string Z = ""; }
+            [DelimitedRecord("\t")] public partial class B { public string X = ""; public string Y = ""; }
+            [DelimitedRecord(" | ")] public partial class C { public string X = ""; public string Y = ""; }
+            """;
+
+        var run = GeneratorHarness.RunGenerator(source);
+
+        var diagnostics = run.Diagnostics("MLFH031");
+        await Assert.That(diagnostics.Count).IsEqualTo(1);
+        await Assert.That(diagnostics[0].Location.GetLineSpan().StartLinePosition.Line).IsEqualTo(1);
+        await Assert.That(diagnostics[0].GetMessage(CultureInfo.InvariantCulture)).Contains("'\\r'");
+    }
+
+    [Test]
+    [DisplayName("MLFH032: the quote character in the trim list is reported; white space and default trim characters are not")]
+    public async Task TrimChars_QuoteChar_Reports032_But_Not_Defaults()
+    {
+        const string source = """
+            using ModernLibs.FileHelpers;
+            [DelimitedRecord(",")] public partial class A { [FieldQuoted] [FieldTrim(TrimMode.Both, '"')] public string X = ""; public string Y = ""; }
+            [DelimitedRecord("\t")] public partial class B { [FieldTrim(TrimMode.Both)] public string X = ""; public string Y = ""; }
+            [DelimitedRecord(" | ")] public partial class C { [FieldTrim(TrimMode.Both, ' ', 'x')] public string X = ""; public string Y = ""; }
+            [DelimitedRecord(",")] public partial class D { [FieldTrim(TrimMode.Both, '"')] public string X = ""; public string Y = ""; }
+            """;
+
+        var run = GeneratorHarness.RunGenerator(source);
+
+        // A only: B has the default characters, C trims a space inside " | " (not a collision), D is not quoted
+        var diagnostics = run.Diagnostics("MLFH032");
+        await Assert.That(diagnostics.Count).IsEqualTo(1);
+        await Assert.That(diagnostics[0].Location.GetLineSpan().StartLinePosition.Line).IsEqualTo(1);
+        await Assert.That(diagnostics[0].GetMessage(CultureInfo.InvariantCulture)).Contains("the quote character");
+    }
+
+    // Step 1 evidence (T31). The same layouts ran against FileHelpers 3.5.2 and ModernLibs.FileHelpers 4.9.1
+    // in a scratch project; docs/diagnostics.md records the comparison.
+
+    [Test]
+    [DisplayName("MLFH030 evidence: a record whose quote is its delimiter writes text it cannot read back")]
+    public async Task Evidence_QuoteIsDelimiter_DoesNotRoundTrip()
+    {
+        const string source = """
+            using ModernLibs.FileHelpers;
+            [DelimitedRecord("\"")] public sealed class R { [FieldQuoted] public string A = ""; public string B = ""; }
+            public static class Probe
+            {
+                public static string Run()
+                {
+                    var engine = new FileHelperEngine<R>();
+                    string text = engine.WriteString(new[] { new R { A = "x", B = "y" }, new R { A = "p", B = "q" } });
+                    return engine.ReadString(text).Length.ToString();
+                }
+            }
+            """;
+
+        await Assert.That(GeneratorHarness.Execute(source)).StartsWith("EXCEPTION ");
+    }
+
+    [Test]
+    [DisplayName("MLFH031 evidence: a record delimiter with a line break writes text it cannot read back")]
+    public async Task Evidence_LineBreakDelimiter_DoesNotRoundTrip()
+    {
+        const string source = """
+            using ModernLibs.FileHelpers;
+            [DelimitedRecord(",\n")] public sealed class R { public string A = ""; public string B = ""; }
+            public static class Probe
+            {
+                public static string Run()
+                {
+                    var engine = new FileHelperEngine<R>();
+                    string text = engine.WriteString(new[] { new R { A = "x", B = "y" }, new R { A = "p", B = "q" } });
+                    return engine.ReadString(text).Length.ToString();
+                }
+            }
+            """;
+
+        await Assert.That(GeneratorHarness.Execute(source)).StartsWith("EXCEPTION ");
+    }
+
+    [Test]
+    [DisplayName("MLFH032 evidence: the quote character in the trim list strips the opening quote; a delimiter in the list changes nothing")]
+    public async Task Evidence_TrimChars_QuoteMisreads_DelimiterIsInert()
+    {
+        const string source = """
+            using ModernLibs.FileHelpers;
+            [DelimitedRecord(",")] public sealed class Q { [FieldQuoted('"', QuoteMode.OptionalForRead)] [FieldTrim(TrimMode.Both, '"')] public string A = ""; public string B = ""; }
+            [DelimitedRecord(",")] public sealed class D { [FieldTrim(TrimMode.Both, ',', ' ')] public string A = ""; public string B = ""; }
+            public static class Probe
+            {
+                public static string Run()
+                {
+                    var q = new FileHelperEngine<Q>().ReadString("\"x\",y\n");
+                    var d = new FileHelperEngine<D>().ReadString(" x ,y\n");
+                    return "[" + q[0].A + "]|[" + d[0].A + "]";
+                }
+            }
+            """;
+
+        // Q: 4.9.1 and 3.5.2 both read "x" as x" (opening quote stripped); D: nothing changes, white space is trimmed
+        await Assert.That(GeneratorHarness.Execute(source)).IsEqualTo("[x\"]|[x]");
     }
 }

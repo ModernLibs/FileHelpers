@@ -37,6 +37,9 @@ this page.
 | [MLFH027](#mlfh027) | Error | ref struct records are not supported |
 | [MLFH028](#mlfh028) | Warning | Member mapped by FileHelpers 3.x is not part of the layout |
 | [MLFH029](#mlfh029) | Warning | `[FieldInNewLine]` first field with `[IgnoreEmptyLines]` |
+| [MLFH030](#mlfh030) | Warning | Quote character is part of the delimiter |
+| [MLFH031](#mlfh031) | Warning | Delimiter contains a line break |
+| [MLFH032](#mlfh032) | Info | Trim characters contain the delimiter or the quote character |
 
 When a record has an error, the generator does not emit its descriptor. Other record types in the
 same project are not affected.
@@ -47,7 +50,8 @@ reported by the generator itself.
 
 ### Suppressing diagnostics
 
-Warnings (MLFH007, MLFH008, MLFH009, MLFH028, MLFH029) and MLFH001 can be suppressed as usual:
+Warnings (MLFH007, MLFH008, MLFH009, MLFH028, MLFH029, MLFH030, MLFH031), the info rule MLFH032 and
+MLFH001 can be suppressed as usual:
 `#pragma warning disable MLFHnnn`, `[SuppressMessage]`, an `.editorconfig` severity or `<NoWarn>`. MLFH020
 can be suppressed the same way; the record then has no descriptor, and using it throws
 `InvalidOperationException` (`No IRecordDescriptor<T> registered`).
@@ -730,3 +734,101 @@ public class Row
 
 **Fix:** remove `[FieldInNewLine]` from the first field (put it on the field that really starts a new
 line), or remove `[IgnoreEmptyLines]`.
+
+## MLFH030
+
+**Quote character is part of the delimiter** (Warning)
+
+**Cause:** a `[FieldQuoted]` field uses a quote character that is the delimiter, or occurs in it. The
+delimiter checked is the field's own `[FieldDelimiter]` when it has one, and the record delimiter otherwise.
+The engine splits a record at the delimiter and removes the quotes around a quoted value, so the text it
+writes cannot be split again. The descriptor is still emitted.
+
+```csharp
+[DelimitedRecord("\"")]
+public class Row
+{
+    [FieldQuoted] public string A = "";   // MLFH030
+    public string B = "";
+}
+```
+
+**Evidence** (the same layouts in a scratch project with FileHelpers 3.5.2 and ModernLibs.FileHelpers 4.9.1):
+
+| Layout | FileHelpers 3.5.2 | ModernLibs.FileHelpers 4.9.1 |
+|--------|-------------------|------------------------------|
+| delimiter `"`, `[FieldQuoted]` (write, then read the text back) | writes `"x""y`; reading it throws `BadUsageException` | same text; reading it throws `BadUsageException` |
+| delimiter `","`, both fields `[FieldQuoted]` | writes `"x"",""y"`; reading it throws `ArgumentOutOfRangeException` | same text; reading it throws `FileHelpersException` (expected 2 fields but found 1) |
+| delimiter `ab`, `[FieldQuoted('b')]` | round-trips simple values | round-trips simple values |
+
+Both versions fail on the realistic layouts, so the rule is a warning. The last row (a quote character that
+happens to be inside a longer delimiter) round-trips, but it is reported too: it works only by accident.
+
+**Fix:** quote with a character that does not occur in the delimiter (the default quote is `"`), or change
+the delimiter.
+
+## MLFH031
+
+**Delimiter contains a line break** (Warning)
+
+**Cause:** the record delimiter or a field's `[FieldDelimiter]` contains `\r` or `\n`. The engine reads a
+file line by line and splits each line at the delimiters, so such a delimiter never occurs inside a line
+and every record has too few fields. The descriptor is still emitted.
+
+```csharp
+[DelimitedRecord(",\n")]
+public class Row   // MLFH031
+{
+    public string A = "";
+    public string B = "";
+}
+```
+
+**Evidence** (delimiters `",\n"`, `"\n"` and a `[FieldDelimiter(";\r")]`; write two records, then read the
+text back):
+
+| FileHelpers 3.5.2 | ModernLibs.FileHelpers 4.9.1 |
+|-------------------|------------------------------|
+| writes the delimiter and the line break; reading throws `FileHelpersException` (delimiter not found) | same; reading throws `FileHelpersException` (expected 2 fields but found 1) |
+
+Both versions fail for all three layouts, so the rule is a warning.
+
+**Fix:** use a delimiter without `\r` or `\n`. To put several values on separate lines, use `[FieldInNewLine]`
+or a fixed-length record.
+
+## MLFH032
+
+**Trim characters contain the delimiter or the quote character** (Info)
+
+**Cause:** a `[FieldTrim(mode, chars...)]` lists characters explicitly and one of them is the delimiter that
+follows the field, or the quote character of a `[FieldQuoted]` field. Only the explicit list is checked:
+`[FieldTrim(mode)]` without characters uses the white-space set. White space in a delimiter that is longer
+than one character (such as `" | "`) is not reported. The descriptor is still emitted.
+
+What the characters really do (identical in FileHelpers 3.5.2 and ModernLibs.FileHelpers 4.9.1; 48 of 48
+read cases of the trim probe matched): on an **unquoted** value only white space is trimmed, whatever the
+list says. The listed characters matter only for a `[FieldQuoted(..., QuoteMode.OptionalForRead)]` field,
+where a leading run of them is stripped in front of the optional opening quote. Nothing is trimmed on write.
+
+```csharp
+[DelimitedRecord(",")]
+public class Row
+{
+    [FieldTrim(TrimMode.Both, ',', ' ')] public string A = "";   // MLFH032
+    public string B = "";
+}
+```
+
+**Evidence:**
+
+| Layout | FileHelpers 3.5.2 | ModernLibs.FileHelpers 4.9.1 |
+|--------|-------------------|------------------------------|
+| `,` in the list, unquoted, input ` x ,y` | `x` (white space trimmed, the `,` has no effect) | same |
+| `"` in the list with `[FieldQuoted('"', OptionalForRead)]`, input `"x",y` | reads `x"` (opening quote stripped) | same |
+| `,` and space in the list with `[FieldQuoted]`, write then read `",p,"` | throws `BadUsageException` | reads `,p,` |
+
+A delimiter character in the list changes nothing, and the quote character in the list misreads a quoted
+value in both versions, but only for fields that are quoted at all. The two cases are one rule and the
+evidence for the first is that it is harmless, so the rule is informational.
+
+**Fix:** remove the delimiter or the quote character from the list.

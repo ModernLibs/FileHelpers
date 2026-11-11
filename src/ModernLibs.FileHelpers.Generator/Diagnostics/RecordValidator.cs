@@ -48,8 +48,107 @@ internal static class RecordValidator
         bool unusableAttribute = ReportAttributeErrors(model, report); // MLFH004, MLFH006, MLFH010
         ReportExcessiveFieldWidth(model, maxFieldWidth, report);      // MLFH007 (non-suppressing)
         ReportFirstFieldInNewLineIgnoredAsEmpty(model, report);       // MLFH029 (non-suppressing)
+        ReportQuoteCharInDelimiter(model, report);                    // MLFH030 (non-suppressing)
+        ReportDelimiterWithLineBreak(model, report);                  // MLFH031 (non-suppressing)
+        ReportTrimCharsCollide(model, report);                        // MLFH032 (non-suppressing)
         return !unusableAttribute;
     }
+
+    /// <summary>The delimiter that follows a field: its own [FieldDelimiter], else the record delimiter.</summary>
+    private static string EffectiveDelimiter(RecordModel model, FieldModel field) =>
+        string.IsNullOrEmpty(field.Delimiter) ? model.Delimiter : field.Delimiter!;
+
+    /// <summary>
+    /// MLFH030: the quote character of a [FieldQuoted] field is the delimiter or occurs in it (the record delimiter
+    /// or the field's own [FieldDelimiter]). The written text cannot be split again. Non-suppressing.
+    /// </summary>
+    private static void ReportQuoteCharInDelimiter(RecordModel model, ReportValidation report)
+    {
+        foreach (var field in model.Fields)
+        {
+            if (field.IsHidden || !field.IsQuoted) continue;
+            string? delimiter = !string.IsNullOrEmpty(field.Delimiter) && field.Delimiter!.IndexOf(field.QuoteChar) >= 0 ? field.Delimiter
+                : model.Delimiter.IndexOf(field.QuoteChar) >= 0 ? model.Delimiter
+                : null;
+            if (delimiter is null) continue;
+            report(DiagnosticDescriptors.MLFH030QuoteCharInDelimiter, FieldLocation(model, field),
+                field.Name, model.TypeName, DescribeChar(field.QuoteChar), DescribeText(delimiter));
+        }
+    }
+
+    /// <summary>
+    /// MLFH031: a record delimiter or a [FieldDelimiter] contains a carriage return or line feed, which never occurs
+    /// inside a line. Non-suppressing.
+    /// </summary>
+    private static void ReportDelimiterWithLineBreak(RecordModel model, ReportValidation report)
+    {
+        int at = model.Delimiter.IndexOfAny(LineBreaks);
+        if (at >= 0)
+        {
+            report(DiagnosticDescriptors.MLFH031DelimiterWithLineBreak, model.Location,
+                "The record delimiter " + DescribeText(model.Delimiter), model.TypeName, DescribeChar(model.Delimiter[at]));
+        }
+
+        foreach (var field in model.Fields)
+        {
+            if (field.IsHidden || string.IsNullOrEmpty(field.Delimiter)) continue;
+            int fieldAt = field.Delimiter!.IndexOfAny(LineBreaks);
+            if (fieldAt < 0) continue;
+            report(DiagnosticDescriptors.MLFH031DelimiterWithLineBreak, FieldLocation(model, field),
+                "The [FieldDelimiter] " + DescribeText(field.Delimiter) + " of field '" + field.Name + "'", model.TypeName, DescribeChar(field.Delimiter[fieldAt]));
+        }
+    }
+
+    private static readonly char[] LineBreaks = ['\r', '\n'];
+
+    /// <summary>
+    /// MLFH032: explicit [FieldTrim] characters that contain the delimiter or the quote character. One diagnostic per
+    /// field. White space in a longer delimiter is ignored: white space is trimmed anyway, and delimiters such as
+    /// " | " are common. Non-suppressing.
+    /// </summary>
+    private static void ReportTrimCharsCollide(RecordModel model, ReportValidation report)
+    {
+        foreach (var field in model.Fields)
+        {
+            if (field.IsHidden || !field.ExplicitTrimChars || string.IsNullOrEmpty(field.TrimChars)) continue;
+            string delimiter = EffectiveDelimiter(model, field);
+            foreach (char c in field.TrimChars!)
+            {
+                string? what = null;
+                if (field.IsQuoted && c == field.QuoteChar)
+                    what = "the quote character";
+                else if (delimiter.IndexOf(c) >= 0 && (delimiter.Length == 1 || !char.IsWhiteSpace(c)))
+                    what = "part of the delimiter " + DescribeText(delimiter);
+                if (what is null) continue;
+                report(DiagnosticDescriptors.MLFH032TrimCharsCollide, FieldLocation(model, field),
+                    field.Name, model.TypeName, DescribeChar(c), what);
+                break;
+            }
+        }
+    }
+
+    /// <summary>A character as C# source: <c>'"'</c>, <c>'\n'</c>, <c>'\u0000'</c>.</summary>
+    private static string DescribeChar(char c) => "'" + EscapeChar(c, quote: '\'') + "'";
+
+    /// <summary>A string as C# source in double quotes.</summary>
+    private static string DescribeText(string text)
+    {
+        var sb = new System.Text.StringBuilder("\"");
+        foreach (char c in text)
+            sb.Append(EscapeChar(c, quote: '"'));
+        return sb.Append('"').ToString();
+    }
+
+    private static string EscapeChar(char c, char quote) => c switch
+    {
+        '\r' => "\\r",
+        '\n' => "\\n",
+        '\t' => "\\t",
+        '\\' => "\\\\",
+        _ when c == quote => "\\" + c,
+        _ when char.IsControl(c) || (char.IsWhiteSpace(c) && c != ' ') => "\\u" + ((int)c).ToString("X4", CultureInfo.InvariantCulture),
+        _ => c.ToString(),
+    };
 
     /// <summary>
     /// MLFH004, MLFH006, MLFH010: a [FieldConverter] or [FieldNullValue] that cannot be applied. The record would

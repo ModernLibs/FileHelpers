@@ -43,14 +43,14 @@ public sealed class DiagnosticDocumentationTests
     }
 
     [Test]
-    [DisplayName("Rules MLFH001..MLFH029 exist with consecutive ids")]
+    [DisplayName("Rules MLFH001..MLFH032 exist with consecutive ids")]
     public async Task Descriptors_AreConsecutive()
     {
         // Arrange / Act: all descriptor ids
         string[] ids = AllDescriptors().Select(static d => d.Id).ToArray();
 
-        // Assert: MLFH001..MLFH029
-        string[] expected = Enumerable.Range(1, 29).Select(static n => $"MLFH{n:000}").ToArray();
+        // Assert: MLFH001..MLFH032
+        string[] expected = Enumerable.Range(1, 32).Select(static n => $"MLFH{n:000}").ToArray();
         await Assert.That(ids).IsEquivalentTo(expected);
     }
 
@@ -109,27 +109,34 @@ public sealed class DiagnosticDocumentationTests
         }
 
         // Assert: every example except MLFH020 (internal failure) is checked and reports its rule
-        await Assert.That(blocks.Length).IsEqualTo(27);
+        await Assert.That(blocks.Length).IsEqualTo(30);
         await Assert.That(wrong).IsEmpty();
     }
 
     [Test]
-    [DisplayName("Every rule is listed as shipped in release 4.8.0 and the unshipped list is empty")]
+    [DisplayName("Rules MLFH001..MLFH029 are shipped in release 4.8.0; every later rule is in the unshipped list")]
     public async Task AnalyzerReleases_AreShipped()
     {
         // Arrange: release tracking files
         string shipped = RepoFile(Path.Combine("src", "ModernLibs.FileHelpers.Generator", "Diagnostics", "AnalyzerReleases.Shipped.md"));
         string unshipped = RepoFile(Path.Combine("src", "ModernLibs.FileHelpers.Generator", "Diagnostics", "AnalyzerReleases.Unshipped.md"));
 
-        // Act: rules missing from the shipped table
-        string[] missing = AllDescriptors()
-            .Where(d => !shipped.Contains("\n" + d.Id + " | ", StringComparison.Ordinal))
+        // Act: rules missing from the table they belong to (MLFH001..MLFH029 shipped in 4.8.0, the rest unshipped)
+        var descriptors = AllDescriptors();
+        string[] missingShipped = descriptors
+            .Where(d => string.CompareOrdinal(d.Id, "MLFH029") <= 0 && !shipped.Contains("\n" + d.Id + " | ", StringComparison.Ordinal))
+            .Select(static d => d.Id)
+            .ToArray();
+        string[] missingUnshipped = descriptors
+            .Where(d => string.CompareOrdinal(d.Id, "MLFH029") > 0
+                        && (!unshipped.Contains("\n" + d.Id + " | ", StringComparison.Ordinal) || shipped.Contains(d.Id, StringComparison.Ordinal)))
             .Select(static d => d.Id)
             .ToArray();
 
         // Assert
         await Assert.That(shipped).Contains("## Release 4.8.0");
-        await Assert.That(missing).IsEmpty();
-        await Assert.That(unshipped).DoesNotContain("MLFH");
+        await Assert.That(missingShipped).IsEmpty();
+        await Assert.That(missingUnshipped).IsEmpty();
+        await Assert.That(shipped).DoesNotContain("MLFH030");
     }
 }

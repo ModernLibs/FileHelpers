@@ -759,6 +759,7 @@ internal static class RecordModelExtractor
                     // TrimMode int values 0=None, 1=Both, 2=Left, 3=Right.
                     data.TrimMode = tm;
                     data.TrimChars = ReadTrimChars(mAttr);
+                    data.ExplicitTrimChars = mAttr.ConstructorArguments.Length >= 2 && mAttr.ConstructorArguments[1].Kind == TypedConstantKind.Array && !mAttr.ConstructorArguments[1].IsNull;
                     break;
                 case "ModernLibs.FileHelpers.FieldOptionalAttribute":
                     data.IsOptional = true;
@@ -1337,6 +1338,7 @@ internal static class RecordModelExtractor
         public int? Order;
         public int? TrimMode;
         public string? TrimChars;
+        public bool ExplicitTrimChars;
         public bool IsOptional;
         public bool IsHidden;
         public bool IsValueDiscarded;
@@ -1407,7 +1409,8 @@ internal static class RecordModelExtractor
                 ConverterTargetsUnderlying: ConverterTargetsUnderlying,
                 Assign: IsCtorBound ? FieldAssignKind.Constructor : Assign,
                 Location: Location,
-                TrimChars: TrimChars);
+                TrimChars: TrimChars,
+                ExplicitTrimChars: ExplicitTrimChars);
         }
     }
 }

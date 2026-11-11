@@ -60,7 +60,10 @@ public sealed class FileHelpersAnalyzer : DiagnosticAnalyzer
             DiagnosticDescriptors.MLFH026LanguageVersionTooLow,
             DiagnosticDescriptors.MLFH027RefStructRecord,
             DiagnosticDescriptors.MLFH028UnmappedLegacyMember,
-            DiagnosticDescriptors.MLFH029FirstFieldInNewLineIgnoredAsEmpty);
+            DiagnosticDescriptors.MLFH029FirstFieldInNewLineIgnoredAsEmpty,
+            DiagnosticDescriptors.MLFH030QuoteCharInDelimiter,
+            DiagnosticDescriptors.MLFH031DelimiterWithLineBreak,
+            DiagnosticDescriptors.MLFH032TrimCharsCollide);
 
     /// <inheritdoc />
     public override void Initialize(AnalysisContext context)

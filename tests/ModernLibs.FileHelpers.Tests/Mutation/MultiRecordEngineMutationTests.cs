@@ -33,7 +33,7 @@ internal sealed class DetailRecord
 internal sealed class UnknownRecord { }
 
 /// <summary>
-/// Mutation-target tests for <see cref="MultiRecordEngine"/> (moved from the former xUnit project).
+/// Mutation-target tests for <see cref="MultiRecordEngine"/>.
 /// Covers selector dispatch, error modes, multi-type parsing, empty input,
 /// and sync I/O parity.
 /// </summary>

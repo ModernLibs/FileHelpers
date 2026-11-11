@@ -70,7 +70,8 @@ dotnet stryker --config-file stryker-config.json
 
 The HTML report is written to `StrykerOutput/`. A full run takes a long time; to try a change, narrow
 the `mutate` list to the files you touched and lower the parallelism with `--concurrency`. Stryker runs
-in its own workflow (`mutation.yml`, started manually and once a week), not on every push.
+in its own workflow (`mutation.yml`, started manually and once a week), not on every push. That
+workflow is informational (`continue-on-error`) until its first full run has measured the score.
 
 ### Fuzzing
 
@@ -203,8 +204,9 @@ link to that section. Messages say what is wrong and how to fix it.
 - Generator changes need generator tests (diagnostics and generated output) as well as engine tests.
   Add new record shapes or emission paths to the corpus in `GeneratedCodeWarningTests`, which requires
   warning-free generated code.
-- Parsing changes should keep the allocation tests passing and the mutation score above the thresholds
-  in `stryker-config.json` (see above).
+- Parsing changes should keep the allocation tests passing. The mutation score is informational until
+  the first full `mutation.yml` run has measured it; a follow-up then sets the `break` threshold in
+  `stryker-config.json` from that score, and parsing changes must keep the score above it.
 
 ## Commits and pull requests
 

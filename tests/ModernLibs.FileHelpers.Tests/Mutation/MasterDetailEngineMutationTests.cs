@@ -31,7 +31,7 @@ internal sealed class DetailRec
 }
 
 /// <summary>
-/// Mutation-target tests for <see cref="MasterDetailEngine{TMaster,TDetail}"/> (moved from the former xUnit project).
+/// Mutation-target tests for <see cref="MasterDetailEngine{TMaster,TDetail}"/>.
 /// Covers classification, multi-line buffering, error modes, I/O parity,
 /// write path, and empty input.
 /// </summary>

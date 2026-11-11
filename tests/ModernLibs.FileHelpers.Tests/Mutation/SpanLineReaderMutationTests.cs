@@ -14,7 +14,7 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.Mutation;
 
 /// <summary>
-/// Mutation-target tests for <see cref="SpanLineReader"/> (moved from the former xUnit project).
+/// Mutation-target tests for <see cref="SpanLineReader"/>.
 /// Covers all parse paths: empty lines, trailing newline, multi-line,
 /// large buffers, LF/CRLF/CR handling, and line numbering.
 /// The ref struct cannot cross an await, so every read is done first and only strings, bools and ints are awaited.

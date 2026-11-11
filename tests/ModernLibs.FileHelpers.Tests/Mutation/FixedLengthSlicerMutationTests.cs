@@ -14,7 +14,7 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.Mutation;
 
 /// <summary>
-/// Mutation-target tests for <see cref="FixedLengthSlicer"/> (moved from the former xUnit project).
+/// Mutation-target tests for <see cref="FixedLengthSlicer"/>.
 /// Covers all parse paths: exact, shorter, longer, variable-length modes,
 /// negative offset, non-positive width, and overflow clamping.
 /// The ref struct cannot cross an await, so every slice is turned into a string or bool first.

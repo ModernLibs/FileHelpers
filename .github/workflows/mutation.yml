@@ -2,7 +2,9 @@ name: Mutation Testing
 
 # Stryker.NET takes far longer than the rest of CI, so it runs on demand and once a week instead of on
 # every push. Stryker runs on the TUnit project through the Microsoft.Testing.Platform runner
-# ("test-runner": "mtp" in stryker-config.json); a score below the break threshold fails the job.
+# ("test-runner": "mtp" in stryker-config.json, preview in Stryker 5.1). Informational until one full
+# workflow_dispatch run has shown the score, the timeout and Dubious counts, and the wall time; a
+# follow-up then removes continue-on-error and sets "break" in stryker-config.json from that score.
 on:
   workflow_dispatch:
   schedule:
@@ -49,6 +51,7 @@ jobs:
         run: dotnet tool restore
 
       - name: Mutation Test (Stryker.NET)
+        continue-on-error: true
         run: dotnet stryker --config-file stryker-config.json
         env:
           DOTNET_ROOT: ${{ runner.tool_cache }}/dotnet

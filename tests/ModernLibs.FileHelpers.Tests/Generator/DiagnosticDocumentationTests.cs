@@ -43,14 +43,14 @@ public sealed class DiagnosticDocumentationTests
     }
 
     [Test]
-    [DisplayName("Rules MLFH001..MLFH032 exist with consecutive ids")]
+    [DisplayName("Rules MLFH001..MLFH033 exist with consecutive ids")]
     public async Task Descriptors_AreConsecutive()
     {
         // Arrange / Act: all descriptor ids
         string[] ids = AllDescriptors().Select(static d => d.Id).ToArray();
 
-        // Assert: MLFH001..MLFH032
-        string[] expected = Enumerable.Range(1, 32).Select(static n => $"MLFH{n:000}").ToArray();
+        // Assert: MLFH001..MLFH033
+        string[] expected = Enumerable.Range(1, 33).Select(static n => $"MLFH{n:000}").ToArray();
         await Assert.That(ids).IsEquivalentTo(expected);
     }
 
@@ -109,7 +109,7 @@ public sealed class DiagnosticDocumentationTests
         }
 
         // Assert: every example except MLFH020 (internal failure) is checked and reports its rule
-        await Assert.That(blocks.Length).IsEqualTo(30);
+        await Assert.That(blocks.Length).IsEqualTo(31);
         await Assert.That(wrong).IsEmpty();
     }
 
@@ -127,16 +127,22 @@ public sealed class DiagnosticDocumentationTests
             .Where(d => string.CompareOrdinal(d.Id, "MLFH029") <= 0 && !shipped.Contains("\n" + d.Id + " | ", StringComparison.Ordinal))
             .Select(static d => d.Id)
             .ToArray();
-        string[] missingUnshipped = descriptors
-            .Where(d => string.CompareOrdinal(d.Id, "MLFH029") > 0
-                        && (!unshipped.Contains("\n" + d.Id + " | ", StringComparison.Ordinal) || shipped.Contains(d.Id, StringComparison.Ordinal)))
-            .Select(static d => d.Id)
+        // The unshipped rows as "id | severity", compared with the descriptors above 029 (a stray row, a missing
+        // row or a wrong severity fails).
+        string[] unshippedRows = Regex.Matches(unshipped, @"^(?<id>MLFH\d{3}) \| [^|]+ \| (?<severity>[A-Za-z]+) \|", RegexOptions.Multiline | RegexOptions.ExplicitCapture | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1))
+            .Select(static m => m.Groups["id"].Value + " " + m.Groups["severity"].Value)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        string[] expectedUnshipped = descriptors
+            .Where(static d => string.CompareOrdinal(d.Id, "MLFH029") > 0)
+            .Select(static d => d.Id + " " + d.DefaultSeverity)
+            .Order(StringComparer.Ordinal)
             .ToArray();
 
         // Assert
         await Assert.That(shipped).Contains("## Release 4.8.0");
         await Assert.That(missingShipped).IsEmpty();
-        await Assert.That(missingUnshipped).IsEmpty();
+        await Assert.That(unshippedRows).IsEquivalentTo(expectedUnshipped);
         await Assert.That(shipped).DoesNotContain("MLFH030");
     }
 }

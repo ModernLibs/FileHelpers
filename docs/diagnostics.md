@@ -37,9 +37,10 @@ this page.
 | [MLFH027](#mlfh027) | Error | ref struct records are not supported |
 | [MLFH028](#mlfh028) | Warning | Member mapped by FileHelpers 3.x is not part of the layout |
 | [MLFH029](#mlfh029) | Warning | `[FieldInNewLine]` first field with `[IgnoreEmptyLines]` |
-| [MLFH030](#mlfh030) | Warning | Quote character is part of the delimiter |
+| [MLFH030](#mlfh030) | Warning | Delimiter starts with the quote character |
 | [MLFH031](#mlfh031) | Warning | Delimiter contains a line break |
-| [MLFH032](#mlfh032) | Info | Trim characters contain the delimiter or the quote character |
+| [MLFH032](#mlfh032) | Info | Trim characters contain the delimiter |
+| [MLFH033](#mlfh033) | Warning | Trim characters contain the quote character |
 
 When a record has an error, the generator does not emit its descriptor. Other record types in the
 same project are not affected.
@@ -50,7 +51,7 @@ reported by the generator itself.
 
 ### Suppressing diagnostics
 
-Warnings (MLFH007, MLFH008, MLFH009, MLFH028, MLFH029, MLFH030, MLFH031), the info rule MLFH032 and
+Warnings (MLFH007, MLFH008, MLFH009, MLFH028, MLFH029, MLFH030, MLFH031, MLFH033), the info rule MLFH032 and
 MLFH001 can be suppressed as usual:
 `#pragma warning disable MLFHnnn`, `[SuppressMessage]`, an `.editorconfig` severity or `<NoWarn>`. MLFH020
 can be suppressed the same way; the record then has no descriptor, and using it throws
@@ -737,12 +738,15 @@ line), or remove `[IgnoreEmptyLines]`.
 
 ## MLFH030
 
-**Quote character is part of the delimiter** (Warning)
+**Delimiter starts with the quote character** (Warning)
 
-**Cause:** a `[FieldQuoted]` field uses a quote character that is the delimiter, or occurs in it. The
-delimiter checked is the field's own `[FieldDelimiter]` when it has one, and the record delimiter otherwise.
-The engine splits a record at the delimiter and removes the quotes around a quoted value, so the text it
-writes cannot be split again. The descriptor is still emitted.
+**Cause:** a `[FieldQuoted]` field is followed by a delimiter that starts with the field's quote character.
+The delimiter that follows a field is its own `[FieldDelimiter]` when it has one, and the record delimiter
+otherwise. The engine splits a record at the delimiter and removes the quotes around a quoted value; the
+closing quote and the first delimiter character then read as an escaped quote, so the text it writes cannot
+be split again. The last field of the layout is not followed by a delimiter and is never reported. A quote
+character later in the delimiter (for example `|"`) is not reported either, because that layout works. The
+descriptor is still emitted.
 
 ```csharp
 [DelimitedRecord("\"")]
@@ -753,27 +757,32 @@ public class Row
 }
 ```
 
-**Evidence** (the same layouts in a scratch project with FileHelpers 3.5.2 and ModernLibs.FileHelpers 4.9.1):
+**Evidence** (the same layouts with FileHelpers 3.5.2 and ModernLibs.FileHelpers 4.9.1; every layout was
+written and read back with six value sets, 3.5.2 and 4.9.1 gave the same result):
 
-| Layout | FileHelpers 3.5.2 | ModernLibs.FileHelpers 4.9.1 |
-|--------|-------------------|------------------------------|
-| delimiter `"`, `[FieldQuoted]` (write, then read the text back) | writes `"x""y`; reading it throws `BadUsageException` | same text; reading it throws `BadUsageException` |
-| delimiter `","`, both fields `[FieldQuoted]` | writes `"x"",""y"`; reading it throws `ArgumentOutOfRangeException` | same text; reading it throws `FileHelpersException` (expected 2 fields but found 1) |
-| delimiter `ab`, `[FieldQuoted('b')]` | round-trips simple values | round-trips simple values |
+| Layout | Result in both versions |
+|--------|-------------------------|
+| delimiter `"`, `[FieldQuoted]` first field | throws for all six value sets |
+| delimiter `"|`; delimiter `","` with both fields quoted; delimiter `ba` with quote `b` | throws for all six |
+| `QuoteMode.AlwaysQuoted` or `OptionalForWrite`, delimiter `"` | throws |
+| `QuoteMode.OptionalForBoth`, delimiter `"` | fails on empty values and on values that contain the quote |
+| delimiter `|"` (one or both fields quoted), `ab` with quote `b`, `a"b` | reads back all six value sets (not reported) |
+| quoted last field, record delimiter `"` | reads back (not reported) |
+| quoted field with its own `[FieldDelimiter(";")]`, record delimiter `"` | reads back (not reported) |
+| last field `[FieldQuoted] [FieldDelimiter("\"")]` | reads back, the delimiter is never written (not reported) |
 
-Both versions fail on the realistic layouts, so the rule is a warning. The last row (a quote character that
-happens to be inside a longer delimiter) round-trips, but it is reported too: it works only by accident.
+Both versions fail on the reported layouts, so the rule is a warning.
 
-**Fix:** quote with a character that does not occur in the delimiter (the default quote is `"`), or change
-the delimiter.
+**Fix:** quote with a character the delimiter does not start with (the default quote is `"`), or change the
+delimiter.
 
 ## MLFH031
 
 **Delimiter contains a line break** (Warning)
 
-**Cause:** the record delimiter or a field's `[FieldDelimiter]` contains `\r` or `\n`. The engine reads a
-file line by line and splits each line at the delimiters, so such a delimiter never occurs inside a line
-and every record has too few fields. The descriptor is still emitted.
+**Cause:** the record delimiter or the `[FieldDelimiter]` of a field that is not the last field contains `\r`
+or `\n`. The engine reads a file line by line and splits each line at the delimiters, so such a delimiter
+never occurs inside a line and every record has too few fields. The descriptor is still emitted.
 
 ```csharp
 [DelimitedRecord(",\n")]
@@ -798,12 +807,12 @@ or a fixed-length record.
 
 ## MLFH032
 
-**Trim characters contain the delimiter or the quote character** (Info)
+**Trim characters contain the delimiter** (Info)
 
-**Cause:** a `[FieldTrim(mode, chars...)]` lists characters explicitly and one of them is the delimiter that
-follows the field, or the quote character of a `[FieldQuoted]` field. Only the explicit list is checked:
-`[FieldTrim(mode)]` without characters uses the white-space set. White space in a delimiter that is longer
-than one character (such as `" | "`) is not reported. The descriptor is still emitted.
+**Cause:** a `[FieldTrim(mode, chars...)]` lists characters explicitly and one of them occurs in the delimiter
+that follows the field. Only the explicit list is checked: `[FieldTrim(mode)]` without characters uses the
+white-space set. White space in a delimiter that is longer than one character (such as `" | "`) is not
+reported. The descriptor is still emitted. The quote character in the list is MLFH033.
 
 What the characters really do (identical in FileHelpers 3.5.2 and ModernLibs.FileHelpers 4.9.1; 48 of 48
 read cases of the trim probe matched): on an **unquoted** value only white space is trimmed, whatever the
@@ -823,12 +832,45 @@ public class Row
 
 | Layout | FileHelpers 3.5.2 | ModernLibs.FileHelpers 4.9.1 |
 |--------|-------------------|------------------------------|
-| `,` in the list, unquoted, input ` x ,y` | `x` (white space trimmed, the `,` has no effect) | same |
-| `"` in the list with `[FieldQuoted('"', OptionalForRead)]`, input `"x",y` | reads `x"` (opening quote stripped) | same |
-| `,` and space in the list with `[FieldQuoted]`, write then read `",p,"` | throws `BadUsageException` | reads `,p,` |
+| delimiter `,` in the list, unquoted, input ` x ,y` | `x` (white space trimmed, the `,` has no effect) | same |
+| delimiter `,` in the list with `[FieldQuoted]` (default or `AlwaysQuoted`), a value the engine wrote, such as `"x",y` | throws `BadUsageException` for every value | reads the value |
+| tab and space in the list, tab delimiter, unquoted | inert | inert |
 
-A delimiter character in the list changes nothing, and the quote character in the list misreads a quoted
-value in both versions, but only for fields that are quoted at all. The two cases are one rule and the
-evidence for the first is that it is harmless, so the rule is informational.
+For an unquoted field the characters change nothing in either version. For a quoted field the versions
+differ: 3.5.2 throws on every quoted value and 4.9.1 reads them. The 3.5.2 behaviour is not a misread in
+4.9.1, so the rule is informational.
 
-**Fix:** remove the delimiter or the quote character from the list.
+**Fix:** remove the delimiter character from the list.
+
+## MLFH033
+
+**Trim characters contain the quote character** (Warning)
+
+**Cause:** a `[FieldQuoted]` field has an explicit `[FieldTrim]` list that contains its quote character, the
+trim mode is `Left` or `Both`, and the quote mode is `OptionalForRead` (the default) or `AlwaysQuoted`. A
+leading run of the listed characters is stripped in front of the opening quote, so the opening quote is
+stripped as well. The descriptor is still emitted.
+
+```csharp
+[DelimitedRecord(",")]
+public class Row
+{
+    [FieldQuoted] [FieldTrim(TrimMode.Both, '"')] public string A = "";   // MLFH033
+    public string B = "";
+}
+```
+
+**Evidence** (identical in FileHelpers 3.5.2 and ModernLibs.FileHelpers 4.9.1; the engine's own output was read
+back):
+
+| Layout | Result |
+|--------|--------|
+| `[FieldQuoted]` (`OptionalForRead`), `TrimMode.Both` or `Left`, first or last field | every non-empty value is read back with a trailing quote (`x` becomes `x"`), no exception |
+| `QuoteMode.AlwaysQuoted`, `TrimMode.Both` | throws for every value |
+| `TrimMode.Right` | reads back (not reported) |
+| `QuoteMode.OptionalForBoth` | reads back (not reported) |
+
+Both versions misread or fail, so the rule is a warning.
+
+**Fix:** remove the quote character from the `[FieldTrim]` list. The quotes are removed by `[FieldQuoted]`
+anyway.

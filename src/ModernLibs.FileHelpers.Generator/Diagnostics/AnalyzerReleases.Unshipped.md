@@ -5,6 +5,7 @@
 
 Rule ID | Category | Severity | Notes
 --------|----------|----------|-------
-MLFH030 | FileHelpers.Generator | Warning | Quote character is part of the delimiter
+MLFH030 | FileHelpers.Generator | Warning | Delimiter starts with the quote character
 MLFH031 | FileHelpers.Generator | Warning | Delimiter contains a line break
-MLFH032 | FileHelpers.Generator | Info | Trim characters contain the delimiter or the quote character
+MLFH032 | FileHelpers.Generator | Info | Trim characters contain the delimiter
+MLFH033 | FileHelpers.Generator | Warning | Trim characters contain the quote character

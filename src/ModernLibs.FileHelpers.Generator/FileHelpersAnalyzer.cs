@@ -63,7 +63,8 @@ public sealed class FileHelpersAnalyzer : DiagnosticAnalyzer
             DiagnosticDescriptors.MLFH029FirstFieldInNewLineIgnoredAsEmpty,
             DiagnosticDescriptors.MLFH030QuoteCharInDelimiter,
             DiagnosticDescriptors.MLFH031DelimiterWithLineBreak,
-            DiagnosticDescriptors.MLFH032TrimCharsCollide);
+            DiagnosticDescriptors.MLFH032TrimCharsCollide,
+            DiagnosticDescriptors.MLFH033TrimCharsContainQuote);
 
     /// <inheritdoc />
     public override void Initialize(AnalysisContext context)

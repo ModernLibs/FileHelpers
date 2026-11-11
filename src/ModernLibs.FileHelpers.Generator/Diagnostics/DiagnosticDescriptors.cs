@@ -396,15 +396,15 @@ internal static class DiagnosticDescriptors
         description: "A record whose first field is [FieldInNewLine] is written as a blank line followed by the fields, and is read the same way. [IgnoreEmptyLines] removes that blank line before the record is read, so the record is read from the wrong lines. FileHelpers 3.x behaves the same but does not report it.",
         helpLinkUri: "https://github.com/ModernLibs/FileHelpers/blob/main/docs/diagnostics.md#mlfh029");
 
-    /// <summary>MLFH030: the quote character of a [FieldQuoted] field is the delimiter or part of it.</summary>
+    /// <summary>MLFH030: the delimiter that follows a [FieldQuoted] field starts with the field's quote character.</summary>
     internal static readonly DiagnosticDescriptor MLFH030QuoteCharInDelimiter = new(
         id: "MLFH030",
-        title: "Quote character is part of the delimiter",
-        messageFormat: "Field '{0}' in type '{1}' is quoted with {2}, which is part of its delimiter {3}, so the engine cannot read the records it writes. How to fix: Quote with a character that does not occur in the delimiter, or change the delimiter.",
+        title: "Delimiter starts with the quote character",
+        messageFormat: "Field '{0}' in type '{1}' is quoted with {2}, and the delimiter that follows it, {3}, starts with {2}, so the engine cannot read the records it writes. How to fix: Quote with a character the delimiter does not start with, or change the delimiter.",
         category: "FileHelpers.Generator",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "The engine splits a record at the delimiter and removes the quote characters around a quoted value. When the quote character is the delimiter, or occurs in it (for example the delimiter \",\" with the quote \"), the written text cannot be split again: reading it back throws, in this library and in FileHelpers 3.x alike. The descriptor is still emitted.",
+        description: "The engine splits a record at the delimiter and removes the quote characters around a quoted value. When the delimiter that follows a quoted field (its own [FieldDelimiter], else the record delimiter) starts with the quote character, the closing quote and the first delimiter character read as an escaped quote, and the written text cannot be split again: reading it back throws, in this library and in FileHelpers 3.x alike. A quote character later in the delimiter, and the last field, are not affected. The descriptor is still emitted.",
         helpLinkUri: "https://github.com/ModernLibs/FileHelpers/blob/main/docs/diagnostics.md#mlfh030");
 
     /// <summary>MLFH031: a delimiter contains a carriage return or line feed.</summary>
@@ -418,16 +418,27 @@ internal static class DiagnosticDescriptors
         description: "The engine reads a file line by line and splits each line at the delimiters, so a delimiter that contains a carriage return or a line feed never occurs inside a line: every record is reported as having too few fields. FileHelpers 3.x fails the same way. The descriptor is still emitted.",
         helpLinkUri: "https://github.com/ModernLibs/FileHelpers/blob/main/docs/diagnostics.md#mlfh031");
 
-    /// <summary>MLFH032: explicit [FieldTrim] characters contain the delimiter or the quote character.</summary>
+    /// <summary>MLFH032: explicit [FieldTrim] characters contain a character of the delimiter.</summary>
     internal static readonly DiagnosticDescriptor MLFH032TrimCharsCollide = new(
         id: "MLFH032",
-        title: "Trim characters contain the delimiter or the quote character",
-        messageFormat: "Field '{0}' in type '{1}' has [FieldTrim] characters that contain {2}, which is {3}. How to fix: Remove that character from the [FieldTrim] list.",
+        title: "Trim characters contain the delimiter",
+        messageFormat: "Field '{0}' in type '{1}' has [FieldTrim] characters that contain {2}, which is part of the delimiter {3}. How to fix: Remove that character from the [FieldTrim] list.",
         category: "FileHelpers.Generator",
         defaultSeverity: DiagnosticSeverity.Info,
         isEnabledByDefault: true,
-        description: "The explicit characters of [FieldTrim] are not trimmed from unquoted values (only white space is). They are stripped in front of the opening quote of a quoted field. A delimiter character in the list therefore has no effect, and the quote character in the list strips the opening quote, so a quoted value is read with an unbalanced quote. FileHelpers 3.x behaves the same. The descriptor is still emitted.",
+        description: "The explicit characters of [FieldTrim] are not trimmed from unquoted values (only white space is). They are stripped in front of the opening quote of a quoted field. A delimiter character in the list therefore has no effect on an unquoted field. On a quoted field FileHelpers 3.5.2 throws on every value, while this library reads them. The descriptor is still emitted.",
         helpLinkUri: "https://github.com/ModernLibs/FileHelpers/blob/main/docs/diagnostics.md#mlfh032");
+
+    /// <summary>MLFH033: the explicit [FieldTrim] characters of a [FieldQuoted] field contain the quote character.</summary>
+    internal static readonly DiagnosticDescriptor MLFH033TrimCharsContainQuote = new(
+        id: "MLFH033",
+        title: "Trim characters contain the quote character",
+        messageFormat: "Field '{0}' in type '{1}' is quoted with {2} and its [FieldTrim] characters contain {2}, which strips the opening quote, so the value is read with a trailing quote or the read throws. How to fix: Remove the quote character from the [FieldTrim] list, or use TrimMode.Right.",
+        category: "FileHelpers.Generator",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "A leading run of the explicit [FieldTrim] characters is stripped in front of the opening quote of a quoted field. When the list contains the quote character (and the trim mode is Left or Both, and the quote mode is OptionalForRead or AlwaysQuoted), the opening quote is stripped: every non-empty value the engine writes is read back with a trailing quote (OptionalForRead) or the read throws (AlwaysQuoted), in this library and in FileHelpers 3.x alike. The descriptor is still emitted.",
+        helpLinkUri: "https://github.com/ModernLibs/FileHelpers/blob/main/docs/diagnostics.md#mlfh033");
 
     /// <summary>Descriptors reported from <c>DiagnosticInfo</c> models, by id.</summary>
     internal static readonly IReadOnlyDictionary<string, DiagnosticDescriptor> ById = new Dictionary<string, DiagnosticDescriptor>(StringComparer.Ordinal)

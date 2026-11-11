@@ -51,6 +51,7 @@ internal static class RecordValidator
         ReportQuoteCharInDelimiter(model, report);                    // MLFH030 (non-suppressing)
         ReportDelimiterWithLineBreak(model, report);                  // MLFH031 (non-suppressing)
         ReportTrimCharsCollide(model, report);                        // MLFH032 (non-suppressing)
+        ReportTrimCharsContainQuote(model, report);                   // MLFH033 (non-suppressing)
         return !unusableAttribute;
     }
 
@@ -58,21 +59,50 @@ internal static class RecordValidator
     private static string EffectiveDelimiter(RecordModel model, FieldModel field) =>
         string.IsNullOrEmpty(field.Delimiter) ? model.Delimiter : field.Delimiter!;
 
+    /// <summary>Index of the last field that is part of the layout (not hidden), or -1.</summary>
+    private static int LastLayoutFieldIndex(RecordModel model)
+    {
+        for (int i = model.Fields.Length - 1; i >= 0; i--)
+        {
+            if (!model.Fields[i].IsHidden) return i;
+        }
+        return -1;
+    }
+
     /// <summary>
-    /// MLFH030: the quote character of a [FieldQuoted] field is the delimiter or occurs in it (the record delimiter
-    /// or the field's own [FieldDelimiter]). The written text cannot be split again. Non-suppressing.
+    /// MLFH030: the delimiter that follows a [FieldQuoted] field starts with the quote character, so the closing quote
+    /// and the first delimiter character read as an escaped quote. The last field is not followed by a delimiter and a
+    /// quote character later in the delimiter round-trips, so neither is reported. Non-suppressing.
     /// </summary>
     private static void ReportQuoteCharInDelimiter(RecordModel model, ReportValidation report)
     {
-        foreach (var field in model.Fields)
+        int last = LastLayoutFieldIndex(model);
+        for (int i = 0; i < last; i++)
         {
+            var field = model.Fields[i];
             if (field.IsHidden || !field.IsQuoted) continue;
-            string? delimiter = !string.IsNullOrEmpty(field.Delimiter) && field.Delimiter!.IndexOf(field.QuoteChar) >= 0 ? field.Delimiter
-                : model.Delimiter.IndexOf(field.QuoteChar) >= 0 ? model.Delimiter
-                : null;
-            if (delimiter is null) continue;
+            string delimiter = EffectiveDelimiter(model, field);
+            if (delimiter.Length == 0 || delimiter[0] != field.QuoteChar) continue;
             report(DiagnosticDescriptors.MLFH030QuoteCharInDelimiter, FieldLocation(model, field),
                 field.Name, model.TypeName, DescribeChar(field.QuoteChar), DescribeText(delimiter));
+        }
+    }
+
+    /// <summary>
+    /// MLFH033: a [FieldQuoted] field whose explicit [FieldTrim] list holds the quote character, with a trim mode that
+    /// strips the left side (Left or Both) and a quote mode that reads quotes (OptionalForRead or AlwaysQuoted). The
+    /// opening quote is stripped, so the value is read with a trailing quote or the read throws. Non-suppressing.
+    /// </summary>
+    private static void ReportTrimCharsContainQuote(RecordModel model, ReportValidation report)
+    {
+        foreach (var field in model.Fields)
+        {
+            if (field.IsHidden || !field.IsQuoted || !field.ExplicitTrimChars || string.IsNullOrEmpty(field.TrimChars)) continue;
+            if (field.TrimMode is not (1 or 2)) continue;       // Both, Left
+            if (field.QuoteMode is not (0 or 1)) continue;      // AlwaysQuoted, OptionalForRead
+            if (field.TrimChars!.IndexOf(field.QuoteChar) < 0) continue;
+            report(DiagnosticDescriptors.MLFH033TrimCharsContainQuote, FieldLocation(model, field),
+                field.Name, model.TypeName, DescribeChar(field.QuoteChar));
         }
     }
 
@@ -89,8 +119,11 @@ internal static class RecordValidator
                 "The record delimiter " + DescribeText(model.Delimiter), model.TypeName, DescribeChar(model.Delimiter[at]));
         }
 
-        foreach (var field in model.Fields)
+        // The last field is not followed by a delimiter, so its [FieldDelimiter] is never written or read.
+        int last = LastLayoutFieldIndex(model);
+        for (int i = 0; i < last; i++)
         {
+            var field = model.Fields[i];
             if (field.IsHidden || string.IsNullOrEmpty(field.Delimiter)) continue;
             int fieldAt = field.Delimiter!.IndexOfAny(LineBreaks);
             if (fieldAt < 0) continue;
@@ -102,9 +135,9 @@ internal static class RecordValidator
     private static readonly char[] LineBreaks = ['\r', '\n'];
 
     /// <summary>
-    /// MLFH032: explicit [FieldTrim] characters that contain the delimiter or the quote character. One diagnostic per
-    /// field. White space in a longer delimiter is ignored: white space is trimmed anyway, and delimiters such as
-    /// " | " are common. Non-suppressing.
+    /// MLFH032: explicit [FieldTrim] characters that occur in the delimiter that follows the field (the quote character
+    /// is MLFH033). One diagnostic per field. White space in a longer delimiter is ignored: white space is trimmed
+    /// anyway, and delimiters such as " | " are common. Non-suppressing.
     /// </summary>
     private static void ReportTrimCharsCollide(RecordModel model, ReportValidation report)
     {
@@ -114,14 +147,9 @@ internal static class RecordValidator
             string delimiter = EffectiveDelimiter(model, field);
             foreach (char c in field.TrimChars!)
             {
-                string? what = null;
-                if (field.IsQuoted && c == field.QuoteChar)
-                    what = "the quote character";
-                else if (delimiter.IndexOf(c) >= 0 && (delimiter.Length == 1 || !char.IsWhiteSpace(c)))
-                    what = "part of the delimiter " + DescribeText(delimiter);
-                if (what is null) continue;
+                if (delimiter.IndexOf(c) < 0 || (delimiter.Length > 1 && char.IsWhiteSpace(c))) continue;
                 report(DiagnosticDescriptors.MLFH032TrimCharsCollide, FieldLocation(model, field),
-                    field.Name, model.TypeName, DescribeChar(c), what);
+                    field.Name, model.TypeName, DescribeChar(c), DescribeText(delimiter));
                 break;
             }
         }

@@ -195,7 +195,7 @@ file sealed class __Compat49FixedMoreDescriptor : global::ModernLibs.FileHelpers
         }
         {
             var __t1 = global::System.MemoryExtensions.AsSpan(record.Name);
-            __WritePadded(writer, __t1, 8, 0, ' ', false, "Name");
+            __WritePadded(writer, __t1, 8, 0, ' ', true, "Name");
         }
         {
             global::System.Span<char> __b2 = stackalloc char[64];

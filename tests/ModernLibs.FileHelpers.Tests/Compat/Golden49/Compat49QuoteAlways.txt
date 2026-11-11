@@ -1,0 +1,414 @@
+#### 0 valid read
+record:Id=1|Name="Smith, John"|Tail="t"
+record:Id=2|Name="say "hi""|Tail="t"
+record:Id=4|Name="multi\r\nline"|Tail="t"
+record:Id=5|Name=""|Tail="t"
+error:3:BadUsageException:Line: 3 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:3,plain,t
+error:7:BadUsageException:Line: 7 Column: 3. The field 'Name' has spaces before the quote char ". Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.:6, "spaced",t
+error:8:BadUsageException:Line: 8 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:7,,t
+header:<null>
+footer:<null>
+line:6
+total:4
+recycled-record:Id=1|Name="Smith, John"|Tail="t"
+recycled-record:Id=2|Name="say "hi""|Tail="t"
+recycled-record:Id=4|Name="multi\r\nline"|Tail="t"
+recycled-record:Id=5|Name=""|Tail="t"
+recycled-count:4
+recycled-error:3:BadUsageException:Line: 3 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:3,plain,t
+recycled-error:7:BadUsageException:Line: 7 Column: 3. The field 'Name' has spaces before the quote char ". Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.:6, "spaced",t
+recycled-error:8:BadUsageException:Line: 8 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:7,,t
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:6
+recycled-total:4
+thrown-throw:BadUsageException:Line: 3 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:2
+thrown-total:2
+#### 0 valid round-trip
+written:1,"Smith, John",t\r\n2,"say ""hi""",t\r\n4,"multi\r\nline",t\r\n5,"",t\r\n
+error:3:BadUsageException:Line: 3 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:3,plain,t
+error:7:BadUsageException:Line: 7 Column: 3. The field 'Name' has spaces before the quote char ". Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.:6, "spaced",t
+error:8:BadUsageException:Line: 8 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:7,,t
+header:<null>
+footer:<null>
+line:6
+total:4
+written-extra:line-break:1,"a\r\nb",t\r\n
+written-extra:quote-and-separator:2,"say ""hi"", ok",t\r\n
+written-extra:plain:3,"plain",t\r\n
+written-extra:nulls:4,"",\r\n
+written-extra:long:5,"wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",t\r\n
+#### 1 short-row read
+record:Id=1|Name="Smith, John"|Tail="t"
+record:Id=1|Name="Smith, John"|Tail="t"
+record:Id=2|Name="say "hi""|Tail="t"
+record:Id=4|Name="multi\r\nline"|Tail="t"
+record:Id=5|Name=""|Tail="t"
+error:2:FileHelpersException:Line: 2. Expected 3 fields but found 2 in line: '8,"n"'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:8,"n"
+error:5:BadUsageException:Line: 5 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:3,plain,t
+error:9:BadUsageException:Line: 9 Column: 3. The field 'Name' has spaces before the quote char ". Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.:6, "spaced",t
+error:10:BadUsageException:Line: 10 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:7,,t
+header:<null>
+footer:<null>
+line:8
+total:5
+recycled-record:Id=1|Name="Smith, John"|Tail="t"
+recycled-record:Id=1|Name="Smith, John"|Tail="t"
+recycled-record:Id=2|Name="say "hi""|Tail="t"
+recycled-record:Id=4|Name="multi\r\nline"|Tail="t"
+recycled-record:Id=5|Name=""|Tail="t"
+recycled-count:5
+recycled-error:2:FileHelpersException:Line: 2. Expected 3 fields but found 2 in line: '8,"n"'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:8,"n"
+recycled-error:5:BadUsageException:Line: 5 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:3,plain,t
+recycled-error:9:BadUsageException:Line: 9 Column: 3. The field 'Name' has spaces before the quote char ". Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.:6, "spaced",t
+recycled-error:10:BadUsageException:Line: 10 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:7,,t
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:8
+recycled-total:5
+thrown-throw:FileHelpersException:Line: 2. Expected 3 fields but found 2 in line: '8,"n"'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 1 short-row round-trip
+written:1,"Smith, John",t\r\n1,"Smith, John",t\r\n2,"say ""hi""",t\r\n4,"multi\r\nline",t\r\n5,"",t\r\n
+error:2:FileHelpersException:Line: 2. Expected 3 fields but found 2 in line: '8,"n"'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:8,"n"
+error:5:BadUsageException:Line: 5 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:3,plain,t
+error:9:BadUsageException:Line: 9 Column: 3. The field 'Name' has spaces before the quote char ". Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.:6, "spaced",t
+error:10:BadUsageException:Line: 10 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:7,,t
+header:<null>
+footer:<null>
+line:8
+total:5
+written-extra:line-break:1,"a\r\nb",t\r\n
+written-extra:quote-and-separator:2,"say ""hi"", ok",t\r\n
+written-extra:plain:3,"plain",t\r\n
+written-extra:nulls:4,"",\r\n
+written-extra:long:5,"wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",t\r\n
+#### 2 long-row read
+record:Id=1|Name="Smith, John"|Tail="t"
+record:Id=1|Name="Smith, John"|Tail="t"
+record:Id=2|Name="say "hi""|Tail="t"
+record:Id=4|Name="multi\r\nline"|Tail="t"
+record:Id=5|Name=""|Tail="t"
+error:2:BadUsageException:Line: 2. Expected 3 fields but found 4 in line: '9,"n",t,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:9,"n",t,x
+error:5:BadUsageException:Line: 5 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:3,plain,t
+error:9:BadUsageException:Line: 9 Column: 3. The field 'Name' has spaces before the quote char ". Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.:6, "spaced",t
+error:10:BadUsageException:Line: 10 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:7,,t
+header:<null>
+footer:<null>
+line:8
+total:5
+recycled-record:Id=1|Name="Smith, John"|Tail="t"
+recycled-record:Id=1|Name="Smith, John"|Tail="t"
+recycled-record:Id=2|Name="say "hi""|Tail="t"
+recycled-record:Id=4|Name="multi\r\nline"|Tail="t"
+recycled-record:Id=5|Name=""|Tail="t"
+recycled-count:5
+recycled-error:2:BadUsageException:Line: 2. Expected 3 fields but found 4 in line: '9,"n",t,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:9,"n",t,x
+recycled-error:5:BadUsageException:Line: 5 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:3,plain,t
+recycled-error:9:BadUsageException:Line: 9 Column: 3. The field 'Name' has spaces before the quote char ". Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.:6, "spaced",t
+recycled-error:10:BadUsageException:Line: 10 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:7,,t
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:8
+recycled-total:5
+thrown-throw:BadUsageException:Line: 2. Expected 3 fields but found 4 in line: '9,"n",t,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 2 long-row round-trip
+written:1,"Smith, John",t\r\n1,"Smith, John",t\r\n2,"say ""hi""",t\r\n4,"multi\r\nline",t\r\n5,"",t\r\n
+error:2:BadUsageException:Line: 2. Expected 3 fields but found 4 in line: '9,"n",t,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:9,"n",t,x
+error:5:BadUsageException:Line: 5 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:3,plain,t
+error:9:BadUsageException:Line: 9 Column: 3. The field 'Name' has spaces before the quote char ". Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.:6, "spaced",t
+error:10:BadUsageException:Line: 10 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:7,,t
+header:<null>
+footer:<null>
+line:8
+total:5
+written-extra:line-break:1,"a\r\nb",t\r\n
+written-extra:quote-and-separator:2,"say ""hi"", ok",t\r\n
+written-extra:plain:3,"plain",t\r\n
+written-extra:nulls:4,"",\r\n
+written-extra:long:5,"wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",t\r\n
+#### 3 bad-values read
+record:Id=1|Name="Smith, John"|Tail="t"
+record:Id=1|Name="Smith, John"|Tail="t"
+record:Id=2|Name="say "hi""|Tail="t"
+record:Id=4|Name="multi\r\nline"|Tail="t"
+record:Id=5|Name=""|Tail="t"
+error:2:ConvertException:Line: 2. Column: 1. Field: Id. Error Converting 'x10' to type: 'Int32'. :x10,"n",t
+error:3:BadUsageException:Line: 3 Column: 4. The field 'Name' is quoted but the quote char " is not just before the separator (You can use [FieldTrim] to avoid this error).:11,"closed"junk,t
+error:6:BadUsageException:Line: 6 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:3,plain,t
+error:10:BadUsageException:Line: 10 Column: 3. The field 'Name' has spaces before the quote char ". Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.:6, "spaced",t
+error:11:BadUsageException:Line: 11 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:7,,t
+header:<null>
+footer:<null>
+line:9
+total:5
+recycled-record:Id=1|Name="Smith, John"|Tail="t"
+recycled-record:Id=1|Name="Smith, John"|Tail="t"
+recycled-record:Id=2|Name="say "hi""|Tail="t"
+recycled-record:Id=4|Name="multi\r\nline"|Tail="t"
+recycled-record:Id=5|Name=""|Tail="t"
+recycled-count:5
+recycled-error:2:ConvertException:Line: 2. Column: 1. Field: Id. Error Converting 'x10' to type: 'Int32'. :x10,"n",t
+recycled-error:3:BadUsageException:Line: 3 Column: 4. The field 'Name' is quoted but the quote char " is not just before the separator (You can use [FieldTrim] to avoid this error).:11,"closed"junk,t
+recycled-error:6:BadUsageException:Line: 6 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:3,plain,t
+recycled-error:10:BadUsageException:Line: 10 Column: 3. The field 'Name' has spaces before the quote char ". Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.:6, "spaced",t
+recycled-error:11:BadUsageException:Line: 11 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:7,,t
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:9
+recycled-total:5
+thrown-throw:ConvertException:Line: 2. Column: 1. Field: Id. Error Converting 'x10' to type: 'Int32'. 
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 3 bad-values round-trip
+written:1,"Smith, John",t\r\n1,"Smith, John",t\r\n2,"say ""hi""",t\r\n4,"multi\r\nline",t\r\n5,"",t\r\n
+error:2:ConvertException:Line: 2. Column: 1. Field: Id. Error Converting 'x10' to type: 'Int32'. :x10,"n",t
+error:3:BadUsageException:Line: 3 Column: 4. The field 'Name' is quoted but the quote char " is not just before the separator (You can use [FieldTrim] to avoid this error).:11,"closed"junk,t
+error:6:BadUsageException:Line: 6 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:3,plain,t
+error:10:BadUsageException:Line: 10 Column: 3. The field 'Name' has spaces before the quote char ". Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.:6, "spaced",t
+error:11:BadUsageException:Line: 11 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:7,,t
+header:<null>
+footer:<null>
+line:9
+total:5
+written-extra:line-break:1,"a\r\nb",t\r\n
+written-extra:quote-and-separator:2,"say ""hi"", ok",t\r\n
+written-extra:plain:3,"plain",t\r\n
+written-extra:nulls:4,"",\r\n
+written-extra:long:5,"wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",t\r\n
+#### 4 unclosed-quote read
+record:Id=1|Name="Smith, John"|Tail="t"
+record:Id=2|Name="say "hi""|Tail="t"
+record:Id=4|Name="multi\r\nline"|Tail="t"
+record:Id=5|Name=""|Tail="t"
+error:2:BadUsageException:Line: 2. Expected 3 fields but found 4 in line: '12,"open,t\r\n1,"Smith, John",t'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:12,"open,t\r\n1,"Smith, John",t
+error:5:BadUsageException:Line: 5 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:3,plain,t
+error:9:BadUsageException:Line: 9 Column: 3. The field 'Name' has spaces before the quote char ". Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.:6, "spaced",t
+error:10:BadUsageException:Line: 10 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:7,,t
+header:<null>
+footer:<null>
+line:8
+total:4
+recycled-record:Id=1|Name="Smith, John"|Tail="t"
+recycled-record:Id=2|Name="say "hi""|Tail="t"
+recycled-record:Id=4|Name="multi\r\nline"|Tail="t"
+recycled-record:Id=5|Name=""|Tail="t"
+recycled-count:4
+recycled-error:2:BadUsageException:Line: 2. Expected 3 fields but found 4 in line: '12,"open,t\r\n1,"Smith, John",t'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:12,"open,t\r\n1,"Smith, John",t
+recycled-error:5:BadUsageException:Line: 5 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:3,plain,t
+recycled-error:9:BadUsageException:Line: 9 Column: 3. The field 'Name' has spaces before the quote char ". Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.:6, "spaced",t
+recycled-error:10:BadUsageException:Line: 10 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:7,,t
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:8
+recycled-total:4
+thrown-throw:BadUsageException:Line: 2. Expected 3 fields but found 4 in line: '12,"open,t\r\n1,"Smith, John",t'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 4 unclosed-quote round-trip
+written:1,"Smith, John",t\r\n2,"say ""hi""",t\r\n4,"multi\r\nline",t\r\n5,"",t\r\n
+error:2:BadUsageException:Line: 2. Expected 3 fields but found 4 in line: '12,"open,t\r\n1,"Smith, John",t'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:12,"open,t\r\n1,"Smith, John",t
+error:5:BadUsageException:Line: 5 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:3,plain,t
+error:9:BadUsageException:Line: 9 Column: 3. The field 'Name' has spaces before the quote char ". Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.:6, "spaced",t
+error:10:BadUsageException:Line: 10 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:7,,t
+header:<null>
+footer:<null>
+line:8
+total:4
+written-extra:line-break:1,"a\r\nb",t\r\n
+written-extra:quote-and-separator:2,"say ""hi"", ok",t\r\n
+written-extra:plain:3,"plain",t\r\n
+written-extra:nulls:4,"",\r\n
+written-extra:long:5,"wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",t\r\n
+#### 5 empty-line read
+record:Id=1|Name="Smith, John"|Tail="t"
+record:Id=1|Name="Smith, John"|Tail="t"
+record:Id=2|Name="say "hi""|Tail="t"
+record:Id=4|Name="multi\r\nline"|Tail="t"
+record:Id=5|Name=""|Tail="t"
+error:2:FileHelpersException:Line: 2. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+error:5:BadUsageException:Line: 5 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:3,plain,t
+error:9:BadUsageException:Line: 9 Column: 3. The field 'Name' has spaces before the quote char ". Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.:6, "spaced",t
+error:10:BadUsageException:Line: 10 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:7,,t
+header:<null>
+footer:<null>
+line:8
+total:5
+recycled-record:Id=1|Name="Smith, John"|Tail="t"
+recycled-record:Id=1|Name="Smith, John"|Tail="t"
+recycled-record:Id=2|Name="say "hi""|Tail="t"
+recycled-record:Id=4|Name="multi\r\nline"|Tail="t"
+recycled-record:Id=5|Name=""|Tail="t"
+recycled-count:5
+recycled-error:2:FileHelpersException:Line: 2. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+recycled-error:5:BadUsageException:Line: 5 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:3,plain,t
+recycled-error:9:BadUsageException:Line: 9 Column: 3. The field 'Name' has spaces before the quote char ". Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.:6, "spaced",t
+recycled-error:10:BadUsageException:Line: 10 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:7,,t
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:8
+recycled-total:5
+thrown-throw:FileHelpersException:Line: 2. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 5 empty-line round-trip
+written:1,"Smith, John",t\r\n1,"Smith, John",t\r\n2,"say ""hi""",t\r\n4,"multi\r\nline",t\r\n5,"",t\r\n
+error:2:FileHelpersException:Line: 2. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+error:5:BadUsageException:Line: 5 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:3,plain,t
+error:9:BadUsageException:Line: 9 Column: 3. The field 'Name' has spaces before the quote char ". Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.:6, "spaced",t
+error:10:BadUsageException:Line: 10 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:7,,t
+header:<null>
+footer:<null>
+line:8
+total:5
+written-extra:line-break:1,"a\r\nb",t\r\n
+written-extra:quote-and-separator:2,"say ""hi"", ok",t\r\n
+written-extra:plain:3,"plain",t\r\n
+written-extra:nulls:4,"",\r\n
+written-extra:long:5,"wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",t\r\n
+#### 6 empty-input read
+header:<null>
+footer:<null>
+line:0
+total:0
+recycled-count:0
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:0
+recycled-total:0
+thrown-count:0
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:0
+thrown-total:0
+#### 6 empty-input round-trip
+written:
+header:<null>
+footer:<null>
+line:0
+total:0
+written-extra:line-break:1,"a\r\nb",t\r\n
+written-extra:quote-and-separator:2,"say ""hi"", ok",t\r\n
+written-extra:plain:3,"plain",t\r\n
+written-extra:nulls:4,"",\r\n
+written-extra:long:5,"wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",t\r\n
+#### 7 lf-no-final-line-end read
+record:Id=1|Name="Smith, John"|Tail="t"
+record:Id=2|Name="say "hi""|Tail="t"
+record:Id=4|Name="multi\nline"|Tail="t"
+record:Id=5|Name=""|Tail="t"
+error:3:BadUsageException:Line: 3 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:3,plain,t
+error:7:BadUsageException:Line: 7 Column: 3. The field 'Name' has spaces before the quote char ". Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.:6, "spaced",t
+error:8:BadUsageException:Line: 8 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:7,,t
+header:<null>
+footer:<null>
+line:6
+total:4
+recycled-record:Id=1|Name="Smith, John"|Tail="t"
+recycled-record:Id=2|Name="say "hi""|Tail="t"
+recycled-record:Id=4|Name="multi\nline"|Tail="t"
+recycled-record:Id=5|Name=""|Tail="t"
+recycled-count:4
+recycled-error:3:BadUsageException:Line: 3 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:3,plain,t
+recycled-error:7:BadUsageException:Line: 7 Column: 3. The field 'Name' has spaces before the quote char ". Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.:6, "spaced",t
+recycled-error:8:BadUsageException:Line: 8 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:7,,t
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:6
+recycled-total:4
+thrown-throw:BadUsageException:Line: 3 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:2
+thrown-total:2
+#### 7 lf-no-final-line-end round-trip
+written:1,"Smith, John",t\r\n2,"say ""hi""",t\r\n4,"multi\nline",t\r\n5,"",t\r\n
+error:3:BadUsageException:Line: 3 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:3,plain,t
+error:7:BadUsageException:Line: 7 Column: 3. The field 'Name' has spaces before the quote char ". Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.:6, "spaced",t
+error:8:BadUsageException:Line: 8 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:7,,t
+header:<null>
+footer:<null>
+line:6
+total:4
+written-extra:line-break:1,"a\r\nb",t\r\n
+written-extra:quote-and-separator:2,"say ""hi"", ok",t\r\n
+written-extra:plain:3,"plain",t\r\n
+written-extra:nulls:4,"",\r\n
+written-extra:long:5,"wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",t\r\n
+#### 8 all-together read
+record:Id=1|Name="Smith, John"|Tail="t"
+record:Id=2|Name="say "hi""|Tail="t"
+record:Id=4|Name="multi\r\nline"|Tail="t"
+record:Id=5|Name=""|Tail="t"
+error:3:BadUsageException:Line: 3 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:3,plain,t
+error:7:BadUsageException:Line: 7 Column: 3. The field 'Name' has spaces before the quote char ". Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.:6, "spaced",t
+error:8:BadUsageException:Line: 8 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:7,,t
+error:9:FileHelpersException:Line: 9. Expected 3 fields but found 2 in line: '8,"n"'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:8,"n"
+error:10:BadUsageException:Line: 10. Expected 3 fields but found 4 in line: '9,"n",t,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:9,"n",t,x
+error:11:ConvertException:Line: 11. Column: 1. Field: Id. Error Converting 'x10' to type: 'Int32'. :x10,"n",t
+error:12:BadUsageException:Line: 12 Column: 4. The field 'Name' is quoted but the quote char " is not just before the separator (You can use [FieldTrim] to avoid this error).:11,"closed"junk,t
+error:13:FileHelpersException:Line: 13. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+error:14:BadUsageException:Line: 14. Expected 3 fields but found 4 in line: '12,"open,t\r\n1,"Smith, John",t'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:12,"open,t\r\n1,"Smith, John",t
+header:<null>
+footer:<null>
+line:6
+total:4
+recycled-record:Id=1|Name="Smith, John"|Tail="t"
+recycled-record:Id=2|Name="say "hi""|Tail="t"
+recycled-record:Id=4|Name="multi\r\nline"|Tail="t"
+recycled-record:Id=5|Name=""|Tail="t"
+recycled-count:4
+recycled-error:3:BadUsageException:Line: 3 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:3,plain,t
+recycled-error:7:BadUsageException:Line: 7 Column: 3. The field 'Name' has spaces before the quote char ". Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.:6, "spaced",t
+recycled-error:8:BadUsageException:Line: 8 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:7,,t
+recycled-error:9:FileHelpersException:Line: 9. Expected 3 fields but found 2 in line: '8,"n"'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:8,"n"
+recycled-error:10:BadUsageException:Line: 10. Expected 3 fields but found 4 in line: '9,"n",t,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:9,"n",t,x
+recycled-error:11:ConvertException:Line: 11. Column: 1. Field: Id. Error Converting 'x10' to type: 'Int32'. :x10,"n",t
+recycled-error:12:BadUsageException:Line: 12 Column: 4. The field 'Name' is quoted but the quote char " is not just before the separator (You can use [FieldTrim] to avoid this error).:11,"closed"junk,t
+recycled-error:13:FileHelpersException:Line: 13. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+recycled-error:14:BadUsageException:Line: 14. Expected 3 fields but found 4 in line: '12,"open,t\r\n1,"Smith, John",t'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:12,"open,t\r\n1,"Smith, John",t
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:6
+recycled-total:4
+thrown-throw:BadUsageException:Line: 3 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:2
+thrown-total:2
+#### 8 all-together round-trip
+written:1,"Smith, John",t\r\n2,"say ""hi""",t\r\n4,"multi\r\nline",t\r\n5,"",t\r\n
+error:3:BadUsageException:Line: 3 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:3,plain,t
+error:7:BadUsageException:Line: 7 Column: 3. The field 'Name' has spaces before the quote char ". Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.:6, "spaced",t
+error:8:BadUsageException:Line: 8 Column: 3. The field 'Name' does not begin with the quote char ". You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.:7,,t
+error:9:FileHelpersException:Line: 9. Expected 3 fields but found 2 in line: '8,"n"'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:8,"n"
+error:10:BadUsageException:Line: 10. Expected 3 fields but found 4 in line: '9,"n",t,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:9,"n",t,x
+error:11:ConvertException:Line: 11. Column: 1. Field: Id. Error Converting 'x10' to type: 'Int32'. :x10,"n",t
+error:12:BadUsageException:Line: 12 Column: 4. The field 'Name' is quoted but the quote char " is not just before the separator (You can use [FieldTrim] to avoid this error).:11,"closed"junk,t
+error:13:FileHelpersException:Line: 13. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+error:14:BadUsageException:Line: 14. Expected 3 fields but found 4 in line: '12,"open,t\r\n1,"Smith, John",t'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:12,"open,t\r\n1,"Smith, John",t
+header:<null>
+footer:<null>
+line:6
+total:4
+written-extra:line-break:1,"a\r\nb",t\r\n
+written-extra:quote-and-separator:2,"say ""hi"", ok",t\r\n
+written-extra:plain:3,"plain",t\r\n
+written-extra:nulls:4,"",\r\n
+written-extra:long:5,"wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",t\r\n

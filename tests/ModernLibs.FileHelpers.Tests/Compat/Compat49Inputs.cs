@@ -39,6 +39,7 @@ internal static class Compat49Inputs
                 "6,1.0.0,Fay,d,t,5,u,l,i,en,fw,1.0,0,False,2026-01-01 00:00,2026-01-01T00:00:00,1,0,True,True,True,True,git,r,False",
                 "7,1.0.0,Gus,d,t,5,u,l,i,en,fw,1.0,0,maybe,2026-01-01T00:00:00,2026-01-01T00:00:00,99999999999999999999,0,True,True,True,True,git,r,False",
             ],
+            // No field is quoted: the quote char is plain data here.
             Unclosed: "8,1.0.0,\"Hal,d,t,5,u,l,i,en,fw,1.0,0,False,2026-01-01T00:00:00,2026-01-01T00:00:00,1,0,True,True,True,True,git,r,False",
             Header: Plain25Header),
 
@@ -128,6 +129,10 @@ internal static class Compat49Inputs
             Unclosed: "9,\"1,1"),
     };
 
+    /// <summary>The kind of each input of <see cref="For"/>, in the same order (failure messages, golden files).</summary>
+    public static readonly string[] Kinds =
+        ["valid", "short-row", "long-row", "bad-values", "unclosed-quote", "empty-line", "empty-input", "lf-no-final-line-end", "all-together"];
+
     /// <summary>The number of fields of the record shape <paramref name="name"/>.</summary>
     public static int FieldCount(string name) => Shapes[name].FieldCount;
 
@@ -174,6 +179,7 @@ internal static class Compat49Inputs
         Unclosed: "12,\"open,t");
 
     /// <summary>One shape for the four fixed-length records: Id 5 (right, '0'), Name 8 (trim right), Amount 6 (right).</summary>
+    /// <remarks>No field is quoted: the "unclosed quote" row is a quote char in plain data (as for Plain25).</remarks>
     private static Shape FixedShape() => new(
         3,
         [Fixed("00001", "Alice", "12.50"), Fixed("00002", "Bob", "0.10"), Fixed("00003", "", "-7")],

@@ -116,7 +116,8 @@ public sealed class GeneratedCodeContractTests
         Converters("CharConverter and GuidConverter: Instance, (string?)", [typeof(CharConverter), typeof(GuidConverter)], [typeof(string)]),
         Ctor(typeof(DateMultiFormatConverter), typeof(string[]), typeof(CultureInfo)),
         ("EnumConverter<T>.Instance", () =>
-            typeof(EnumConverter<DayOfWeek>).GetField("Instance", Any) is { IsStatic: true, IsInitOnly: true } f
+            IsPublicType(typeof(EnumConverter<DayOfWeek>))
+            && typeof(EnumConverter<DayOfWeek>).GetField("Instance", Any) is { IsStatic: true, IsInitOnly: true, IsPublic: true } f
             && f.FieldType == typeof(EnumConverter<DayOfWeek>)),
     ];
 
@@ -140,11 +141,12 @@ public sealed class GeneratedCodeContractTests
 
     private static (string, Func<bool>) Property(Type type, string name, Type propertyType) =>
         ($"{Show(type)}.{name} {{ get; }} : {Show(propertyType)}", () =>
-            type.GetProperty(name, Any) is { GetMethod.IsPublic: true } p && p.PropertyType == propertyType);
+            IsPublicType(type) && type.GetProperty(name, Any) is { GetMethod.IsPublic: true } p && p.PropertyType == propertyType);
 
     private static (string, Func<bool>) Init(string name, Type propertyType) =>
         ($"RecordOptions.{name} {{ get; init; }} : {Show(propertyType)}", () =>
-            typeof(RecordOptions).GetProperty(name, Any) is { GetMethod.IsPublic: true, SetMethod.IsPublic: true } p
+            IsPublicType(typeof(RecordOptions))
+            && typeof(RecordOptions).GetProperty(name, Any) is { GetMethod.IsPublic: true, SetMethod.IsPublic: true } p
             && p.PropertyType == propertyType
             && p.SetMethod.ReturnParameter.GetRequiredCustomModifiers().Contains(typeof(IsExternalInit)));
 
@@ -156,14 +158,28 @@ public sealed class GeneratedCodeContractTests
 
     private static (string, Func<bool>) Converters(string description, Type[] types, params Type[][] constructors) =>
         (description, () => types.All(t =>
-            t.GetField("Instance", Any) is { IsStatic: true, IsInitOnly: true } f && f.FieldType == t
+            IsPublicType(t)
+            && t.GetField("Instance", Any) is { IsStatic: true, IsInitOnly: true, IsPublic: true } f && f.FieldType == t
             && constructors.All(c => HasCtor(t, c))));
 
+    // The default binder of GetMethod/GetConstructor also accepts a parameter that the listed type widens or
+    // converts to (int matches long or object), so the parameter types are compared exactly afterwards.
     private static bool HasMethod(Type type, string name, Type returnType, params Type[] parameters) =>
-        type.GetMethod(name, Any, parameters) is { IsPublic: true } m && m.ReturnType == returnType;
+        IsPublicType(type)
+        && type.GetMethod(name, Any, parameters) is { IsPublic: true } m
+        && m.ReturnType == returnType
+        && m.GetParameters().Select(p => p.ParameterType).SequenceEqual(parameters);
 
     private static bool HasCtor(Type type, params Type[] parameters) =>
-        type.GetConstructor(BindingFlags.Public | BindingFlags.Instance, parameters) is not null;
+        IsPublicType(type)
+        && type.GetConstructor(BindingFlags.Public | BindingFlags.Instance, parameters) is { } c
+        && c.GetParameters().Select(p => p.ParameterType).SequenceEqual(parameters);
+
+    /// <summary>
+    /// The type (its generic definition for a closed generic type: <see cref="Rec"/> is private) is visible outside
+    /// the library. The test assembly sees internals, so compiling against a type proves nothing.
+    /// </summary>
+    private static bool IsPublicType(Type type) => (type.IsGenericType ? type.GetGenericTypeDefinition() : type).IsVisible;
 
     private static string Show(Type type) =>
         type == typeof(Rec) ? "T"

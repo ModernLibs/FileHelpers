@@ -168,7 +168,7 @@ public sealed class Compat49CtorTwin
     [FieldOrder(3), FieldConverter(ConverterKind.Date, "yyyy-MM-dd")] public DateTime Day { get; }
 }
 
-/// <summary><c>FixedMode.ExactLength</c>, 19 chars.</summary>
+/// <summary><c>FixedMode.ExactLength</c>, 19 chars; overflow is cut on write.</summary>
 [FixedLengthRecord(FixedMode.ExactLength)]
 public sealed class Compat49FixedExactTwin
 {
@@ -177,16 +177,16 @@ public sealed class Compat49FixedExactTwin
     [FieldOrder(3), FieldFixedLength(6), FieldAlign(AlignMode.Right), FieldConverter(ConverterKind.Decimal, ".")] public decimal Amount { get; set; }
 }
 
-/// <summary><c>FixedMode.AllowMoreChars</c>, 19 chars.</summary>
+/// <summary><c>FixedMode.AllowMoreChars</c>, 19 chars; Name overflow is an error on write.</summary>
 [FixedLengthRecord(FixedMode.AllowMoreChars)]
 public sealed class Compat49FixedMoreTwin
 {
     [FieldOrder(1), FieldFixedLength(5), FieldAlign(AlignMode.Right, '0')] public int Id { get; set; }
-    [FieldOrder(2), FieldFixedLength(8), FieldTrim(TrimMode.Right)] public string Name { get; set; } = string.Empty;
+    [FieldOrder(2), FieldFixedLength(8, OverflowMode = OverflowMode.Error), FieldTrim(TrimMode.Right)] public string Name { get; set; } = string.Empty;
     [FieldOrder(3), FieldFixedLength(6), FieldAlign(AlignMode.Right), FieldConverter(ConverterKind.Decimal, ".")] public decimal Amount { get; set; }
 }
 
-/// <summary><c>FixedMode.AllowLessChars</c>, 19 chars.</summary>
+/// <summary><c>FixedMode.AllowLessChars</c>, 19 chars; overflow is cut on write.</summary>
 [FixedLengthRecord(FixedMode.AllowLessChars)]
 public sealed class Compat49FixedLessTwin
 {
@@ -195,12 +195,12 @@ public sealed class Compat49FixedLessTwin
     [FieldOrder(3), FieldFixedLength(6), FieldAlign(AlignMode.Right), FieldConverter(ConverterKind.Decimal, ".")] public decimal? Amount { get; set; }
 }
 
-/// <summary><c>FixedMode.AllowVariableLength</c>, 19 chars.</summary>
+/// <summary><c>FixedMode.AllowVariableLength</c>, 19 chars; Name overflow is an error on write.</summary>
 [FixedLengthRecord(FixedMode.AllowVariableLength)]
 public sealed class Compat49FixedVariableTwin
 {
     [FieldOrder(1), FieldFixedLength(5), FieldAlign(AlignMode.Right, '0')] public int Id { get; set; }
-    [FieldOrder(2), FieldFixedLength(8), FieldTrim(TrimMode.Right)] public string Name { get; set; } = string.Empty;
+    [FieldOrder(2), FieldFixedLength(8, OverflowMode = OverflowMode.Error), FieldTrim(TrimMode.Right)] public string Name { get; set; } = string.Empty;
     [FieldOrder(3), FieldFixedLength(6), FieldAlign(AlignMode.Right), FieldConverter(ConverterKind.Decimal, ".")] public decimal? Amount { get; set; }
 }
 

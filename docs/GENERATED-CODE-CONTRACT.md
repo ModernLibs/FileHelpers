@@ -61,8 +61,9 @@ table: `IRecordDescriptor<T>` (`InvalidRecordEmitter:46`) and its five members (
    the line (`src/ModernLibs.FileHelpers/Errors/RecordErrors.cs:17-26`) and uses the column to find the
    physical line of a field in a multi-line record (`src/ModernLibs.FileHelpers/Engines/RecordReadCore.cs:389-397`).
 4. The runtime validates the field count before it calls `Parse`
-   (`src/ModernLibs.FileHelpers/Engines/RecordReadCore.cs:333-335`, `ValidateFieldCount`; for `[FieldInNewLine]` records, per physical line in `ParseGroup`). Old descriptors do not
-   check it: a missing trailing field reads as empty in the generated splitter.
+   (`src/ModernLibs.FileHelpers/Engines/RecordReadCore.cs:333-335`, `ValidateFieldCount`; for
+   `[FieldInNewLine]` records, per physical line in `ParseGroup`). Old descriptors do not check it: a missing
+   trailing field reads as empty in the generated splitter.
 5. Do not add a constructor overload to a converter without checking that the emitted argument lists (for
    example `new(null, culture)` or `new("yyyy-MM-dd", null)`) still bind to the same overload when the
    consumer recompiles. A new overload can make `null` ambiguous (a compile error in the consumer) or bind it
@@ -70,16 +71,22 @@ table: `IRecordDescriptor<T>` (`InvalidRecordEmitter:46`) and its five members (
 
 ## Tests
 
-- `GeneratedCodeContractTests.Every_Listed_Member_Exists` reflects over the library: each member of the table
-  exists with the listed parameter types, the `RecordOptions` setters are `init`, and the enum values are as
-  listed.
+- `GeneratedCodeContractTests.Every_Listed_Member_Exists` reflects over the library: each type of the table is
+  public, each member exists with exactly the listed parameter types (compared one by one, not through the
+  default binder, which would accept a widened type), the `RecordOptions` setters are `init`, and the enum
+  values are as listed.
 - `Compat48Tests` runs the 4.8.0 descriptors in `Generated48/` against the current runtime.
 - `Compat49Tests` runs the 4.9.1 descriptors in `Generated49/` for 19 record shapes (all quote modes,
   `MultilineMode.NotAllow`, `[FieldInNewLine]`, `[FieldTrim]` with characters, `[FieldOptional]`,
-  `[FieldDelimiter]`, a struct, a constructor, a recyclable class, the four `FixedMode` values, `ConverterBase`
-  and `ISpanConverter<T>` converters, and a 25-column record). For each input it compares the records, the
-  errors, `HeaderText`, `FooterText`, `LineNumber`, `TotalRecords` and the text written back with the result
-  of the current descriptor. How the snapshots were made: `Generated49/README.md`.
+  `[FieldDelimiter]`, a struct, a constructor, a recyclable class, the four `FixedMode` values with both
+  `OverflowMode` values, `ConverterBase` and `ISpanConverter<T>` converters, and a 25-column record). For each
+  input it builds a canonical text: the records, the errors, `HeaderText`, `FooterText`, `LineNumber` and
+  `TotalRecords` of an array read (`Parse`), of a callback read with `RecycleRecords` (`ParseInto`) and of a
+  read with `ErrorMode.ThrowException`, the records written back, and hand-made records that reach the
+  write-only branches (`Compat49WriteCases`). It checks the text against the 4.9.1 golden files in `Golden49/`
+  and against the text of the descriptor that the current generator makes. How the snapshots and the golden
+  files were made: `Generated49/README.md`.
 
 A change to any member above, or to the behaviour of the engine around them, must keep these tests green
-without changing the snapshot files.
+without changing the snapshot or the golden files. The tests check the shapes and inputs they list, not every
+record a consumer can declare.

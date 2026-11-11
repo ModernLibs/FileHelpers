@@ -2,13 +2,44 @@
 
 The 19 `*.g.cs` files in this folder are the output of the **4.9.1** source generator (tag `v4.9.1`,
 commit `3a045e0`). They are checked in so that the tests run descriptors compiled against 4.9.1 on the
-current runtime, as a consumer library built against 4.9.1 would. `Compat49Tests` compares each one with
-the descriptor that the current generator makes for the same record. `GeneratedCodeContractTests` and
+current runtime, as a consumer library built against 4.9.1 would. `GeneratedCodeContractTests` and
 `docs/GENERATED-CODE-CONTRACT.md` list the library members that these files bind to.
 
-**Do not regenerate these files with a newer generator.** They must stay 4.9.1 output. If the runtime
-changes and a `Compat49Tests` case fails, the runtime broke a 4.9.1 consumer: fix the runtime, not the
-snapshot.
+For each shape and each input of `Compat49Inputs`, `Compat49Tests` checks the canonical text of
+`Compat49Matrix` for the 4.9.1 descriptor twice:
+
+- against the golden text in `../Golden49/<Shape>.txt` (what the descriptor did on the 4.9.1 runtime), and
+- against the text of the descriptor that the current generator makes for the same record (`...Twin`).
+
+The text covers an array read (`Parse`), a callback read with `RecycleRecords` (`ParseInto`; skipped for
+`Compat49Struct` and `Compat49Ctor`, which have no `ParseInto`), an array read with
+`ErrorMode.ThrowException`, the records written back, and the hand-made records of `Compat49WriteCases`
+(write-only branches: line breaks in values, fixed-length overflow, long converted values, nulls).
+
+**Do not regenerate the `*.g.cs` files with a newer generator.** They must stay 4.9.1 output. When a
+`Compat49Tests` case fails against `Golden49`, the runtime changed what a 4.9.1 consumer sees: fix the runtime,
+not the snapshot or the golden file. When it fails against the current descriptor only, the generator changed
+what it emits.
+
+## Golden49
+
+The 19 golden files were written by `Compat49Tests` itself, when the library source was equal to `3a045e0`
+(only `ModernLibs.FileHelpers.csproj` differed: target frameworks and runtime async), so they hold 4.9.1
+behaviour. They were made on `net10.0` and pass unchanged on `net11.0`. They are embedded in the test assembly
+(`ModernLibs.FileHelpers.Tests.csproj`, `Golden49/<Shape>.txt`).
+
+Regenerate them only with a reviewed reason: a change of `Compat49Inputs`, `Compat49WriteCases` or the
+canonical text of `Compat49Matrix`, or an accepted behaviour change that the review names. Then, from the
+repository root after a build:
+
+```bash
+COMPAT49_GOLDEN_DIR=$PWD/tests/ModernLibs.FileHelpers.Tests/Compat/Golden49 \
+  tests/ModernLibs.FileHelpers.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Tests \
+  --treenode-filter "/*/*/Compat49Tests/*"
+```
+
+With the variable set the test writes the files instead of checking them (it still compares old with new).
+Rebuild, run without the variable on both targets, and put the `git diff` of `Golden49` in the review.
 
 ## How the files were made
 
@@ -53,5 +84,10 @@ snapshot.
 
    Nothing else changed: each file, without its header, is equal to the generator output after the rename
    (checked with `diff`). Running the steps again produced the same 19 files.
+
+5. Review fix round 1 gave `Name` of `Compat49FixedMoreTwin` and `Compat49FixedVariableTwin`
+   `OverflowMode = OverflowMode.Error` (so the overflow error branch of the write is covered) and ran steps 3
+   and 4 again with the same 4.9.1 clone and SDK. Only those two files changed, one line each
+   (`__WritePadded(..., false, "Name")` became `true`).
 
 Record shapes: see `../Compat49Twins.cs` (one summary per type) and `../Compat49Inputs.cs` (the inputs).

@@ -1,0 +1,314 @@
+#### 0 valid read
+record:Id=1|Name="Alice"|Amount=12.50
+record:Id=2|Name="Bob"|Amount=0.10
+record:Id=3|Name=""|Amount=-7
+header:<null>
+footer:<null>
+line:3
+total:3
+recycled-record:Id=1|Name="Alice"|Amount=12.50
+recycled-record:Id=2|Name="Bob"|Amount=0.10
+recycled-record:Id=3|Name=""|Amount=-7
+recycled-count:3
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:3
+recycled-total:3
+thrown-count:3
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:3
+thrown-total:3
+#### 0 valid round-trip
+written:00001Alice    12.50\r\n00002Bob       0.10\r\n00003            -7\r\n
+header:<null>
+footer:<null>
+line:3
+total:3
+written-extra:name-overflow:00001ABCDEFGH     1\r\n
+written-extra:id-and-amount-overflow:12345n       123456\r\n
+written-extra:null-name:00002          -0.5\r\n
+#### 1 short-row read
+record:Id=1|Name="Alice"|Amount=12.50
+record:Id=1|Name="Alice"|Amount=12.50
+record:Id=2|Name="Bob"|Amount=0.10
+record:Id=3|Name=""|Amount=-7
+error:2:BadUsageException:Line: 2. Fixed-length record line 1 has length 15 but expected 19 characters.:00004Carol     
+header:<null>
+footer:<null>
+line:5
+total:4
+recycled-record:Id=1|Name="Alice"|Amount=12.50
+recycled-record:Id=1|Name="Alice"|Amount=12.50
+recycled-record:Id=2|Name="Bob"|Amount=0.10
+recycled-record:Id=3|Name=""|Amount=-7
+recycled-count:4
+recycled-error:2:BadUsageException:Line: 2. Fixed-length record line 1 has length 15 but expected 19 characters.:00004Carol     
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:5
+recycled-total:4
+thrown-throw:BadUsageException:Line: 2. Fixed-length record line 1 has length 15 but expected 19 characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 1 short-row round-trip
+written:00001Alice    12.50\r\n00001Alice    12.50\r\n00002Bob       0.10\r\n00003            -7\r\n
+error:2:BadUsageException:Line: 2. Fixed-length record line 1 has length 15 but expected 19 characters.:00004Carol     
+header:<null>
+footer:<null>
+line:5
+total:4
+written-extra:name-overflow:00001ABCDEFGH     1\r\n
+written-extra:id-and-amount-overflow:12345n       123456\r\n
+written-extra:null-name:00002          -0.5\r\n
+#### 2 long-row read
+record:Id=1|Name="Alice"|Amount=12.50
+record:Id=1|Name="Alice"|Amount=12.50
+record:Id=2|Name="Bob"|Amount=0.10
+record:Id=3|Name=""|Amount=-7
+error:2:BadUsageException:Line: 2. Fixed-length record line 1 has length 22 but expected 19 characters.:00005Dan       2.00XYZ
+header:<null>
+footer:<null>
+line:5
+total:4
+recycled-record:Id=1|Name="Alice"|Amount=12.50
+recycled-record:Id=1|Name="Alice"|Amount=12.50
+recycled-record:Id=2|Name="Bob"|Amount=0.10
+recycled-record:Id=3|Name=""|Amount=-7
+recycled-count:4
+recycled-error:2:BadUsageException:Line: 2. Fixed-length record line 1 has length 22 but expected 19 characters.:00005Dan       2.00XYZ
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:5
+recycled-total:4
+thrown-throw:BadUsageException:Line: 2. Fixed-length record line 1 has length 22 but expected 19 characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 2 long-row round-trip
+written:00001Alice    12.50\r\n00001Alice    12.50\r\n00002Bob       0.10\r\n00003            -7\r\n
+error:2:BadUsageException:Line: 2. Fixed-length record line 1 has length 22 but expected 19 characters.:00005Dan       2.00XYZ
+header:<null>
+footer:<null>
+line:5
+total:4
+written-extra:name-overflow:00001ABCDEFGH     1\r\n
+written-extra:id-and-amount-overflow:12345n       123456\r\n
+written-extra:null-name:00002          -0.5\r\n
+#### 3 bad-values read
+record:Id=1|Name="Alice"|Amount=12.50
+record:Id=6|Name="Eve"|Amount=100
+record:Id=1|Name="Alice"|Amount=12.50
+record:Id=2|Name="Bob"|Amount=0.10
+record:Id=3|Name=""|Amount=-7
+error:2:ConvertException:Line: 2. Column: 1. Field: Id. Error Converting '0000x' to type: 'Int32'. :0000xBad       1.00
+error:4:BadUsageException:Line: 4. Fixed-length record line 1 has length 2 but expected 19 characters.:12
+header:<null>
+footer:<null>
+line:7
+total:5
+recycled-record:Id=1|Name="Alice"|Amount=12.50
+recycled-record:Id=6|Name="Eve"|Amount=100
+recycled-record:Id=1|Name="Alice"|Amount=12.50
+recycled-record:Id=2|Name="Bob"|Amount=0.10
+recycled-record:Id=3|Name=""|Amount=-7
+recycled-count:5
+recycled-error:2:ConvertException:Line: 2. Column: 1. Field: Id. Error Converting '0000x' to type: 'Int32'. :0000xBad       1.00
+recycled-error:4:BadUsageException:Line: 4. Fixed-length record line 1 has length 2 but expected 19 characters.:12
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:7
+recycled-total:5
+thrown-throw:ConvertException:Line: 2. Column: 1. Field: Id. Error Converting '0000x' to type: 'Int32'. 
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 3 bad-values round-trip
+written:00001Alice    12.50\r\n00006Eve        100\r\n00001Alice    12.50\r\n00002Bob       0.10\r\n00003            -7\r\n
+error:2:ConvertException:Line: 2. Column: 1. Field: Id. Error Converting '0000x' to type: 'Int32'. :0000xBad       1.00
+error:4:BadUsageException:Line: 4. Fixed-length record line 1 has length 2 but expected 19 characters.:12
+header:<null>
+footer:<null>
+line:7
+total:5
+written-extra:name-overflow:00001ABCDEFGH     1\r\n
+written-extra:id-and-amount-overflow:12345n       123456\r\n
+written-extra:null-name:00002          -0.5\r\n
+#### 4 unclosed-quote read
+record:Id=1|Name="Alice"|Amount=12.50
+record:Id=7|Name=""open"|Amount=1.00
+record:Id=1|Name="Alice"|Amount=12.50
+record:Id=2|Name="Bob"|Amount=0.10
+record:Id=3|Name=""|Amount=-7
+header:<null>
+footer:<null>
+line:5
+total:5
+recycled-record:Id=1|Name="Alice"|Amount=12.50
+recycled-record:Id=7|Name=""open"|Amount=1.00
+recycled-record:Id=1|Name="Alice"|Amount=12.50
+recycled-record:Id=2|Name="Bob"|Amount=0.10
+recycled-record:Id=3|Name=""|Amount=-7
+recycled-count:5
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:5
+recycled-total:5
+thrown-count:5
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:5
+thrown-total:5
+#### 4 unclosed-quote round-trip
+written:00001Alice    12.50\r\n00007"open     1.00\r\n00001Alice    12.50\r\n00002Bob       0.10\r\n00003            -7\r\n
+header:<null>
+footer:<null>
+line:5
+total:5
+written-extra:name-overflow:00001ABCDEFGH     1\r\n
+written-extra:id-and-amount-overflow:12345n       123456\r\n
+written-extra:null-name:00002          -0.5\r\n
+#### 5 empty-line read
+record:Id=1|Name="Alice"|Amount=12.50
+record:Id=1|Name="Alice"|Amount=12.50
+record:Id=2|Name="Bob"|Amount=0.10
+record:Id=3|Name=""|Amount=-7
+error:2:BadUsageException:Line: 2. Fixed-length record line 1 has length 0 but expected 19 characters.:
+header:<null>
+footer:<null>
+line:5
+total:4
+recycled-record:Id=1|Name="Alice"|Amount=12.50
+recycled-record:Id=1|Name="Alice"|Amount=12.50
+recycled-record:Id=2|Name="Bob"|Amount=0.10
+recycled-record:Id=3|Name=""|Amount=-7
+recycled-count:4
+recycled-error:2:BadUsageException:Line: 2. Fixed-length record line 1 has length 0 but expected 19 characters.:
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:5
+recycled-total:4
+thrown-throw:BadUsageException:Line: 2. Fixed-length record line 1 has length 0 but expected 19 characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 5 empty-line round-trip
+written:00001Alice    12.50\r\n00001Alice    12.50\r\n00002Bob       0.10\r\n00003            -7\r\n
+error:2:BadUsageException:Line: 2. Fixed-length record line 1 has length 0 but expected 19 characters.:
+header:<null>
+footer:<null>
+line:5
+total:4
+written-extra:name-overflow:00001ABCDEFGH     1\r\n
+written-extra:id-and-amount-overflow:12345n       123456\r\n
+written-extra:null-name:00002          -0.5\r\n
+#### 6 empty-input read
+header:<null>
+footer:<null>
+line:0
+total:0
+recycled-count:0
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:0
+recycled-total:0
+thrown-count:0
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:0
+thrown-total:0
+#### 6 empty-input round-trip
+written:
+header:<null>
+footer:<null>
+line:0
+total:0
+written-extra:name-overflow:00001ABCDEFGH     1\r\n
+written-extra:id-and-amount-overflow:12345n       123456\r\n
+written-extra:null-name:00002          -0.5\r\n
+#### 7 lf-no-final-line-end read
+record:Id=1|Name="Alice"|Amount=12.50
+record:Id=2|Name="Bob"|Amount=0.10
+record:Id=3|Name=""|Amount=-7
+header:<null>
+footer:<null>
+line:3
+total:3
+recycled-record:Id=1|Name="Alice"|Amount=12.50
+recycled-record:Id=2|Name="Bob"|Amount=0.10
+recycled-record:Id=3|Name=""|Amount=-7
+recycled-count:3
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:3
+recycled-total:3
+thrown-count:3
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:3
+thrown-total:3
+#### 7 lf-no-final-line-end round-trip
+written:00001Alice    12.50\r\n00002Bob       0.10\r\n00003            -7\r\n
+header:<null>
+footer:<null>
+line:3
+total:3
+written-extra:name-overflow:00001ABCDEFGH     1\r\n
+written-extra:id-and-amount-overflow:12345n       123456\r\n
+written-extra:null-name:00002          -0.5\r\n
+#### 8 all-together read
+record:Id=1|Name="Alice"|Amount=12.50
+record:Id=2|Name="Bob"|Amount=0.10
+record:Id=3|Name=""|Amount=-7
+record:Id=6|Name="Eve"|Amount=100
+record:Id=7|Name=""open"|Amount=1.00
+record:Id=1|Name="Alice"|Amount=12.50
+error:4:BadUsageException:Line: 4. Fixed-length record line 1 has length 15 but expected 19 characters.:00004Carol     
+error:5:BadUsageException:Line: 5. Fixed-length record line 1 has length 22 but expected 19 characters.:00005Dan       2.00XYZ
+error:6:ConvertException:Line: 6. Column: 1. Field: Id. Error Converting '0000x' to type: 'Int32'. :0000xBad       1.00
+error:8:BadUsageException:Line: 8. Fixed-length record line 1 has length 2 but expected 19 characters.:12
+error:9:BadUsageException:Line: 9. Fixed-length record line 1 has length 0 but expected 19 characters.:
+header:<null>
+footer:<null>
+line:11
+total:6
+recycled-record:Id=1|Name="Alice"|Amount=12.50
+recycled-record:Id=2|Name="Bob"|Amount=0.10
+recycled-record:Id=3|Name=""|Amount=-7
+recycled-record:Id=6|Name="Eve"|Amount=100
+recycled-record:Id=7|Name=""open"|Amount=1.00
+recycled-record:Id=1|Name="Alice"|Amount=12.50
+recycled-count:6
+recycled-error:4:BadUsageException:Line: 4. Fixed-length record line 1 has length 15 but expected 19 characters.:00004Carol     
+recycled-error:5:BadUsageException:Line: 5. Fixed-length record line 1 has length 22 but expected 19 characters.:00005Dan       2.00XYZ
+recycled-error:6:ConvertException:Line: 6. Column: 1. Field: Id. Error Converting '0000x' to type: 'Int32'. :0000xBad       1.00
+recycled-error:8:BadUsageException:Line: 8. Fixed-length record line 1 has length 2 but expected 19 characters.:12
+recycled-error:9:BadUsageException:Line: 9. Fixed-length record line 1 has length 0 but expected 19 characters.:
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:11
+recycled-total:6
+thrown-throw:BadUsageException:Line: 4. Fixed-length record line 1 has length 15 but expected 19 characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:3
+thrown-total:3
+#### 8 all-together round-trip
+written:00001Alice    12.50\r\n00002Bob       0.10\r\n00003            -7\r\n00006Eve        100\r\n00007"open     1.00\r\n00001Alice    12.50\r\n
+error:4:BadUsageException:Line: 4. Fixed-length record line 1 has length 15 but expected 19 characters.:00004Carol     
+error:5:BadUsageException:Line: 5. Fixed-length record line 1 has length 22 but expected 19 characters.:00005Dan       2.00XYZ
+error:6:ConvertException:Line: 6. Column: 1. Field: Id. Error Converting '0000x' to type: 'Int32'. :0000xBad       1.00
+error:8:BadUsageException:Line: 8. Fixed-length record line 1 has length 2 but expected 19 characters.:12
+error:9:BadUsageException:Line: 9. Fixed-length record line 1 has length 0 but expected 19 characters.:
+header:<null>
+footer:<null>
+line:11
+total:6
+written-extra:name-overflow:00001ABCDEFGH     1\r\n
+written-extra:id-and-amount-overflow:12345n       123456\r\n
+written-extra:null-name:00002          -0.5\r\n

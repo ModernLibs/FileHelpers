@@ -118,12 +118,12 @@ finally
 // 9. Enum, formatted date, nullable, custom converter and double: read and write.
 {
     var engine = new FileHelperEngine<Wide>();
-    string text = "High,2026-11-11,7,abc,0.25" + nl + "Low,2024-02-29,,x,1.5" + nl;
+    string text = "High,2026-11-11,7,aBc,0.25" + nl + "Low,2024-02-29,,X,1.5" + nl;
     var records = engine.ReadString(text);
     if (records.Length != 2
         || records[0].Level != Level.High || records[0].Day != new DateTime(2026, 11, 11) || records[0].Count != 7
         || records[0].Tag != "abc" || records[0].Ratio != 0.25
-        || records[1].Level != Level.Low || records[1].Count is not null || records[1].Ratio != 1.5)
+        || records[1].Level != Level.Low || records[1].Tag != "x" || records[1].Count is not null || records[1].Ratio != 1.5)
         return Fail(9, "wide read", records.Length.ToString());
     string written = engine.WriteString(records);
     string expectedText = "High,2026-11-11,7,ABC,0.25" + nl + "Low,2024-02-29,,X,1.5" + nl;

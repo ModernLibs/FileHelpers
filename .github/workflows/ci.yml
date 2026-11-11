@@ -176,6 +176,18 @@ jobs:
       - name: Consumer smoke test
         run: tests/ConsumerSmoke/run.sh "$RUNNER_TEMP/fh-smoke" 4.10.0-smoke
 
+  # Unit tests of the benchmark tooling (benchmarks/tools/test_*.py, standard library only). ubuntu-latest ships python3.
+  benchmark-tools:
+    name: benchmark-tools
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Test (unittest)
+        run: python3 -I -m unittest discover -s benchmarks/tools -p "test_*.py"
+
   # Native AOT: publish the smoke app for each target (ILC warnings are trim/AOT incompatibilities in the
   # library or the generated descriptors) and run the native binary.
   aot-smoke:

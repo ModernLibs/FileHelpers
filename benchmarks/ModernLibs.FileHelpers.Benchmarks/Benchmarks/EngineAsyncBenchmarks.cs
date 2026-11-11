@@ -28,8 +28,11 @@ namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks;
 /// <c>ReadAsync(Stream)</c> / <c>ReadAsync(TextReader)</c> of the same file held in memory (a new
 /// <see cref="MemoryStream"/> per call), the sum of the Ids.</item>
 /// <item><see cref="Engine_WriteStreamAsync_Null_SourceThrows"/>: <c>WriteStreamAsync(Stream.Null, records)</c> where
-/// the source throws at the middle record; the benchmark catches it. The write path has no per-record error mode, so
-/// the fault is one exception per call. Returns the number caught (1).</item>
+/// the source yields 3 records and then throws; <c>Rows / 100</c> such calls per invocation, each exception caught.
+/// The write path has no per-record error mode, so the fault is one exception per call, and the benchmark is
+/// dominated by the fault path (catch, flush of the pending records, rethrow). The setup checks one call's output on
+/// a <see cref="MemoryStream"/> (preamble plus the 3 records), <c>TotalRecords == 0</c>, and the count caught,
+/// <c>Rows / 100</c>, which is what the method returns.</item>
 /// </list>
 /// </remarks>
 [MemoryDiagnoser]
@@ -106,8 +109,24 @@ public class EngineAsyncBenchmarks
         _engine = new FileHelperEngine<PackageAsset>();
         _records = _engine.ReadFile(DatasetGenerator.EnsurePackageAssets(ComponentData.DataDir(), Rows));
         DataCheck.Equal(Rows, _records.Length, nameof(Engine_WriteStreamAsync_Null_SourceThrows) + " records");
-        DataCheck.Equal(1, await Engine_WriteStreamAsync_Null_SourceThrows(), nameof(Engine_WriteStreamAsync_Null_SourceThrows) + " exceptions caught");
+
+        // One failing call: the records before the fault reach the stream (preamble included); TotalRecords stays 0.
+        using var ms = new MemoryStream();
+        bool threw = false;
+        try
+        {
+            await _engine.WriteStreamAsync(ms, ThrowAfterFewRecords(_records));
+        }
+        catch (InvalidOperationException)
+        {
+            threw = true;
+        }
+        DataCheck.That(threw, nameof(Engine_WriteStreamAsync_Null_SourceThrows) + " one call throws");
         DataCheck.Equal(0, _engine.TotalRecords, nameof(Engine_WriteStreamAsync_Null_SourceThrows) + " TotalRecords after the fault");
+        long expected = _engine.Encoding.GetPreamble().Length
+            + _engine.Encoding.GetByteCount(_engine.WriteString(_records.Take(RecordsBeforeFault)));
+        DataCheck.Equal(expected, ms.Length, nameof(Engine_WriteStreamAsync_Null_SourceThrows) + " output length of one call");
+        DataCheck.Equal(Rows / FaultEvery, await Engine_WriteStreamAsync_Null_SourceThrows(), nameof(Engine_WriteStreamAsync_Null_SourceThrows) + " exceptions caught");
     }
 
     [Benchmark]
@@ -130,11 +149,15 @@ public class EngineAsyncBenchmarks
         return checksum;
     }
 
-    /// <summary>The records up to the middle one, then an <see cref="InvalidOperationException"/>.</summary>
-    private static IEnumerable<PackageAsset> ThrowAtMiddle(PackageAsset[] records)
+    private const int RecordsBeforeFault = 3;
+
+    /// <summary>One faulting write per this many rows, as in the read twin.</summary>
+    private const int FaultEvery = 100;
+
+    /// <summary>The first <see cref="RecordsBeforeFault"/> records, then an <see cref="InvalidOperationException"/>.</summary>
+    private static IEnumerable<PackageAsset> ThrowAfterFewRecords(PackageAsset[] records)
     {
-        int stop = records.Length / 2;
-        for (int i = 0; i < stop; i++)
+        for (int i = 0; i < RecordsBeforeFault; i++)
             yield return records[i];
         throw new InvalidOperationException("Benchmark source fault.");
     }
@@ -176,13 +199,16 @@ public class EngineAsyncBenchmarks
     public async Task<int> Engine_WriteStreamAsync_Null_SourceThrows()
     {
         int caught = 0;
-        try
+        for (int i = 0; i < Rows / FaultEvery; i++)
         {
-            await _engine.WriteStreamAsync(Stream.Null, ThrowAtMiddle(_records));
-        }
-        catch (InvalidOperationException)
-        {
-            caught++;
+            try
+            {
+                await _engine.WriteStreamAsync(Stream.Null, ThrowAfterFewRecords(_records));
+            }
+            catch (InvalidOperationException)
+            {
+                caught++;
+            }
         }
         return caught;
     }

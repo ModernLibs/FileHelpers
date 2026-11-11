@@ -1,13 +1,5 @@
 // CA1707: Test method names use underscores intentionally.
 #pragma warning disable CA1707
-// MA0004: ConfigureAwait not needed in test bodies.
-#pragma warning disable MA0004
-// CA2007: ConfigureAwait not needed in test code.
-#pragma warning disable CA2007
-// CA1849: Synchronous file I/O is appropriate in tests.
-#pragma warning disable CA1849
-// CA1859: Interface-typed variables are intentional — tests verify interface-based usage.
-#pragma warning disable CA1859
 
 using ModernLibs.FileHelpers.Fuzz.Tests;
 using TUnit.Core;

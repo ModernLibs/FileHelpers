@@ -128,7 +128,7 @@ Running in-process has costs, which every result has to live with:
 | `FixedWidthParseBenchmarks` | Fixed-width reads, class versus struct records | CsvHelper | 10K, 100K |
 | `OptimizedParseBenchmarks` | `ReadFile`, `ReadString`, `ReadSpan` and their callback and async variants | - | 10K, 100K |
 | `AsyncStreamingBenchmarks` | `MultiRecordAsyncEngine.ReadAsync` versus `MultiRecordEngine.ReadFile`, with and without cancellation | - | 10K, 100K |
-| `EngineAsyncBenchmarks` | `FileHelperEngine<T>.ReadAsync(path)` and `ReadFileAsync(path, callback)` on the 25-column file, and `ReadAsync(path)` with a conversion error in every 100th row (`ErrorMode.SaveAndContinue`), and `WriteStreamAsync` of the records to `Stream.Null`, for the runtime-async A/B | - | 10K, 100K |
+| `EngineAsyncBenchmarks` | `FileHelperEngine<T>.ReadAsync(path)` and `ReadFileAsync(path, callback)` on the 25-column file, and `ReadAsync(path)` with a conversion error in every 100th row (`ErrorMode.SaveAndContinue`), `ReadAsync(Stream)` and `ReadAsync(TextReader)` of the file held in memory, `WriteStreamAsync` of the records to `Stream.Null`, and `WriteStreamAsync` with a source that throws after 3 records (`Rows / 100` calls per invocation); the last four use 4.10-only API; for the runtime-async A/B | - | 10K, 100K |
 | `R6UpperBoundBenchmarks` | Gate R6: quoted parse-and-discard with the generated descriptor and with a descriptor that takes precomputed field ends (see below) | - | 10K, 100K |
 | `G2PrototypeBenchmarks` | Gate G2: `WriteString` of the 25-column records with the generated `Format` and with a single-span `Format` (see below) | - | 100K |
 | Component classes (namespace `...Benchmarks.Components`) | Tokenizers, the scan loop shape, converter call shapes, unquoting, string creation and one-record `Format` (see below) | - | fixed per class |
@@ -260,7 +260,13 @@ classes are not part of an AOT run.
 
 `EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null` writes the 25-column dataset's records (read once in its own
 setup) with `FileHelperEngine<T>.WriteStreamAsync` to `Stream.Null`; the setup checks one call's output length on a
-`MemoryStream` and runs no other benchmark path.
+`MemoryStream` and runs no other benchmark path. `Engine_WriteStreamAsync_Null_SourceThrows` is its exception-path
+twin: `Rows / 100` calls per invocation, each over a source that yields 3 records and then throws, each exception
+caught (the write path has no per-record error mode). Its setup checks one call's output (preamble and the 3 records),
+that `TotalRecords` is 0 and that the invocation caught `Rows / 100`. `Engine_ReadAsync_Stream` and
+`Engine_ReadAsync_TextReader` read the same file from memory with `ReadAsync(Stream)` and `ReadAsync(TextReader)`.
+These four methods (with `Engine_WriteStreamAsync_Null`) use 4.10-only API: they exist only in the 4.10
+configurations, with no 4.9.x baseline.
 
 ## Configurations and A/B runs
 

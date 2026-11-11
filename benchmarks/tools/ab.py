@@ -272,11 +272,20 @@ def launch_policy(launches, smoke):
     return not smoke
 
 
-def table_header(b4, launches):
+def b4_status(launches, smoke, allow_dirty):
+    """(b4, reason it is not B4 or None). --smoke and --allow-dirty (lead ruling R21) never give a B4 result."""
+    if smoke:
+        return (False, "smoke")
+    if allow_dirty:
+        return (False, "uncommitted changes allowed (--allow-dirty)")
+    return (launch_policy(launches, smoke), None)
+
+
+def table_header(b4, launches, reason="smoke"):
     """First line of the printed result table."""
     if b4:
         return "# B4 result: %d launches per side, 99.9 %% interval, 3 %% floor" % launches
-    return "# smoke, not B4: %d launches per side; no verdict below is a B4 result" % launches
+    return "# %s, not B4: %d launches per side; no verdict below is a B4 result" % (reason, launches)
 
 
 def check_bdn_args(bdn_args):
@@ -391,7 +400,8 @@ def main(argv):
     a_dir = os.path.abspath(args.a)
     b_dir = os.path.abspath(args.b)
     try:
-        b4 = launch_policy(args.launches, args.smoke)
+        launch_policy(args.launches, args.smoke)
+        b4, not_b4_reason = b4_status(args.launches, args.smoke, args.allow_dirty)
         check_bdn_args(bdn_args)
         expected = {"a": expected_variant(a_dir, args.expect_a), "b": expected_variant(b_dir, args.expect_b)}
         variant_warnings = check_variant_files(_variant(a_dir), _variant(b_dir), args.allow_dirty)
@@ -412,6 +422,7 @@ def main(argv):
                      _process_launcher(bdn_args, expected, startups, hashes), work_dir)
     document = {
         "b4": b4,
+        "not_b4_reason": not_b4_reason,
         "warnings": variant_warnings,
         "rule": {
             "ratio": "median(B) / median(A) of the per-launch medians; below 1.0 means B is faster",
@@ -433,7 +444,7 @@ def main(argv):
         json.dump(document, f, indent=2)
         f.write("\n")
 
-    print(table_header(b4, args.launches))
+    print(table_header(b4, args.launches, not_b4_reason))
     for r in results:
         print("%-90s %.4f [%.4f, %.4f] %s" % (r["name"], r["median_ratio"], r["ci_low"], r["ci_high"], r["verdict"]))
     if document["only_in_a"] or document["only_in_b"]:

@@ -175,6 +175,17 @@ class RunnerTests(unittest.TestCase):
         self.assertIn("smoke, not B4", ab.table_header(b4=False, launches=5))
         self.assertNotIn("smoke", ab.table_header(b4=True, launches=7))
 
+    def test_allow_dirty_is_never_b4(self):
+        # Lead ruling R21: --allow-dirty forces "b4": false, also with 7 launches and without --smoke.
+        b4, reason = ab.b4_status(7, smoke=False, allow_dirty=True)
+        self.assertFalse(b4)
+        self.assertIn("uncommitted changes", reason)
+        header = ab.table_header(b4=False, launches=7, reason=reason)
+        self.assertIn("not B4", header)
+        self.assertIn("uncommitted changes", header)
+        self.assertEqual(ab.b4_status(7, smoke=False, allow_dirty=False), (True, None))
+        self.assertFalse(ab.b4_status(5, smoke=True, allow_dirty=True)[0])
+
     def test_options_that_measure_nothing_cannot_be_passed_to_benchmarkdotnet(self):
         for bad in (["--list", "flat"], ["--help"], ["-h"], ["--info"], ["--version"], ["--filter", "*"],
                     ["--artifacts", "x"]):

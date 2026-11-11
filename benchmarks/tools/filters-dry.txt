@@ -1,0 +1,12 @@
+# Narrow filter file for a local dry run of round.sh (T12): one or two methods per class, every pair at least once,
+# and one glob that selects nothing yet (Engine_WriteStreamAsync_Null, after T43) to show the "not run" path.
+# Format: see filters-step0.txt. A dry run is a smoke check of the script and the report, never evidence (D1).
+
+quoted     free-gains,sdk-net10,sdk-net11,ra,v410-net10         *QuotedFieldsBenchmarks.FileHelpers_ParseAndDiscard
+async      free-gains,ra,ra-control,v410-net10                  *EngineAsyncBenchmarks.Engine_ReadAsync_Path
+async      ra,v410-net10                                        *EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null
+control    free-gains,ra,v410-net10                             *FixedWidthParseBenchmarks.SliceAllFields_SpanSlicer
+component  runtime-410                                          *Components.UnquoteBenchmarks*
+component  runtime-410                                          *Components.VectorLoopShapeBenchmarks*
+prototype  v410-net10,v410-net11                                *Prototypes.R6UpperBoundBenchmarks*
+prototype  v410-net10,v410-net11                                *Prototypes.G2PrototypeBenchmarks*

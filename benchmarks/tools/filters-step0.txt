@@ -1,0 +1,78 @@
+# Step 0 filter file for benchmarks/tools/round.sh (T12). One benchmark glob per line:
+#
+#   <group> <pairs> <glob>
+#
+# <group>  the report table the results go into (round-report.py): read25, quoted, read-other, fixed, write, async,
+#          exception, control, component, prototype
+# <pairs>  the A/B pairs of round.sh that run the glob, comma-separated ("all" means every pair):
+#          free-gains   pkg-net10 -> pkg-net11                     4.9.1 on .NET 10 against .NET 11
+#          sdk-net10    pkg-net10 -> control-net10                 compiler and SDK effect, .NET 10
+#          sdk-net11    pkg-net11 -> control-net11-ra-on           compiler and SDK effect, .NET 11
+#          ra-control   control-net11-ra-off -> control-net11-ra-on  runtime async on the 4.9.1 source
+#          v410-net10   pkg-net10 -> net10                         4.10 build against the package, .NET 10
+#          v410-net11   pkg-net11 -> net11-ra-on                   the same on .NET 11
+#          ra           net11-ra-off -> net11-ra-on                runtime async (D6)
+#          runtime-410  net10 -> net11-ra-on                       the 4.10 build on .NET 10 against .NET 11
+# <glob>   a BenchmarkDotNet --filter glob, passed to ab.py as it stands. Each line is one ab.py run per pair, so
+#          the methods one glob selects are interleaved with each other (the gates compare methods of one run).
+#
+# A glob that selects nothing in one of the two builds of a pair is skipped and reported as "not run"
+# (Engine_WriteStreamAsync_Null exists only after T43). Lines starting with # and blank lines are ignored.
+# The methods and their Rows are listed in BENCHMARKS.md ("What is measured").
+
+# 25-column delimited read (PackageAssets): parse-and-discard is the primary metric (B2), ReadFile the array read
+read25     free-gains,sdk-net10,sdk-net11,ra,v410-net10         *DelimitedParseBenchmarks.FileHelpers_ParseAndDiscard
+read25     ra,v410-net10                                        *OptimizedParseBenchmarks.ReadFile
+
+# Quoted reads
+quoted     free-gains,sdk-net10,sdk-net11,ra,v410-net10         *QuotedFieldsBenchmarks.FileHelpers_ParseAndDiscard
+quoted     ra,v410-net10                                        *QuotedFieldsBenchmarks.ReadAllRows_FileHelpers
+quoted     ra,v410-net10                                        *QuotedFieldsPeriodicBenchmarks.FileHelpers_ParseAndDiscard
+quoted     ra,v410-net10                                        *SparseQuoteBenchmarks.ReadFile_ParseAndDiscard
+quoted     ra,v410-net10                                        *MultilineBenchmarks.ReadFile_ParseAndDiscard
+
+# Other plain reads
+read-other ra,v410-net10                                        *LongLineBenchmarks.ReadFile_ParseAndDiscard
+read-other ra,v410-net10                                        *WideRecordBenchmarks.ReadFile_ParseAndDiscard
+
+# Fixed-width reads
+fixed      free-gains,sdk-net10,sdk-net11,ra,v410-net10         *FixedWidthParseBenchmarks.FileHelpers_ParseAndDiscard
+fixed      free-gains,sdk-net10,sdk-net11,ra,v410-net10         *FixedWidthParseBenchmarks.ReadAllRows_Struct
+fixed      ra,v410-net10                                        *FixedWidthParseBenchmarks.ReadAllRows_Class
+
+# Writes
+write      free-gains,sdk-net10,sdk-net11,ra,v410-net10         *WriteBenchmarks.WriteString_FileHelpers
+write      ra,v410-net10                                        *WriteBenchmarks.WriteFile_FileHelpers
+write      free-gains,sdk-net10,sdk-net11,ra,v410-net10         *QuotedWriteBenchmarks.WriteString
+write      ra,v410-net10                                        *QuotedWriteBenchmarks.WriteStream_Null
+write      ra,v410-net10                                        *FixedWidthWriteBenchmarks.WriteString
+write      ra,v410-net10                                        *FixedWidthWriteBenchmarks.WriteStream_Null
+
+# Async (runtime async changes only these method bodies)
+async      free-gains,sdk-net10,sdk-net11,ra,v410-net10,ra-control *EngineAsyncBenchmarks.Engine_ReadAsync_Path
+async      ra,ra-control,v410-net10                             *EngineAsyncBenchmarks.Engine_ReadFileAsync_Callback
+async      ra,ra-control,v410-net10                             *AsyncStreamingBenchmarks.ReadAsync_MultiRecord
+async      ra,ra-control,v410-net10                             *OptimizedParseBenchmarks.ReadFileAsync_Callback_ProcessAndDiscard
+async      ra,ra-control,v410-net10                             *EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null
+
+# Exception path: a conversion error in every 100th row, ErrorMode.SaveAndContinue
+exception  ra,ra-control,v410-net10                             *EngineAsyncBenchmarks.Engine_ReadAsync_Path_ExceptionEvery100
+
+# Controls: code that is the same in every build, so their ratios show the noise of a pair.
+# CsvHelper is also the reference of the slope question (10K to 100K rows).
+control    free-gains,sdk-net10,sdk-net11,ra,v410-net10         *DelimitedParseBenchmarks.Sylvan_ParseAndDiscard
+control    ra,v410-net10                                        *DelimitedParseBenchmarks.CsvHelper_ParseAndDiscard
+control    free-gains,sdk-net10,sdk-net11,ra,v410-net10         *FixedWidthParseBenchmarks.SliceAllFields_SpanSlicer
+
+# Component benchmarks (B3, coding-pattern choices of design 2.5): the 4.10 build on both runtimes
+component  runtime-410                                          *Components.TokenizerBenchmarks*
+component  runtime-410                                          *Components.VectorLoopShapeBenchmarks*
+component  runtime-410                                          *Components.ConverterCallShapeBenchmarks*
+component  runtime-410                                          *Components.UnquoteBenchmarks*
+component  runtime-410                                          *Components.CreateStringBenchmarks*
+component  runtime-410                                          *Components.FormatOneRecordBenchmarks*
+
+# Gate prototypes: R6 and G2 are decided inside one 4.10 build (net10 in v410-net10, net11-ra-on in v410-net11);
+# the A side of those pairs puts R6_Current next to the same method on the 4.9.1 package
+prototype  v410-net10,v410-net11                                *Prototypes.R6UpperBoundBenchmarks*
+prototype  v410-net10,v410-net11                                *Prototypes.G2PrototypeBenchmarks*

@@ -116,7 +116,7 @@ public sealed class AsyncStreamTests
         var actual = await Collect(engine.ReadAsync(stream));
 
         await AssertSame(actual, expected);
-        await Assert.That(engine.HeaderText).IsEqualTo(Header);
+        await Assert.That(engine.HeaderText).IsEqualTo(Header + Environment.NewLine);
         await Assert.That(engine.TotalRecords).IsEqualTo(5000);
         await Assert.That(engine.LineNumber).IsEqualTo(5001);
         await Assert.That(stream.SyncCalls).IsEqualTo(0);
@@ -133,7 +133,7 @@ public sealed class AsyncStreamTests
         var actual = await Collect(engine.ReadAsync(reader));
 
         await AssertSame(actual, expected);
-        await Assert.That(engine.HeaderText).IsEqualTo(Header);
+        await Assert.That(engine.HeaderText).IsEqualTo(Header + Environment.NewLine);
         await Assert.That(engine.TotalRecords).IsEqualTo(5000);
         await Assert.That(engine.LineNumber).IsEqualTo(5001);
         await Assert.That(reader.Peek()).IsEqualTo(-1); // not disposed: Peek would throw ObjectDisposedException

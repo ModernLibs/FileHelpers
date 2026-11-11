@@ -165,7 +165,7 @@ public sealed class QuickStartStreamingTests
 
         // Assert: Header skipped, 2 records parsed
         await Assert.That(records.Count).IsEqualTo(2);
-        await Assert.That(engine.HeaderText).IsEqualTo("Name,Age,Country");
+        await Assert.That(engine.HeaderText).IsEqualTo("Name,Age,Country" + Environment.NewLine);
     }
 
     /// <summary>

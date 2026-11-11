@@ -73,15 +73,24 @@ file.
 
 ### Changed
 
-- **`NewLineForWrite` defaults to `Environment.NewLine`, as in FileHelpers 3.x.** This is a behaviour
-  change on Linux and macOS relative to 4.8-4.9.1: the engines now write `"\n"` there, where 4.8.0 to
-  4.9.1 wrote `"\r\n"` on every platform. Windows output is unchanged. Set `NewLineForWrite = "\r\n"` to
-  keep 4.9.1 output. It applies to `FileHelperEngine<T>`, `FileHelperAsyncEngine<T>`, `MultiRecordEngine`
-  and `MasterDetailEngine`, and to every write path: `WriteString`, `WriteStream`, `WriteStreamAsync`,
-  `WriteFile`, `AppendToFile`, `BeginWrite*`/`BeginAppendFile`, the header and footer, and the line break
-  inside `[FieldInNewLine]` records. Reading is unchanged: multi-line `HeaderText`/`FooterText` read joins
-  stay `"\r\n"` unless `NewLineForWrite` is set, unchanged from 4.9.1. See the
-  [migration guide](docs/MIGRATION.md#32-line-endings-and-empty-headerfooter).
+- **Newline, header text and footer text follow FileHelpers 3.x (3.5.2).**
+  - `NewLineForWrite` defaults to `Environment.NewLine`. This is a behaviour change on Linux and macOS
+    relative to 4.8-4.9.1: the engines now write `"\n"` there, where 4.8.0 to 4.9.1 wrote `"\r\n"` on
+    every platform. Windows output is unchanged. Set `NewLineForWrite = "\r\n"` to keep 4.9.1 output.
+  - The default applies to `FileHelperEngine<T>`, `FileHelperAsyncEngine<T>`, `MultiRecordEngine` and
+    `MasterDetailEngine`. It covers every write path: `WriteString`, `WriteStream`, `WriteStreamAsync`,
+    `WriteFile`, `AppendToFile`, `BeginWrite*`/`BeginAppendFile`, the header and footer, and the line
+    break inside `[FieldInNewLine]` records.
+  - `HeaderText` and `FooterText` read from `[IgnoreFirst]`/`[IgnoreLast]` lines end every line with
+    `Environment.NewLine`, the last one included, whatever `NewLineForWrite` is. 4.9.1 joined them with
+    `NewLineForWrite` and added no final line break: `"h1\r\nh2"` is now `"h1\nh2\n"` on Linux and
+    `"h1\r\nh2\r\n"` on Windows.
+  - `HeaderText` and `FooterText` are `""` instead of `null` on a new engine, at the start of a read, and
+    when there is no header or footer (also after a streaming read that stops early).
+  - A header or footer that already ends with `Environment.NewLine` is written as is. A header read
+    from a file and written back gains no empty line.
+  - The members keep their `string?` type, so there is no API change. See the
+    [migration guide](docs/MIGRATION.md#32-line-endings-and-empty-headerfooter).
 - **`ReadStream(null)` and `ReadStream(null, n)` on `FileHelperEngine<T>` and `IFileHelperEngine<T>` are
   now ambiguous** between the `TextReader` and the `Stream` overload and no longer compile. Cast the
   argument: `ReadStream((TextReader)null!)`.

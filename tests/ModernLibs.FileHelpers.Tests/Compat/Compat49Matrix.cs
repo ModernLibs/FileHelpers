@@ -124,7 +124,15 @@ internal static class Compat49Matrix
         Run(text, string.Empty, () =>
         {
             var records = engine.ReadString(input);
+
+            // Write back with the header/footer in the form 4.9.1 read them (T49, Ruling R41), then restore them.
+            string? header = engine.HeaderText;
+            string? footer = engine.FooterText;
+            engine.HeaderText = As491(header);
+            engine.FooterText = As491(footer);
             Line(text, "written:", Escape(engine.WriteString(records)));
+            engine.HeaderText = header;
+            engine.FooterText = footer;
         });
         AppendState(text, string.Empty, engine);
 
@@ -135,6 +143,24 @@ internal static class Compat49Matrix
         }
 
         return Canonical(text, typeof(T));
+    }
+
+    /// <summary>
+    /// <c>HeaderText</c>/<c>FooterText</c> in the form 4.9.1 gave them, which the Golden49 files hold (they are never
+    /// edited). Since T49 (Ruling R41) the engine follows FileHelpers 3.5.2: <c>""</c> instead of
+    /// <see langword="null"/>, and each captured line followed by <see cref="Environment.NewLine"/> instead of lines
+    /// joined with <c>"\r\n"</c>. The mapping is exact: any other form (a <see langword="null"/>, or a non-empty text
+    /// that does not end with <see cref="Environment.NewLine"/>) gives a marker that cannot match a golden line.
+    /// </summary>
+    private static string? As491(string? text)
+    {
+        if (text is null)
+            return "<unexpected null in 4.10>";
+        if (text.Length == 0)
+            return null;
+        if (!text.EndsWith(Environment.NewLine, StringComparison.Ordinal))
+            return "<not the 3.x form>" + text;
+        return text[..^Environment.NewLine.Length].Replace(Environment.NewLine, "\r\n", StringComparison.Ordinal);
     }
 
     /// <summary>Runs <paramref name="action"/>; an exception becomes a <c>{prefix}throw:type:message</c> line.</summary>
@@ -159,8 +185,8 @@ internal static class Compat49Matrix
                 Escape(e.ExceptionInfo?.Message) + ":" + Escape(e.RecordString));
         }
 
-        Line(text, prefix + "header:", Escape(engine.HeaderText));
-        Line(text, prefix + "footer:", Escape(engine.FooterText));
+        Line(text, prefix + "header:", Escape(As491(engine.HeaderText)));
+        Line(text, prefix + "footer:", Escape(As491(engine.FooterText)));
         Line(text, prefix + "line:", engine.LineNumber.ToString(CultureInfo.InvariantCulture));
         Line(text, prefix + "total:", engine.TotalRecords.ToString(CultureInfo.InvariantCulture));
     }

@@ -96,7 +96,7 @@ public sealed class MaxRecordsCapacityTests
         // Assert
         await Assert.That(records.Length).IsEqualTo(1);
         await Assert.That(records[0].Id).IsEqualTo(1);
-        await Assert.That(engine.HeaderText).IsEqualTo("id,name");
-        await Assert.That(engine.FooterText).IsEqualTo("total,10");
+        await Assert.That(engine.HeaderText).IsEqualTo("id,name" + Environment.NewLine);
+        await Assert.That(engine.FooterText).IsEqualTo("total,10" + Environment.NewLine);
     }
 }

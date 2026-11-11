@@ -75,7 +75,7 @@ public sealed class ListReadTests
             await AssertSameRecords(b.ReadFileAsList(path), a.ReadFile(path), key);
             await AssertSameState(b, a);
 
-            await Assert.That(b.FooterText).IsEqualTo("total");
+            await Assert.That(b.FooterText).IsEqualTo("total" + Environment.NewLine);
             await Assert.That(b.TotalRecords).IsEqualTo(3);
         }
         finally
@@ -130,7 +130,7 @@ public sealed class ListReadTests
         await Assert.That(list.Count).IsEqualTo(3);
         await Assert.That(engine.HeaderText).IsNotNull();
         await Assert.That(engine.HeaderText!.TrimEnd('\r', '\n')).IsEqualTo("id,name");
-        await Assert.That(engine.FooterText).IsEqualTo("total");
+        await Assert.That(engine.FooterText).IsEqualTo("total" + Environment.NewLine);
     }
 
     [Test]
@@ -205,6 +205,6 @@ public sealed class ListReadTests
         IFileHelperEngine<FooteredRecord> engine = new FileHelperEngine<FooteredRecord>();
         var list = engine.ReadStringAsList(Csv, 2);
         await Assert.That(list.Count).IsEqualTo(2);
-        await Assert.That(engine.FooterText).IsEqualTo("total");
+        await Assert.That(engine.FooterText).IsEqualTo("total" + Environment.NewLine);
     }
 }

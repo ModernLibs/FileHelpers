@@ -132,7 +132,7 @@ public sealed class ReadCoreAllocationTests
 
         // Assert: the ring reuses its buffers (no per-line string)
         await Assert.That(largeBytes - smallBytes).IsLessThan(1024L);
-        await Assert.That(engine.FooterText).IsEqualTo("9999,19998");
+        await Assert.That(engine.FooterText).IsEqualTo("9999,19998" + Environment.NewLine);
         await Assert.That(sum).IsGreaterThan(0L);
     }
 

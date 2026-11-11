@@ -8,7 +8,10 @@ internal static class WriteFraming
 {
     /// <summary>
     /// Writes a header or footer: nothing when <paramref name="text"/> is null or empty; otherwise the text,
-    /// followed by <paramref name="newLine"/> unless it already ends with it.
+    /// followed by <paramref name="newLine"/> unless it already ends with it (3.x) or with
+    /// <see cref="Environment.NewLine"/>. The second case is not in 3.x: there a header or footer read from a
+    /// file (whose lines end with <see cref="Environment.NewLine"/>) and written back with a different
+    /// <c>NewLineForWrite</c> gained an empty line.
     /// </summary>
     public static void WriteFrame(TextWriter writer, string? text, string newLine)
     {
@@ -16,7 +19,7 @@ internal static class WriteFraming
             return;
 
         writer.Write(text);
-        if (!text.EndsWith(newLine, StringComparison.Ordinal))
+        if (!IsTerminated(text, newLine))
             writer.Write(newLine);
     }
 
@@ -27,9 +30,12 @@ internal static class WriteFraming
             return;
 
         buffer.Write(text.AsSpan());
-        if (!text.EndsWith(newLine, StringComparison.Ordinal))
+        if (!IsTerminated(text, newLine))
             buffer.Write(newLine.AsSpan());
     }
+
+    private static bool IsTerminated(string text, string newLine) =>
+        text.EndsWith(newLine, StringComparison.Ordinal) || text.EndsWith(Environment.NewLine, StringComparison.Ordinal);
 
     /// <summary>
     /// Opens <paramref name="filePath"/> for appending. When the existing content does not end with a line

@@ -367,10 +367,17 @@ var engine = new FileHelperEngine<Customer>(Encoding.GetEncoding(1252));
 - From 4.8.0 to 4.9.1, `NewLineForWrite` defaulted to `"\r\n"` on every platform. From 4.10 on, the
   output on Linux and macOS uses `"\n"` unless you set `NewLineForWrite = "\r\n"`; Windows output is
   unchanged.
-- Multi-line `HeaderText`/`FooterText` read joins stay `"\r\n"` unless `NewLineForWrite` is set,
-  unchanged from 4.9.1.
-- `HeaderText` and `FooterText` are `null` when there is no header or footer. In 3.x they were empty
-  strings, so code like `engine.HeaderText.Length` needs a null check.
+- `HeaderText` and `FooterText` hold the `[IgnoreFirst]`/`[IgnoreLast]` lines as in 3.x: each line is
+  followed by `Environment.NewLine`, the last one included, whatever the input's line endings and
+  `NewLineForWrite` are. `[IgnoreFirst(2)]` on `h1\r\nh2\r\n...` gives `"h1\nh2\n"` on Linux and
+  `"h1\r\nh2\r\n"` on Windows. 4.8.0 to 4.9.1 joined the lines with `NewLineForWrite` and added no final
+  line break.
+- `HeaderText` and `FooterText` are `""` (not `null`) on a new engine, at the start of each read, and
+  when there is no header or footer, as in 3.x. 4.8.0 to 4.9.1 returned `null` in these cases.
+- When you write, `NewLineForWrite` follows a non-empty `HeaderText`/`FooterText` unless the text
+  already ends with it, as in 3.x, or with `Environment.NewLine`. So a header read from a file and
+  written back never gains an empty line, also with `NewLineForWrite = "\r\n"` on Linux, where 3.x
+  wrote one.
 
 ### 3.3 Empty fields and conversion errors
 
@@ -469,7 +476,8 @@ same); the build reports this as `MLFH029`.
 
 `FooterText` (from `[IgnoreLast]`) is set when a read reaches the end of the input. If you stop a
 streaming read early, for example by calling `Close()` on `FileHelperAsyncEngine<T>` before the last
-record or by leaving a `ReadSync` / `ReadAsync` loop, `FooterText` stays `null`.
+record or by leaving a `ReadSync` / `ReadAsync` loop, `FooterText` stays `""` (3.x gives `""` too
+when `Close()` is called early).
 
 ### 3.8 Custom converters
 

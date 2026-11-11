@@ -157,7 +157,7 @@ public sealed class AsyncEngineSessionTests
 
         // Assert: the bad line fails once, later records and the footer are intact
         await Assert.That(string.Join(",", got)).IsEqualTo("1,error,3,4,end,end");
-        await Assert.That(engine.FooterText).IsEqualTo("F1\r\nF2");
+        await Assert.That(engine.FooterText).IsEqualTo($"F1{Environment.NewLine}F2{Environment.NewLine}");
     }
 
     [Test]

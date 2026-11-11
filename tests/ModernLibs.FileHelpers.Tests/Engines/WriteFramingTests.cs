@@ -41,7 +41,7 @@ public sealed class WriteFramingTests
 
         // Assert: only the record was appended
         await Assert.That(content).IsEqualTo("HEAD\r\n1,a\r\nFOOT\r\n2,b\r\n");
-        await Assert.That(engine.HeaderText).IsNull();
+        await Assert.That(engine.HeaderText).IsEqualTo(string.Empty);
     }
 
     [Test]

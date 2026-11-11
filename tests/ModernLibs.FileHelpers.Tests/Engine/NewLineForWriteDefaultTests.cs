@@ -26,7 +26,7 @@ public sealed class NlRecord
     [FieldOrder(2)] public string Name { get; set; } = string.Empty;
 }
 
-/// <summary>Two header and two footer lines: the read side joins them into HeaderText/FooterText.</summary>
+/// <summary>Two header and two footer lines, captured into HeaderText/FooterText on read.</summary>
 [DelimitedRecord(",")]
 [IgnoreFirst(2)]
 [IgnoreLast(2)]
@@ -45,10 +45,9 @@ public sealed class NlInNewLine
 }
 
 /// <summary>
-/// T49 (owner decision, Ruling R39/R40): <c>NewLineForWrite</c> defaults to <see cref="Environment.NewLine"/>
+/// T49 (owner decision, Rulings R39/R41): <c>NewLineForWrite</c> defaults to <see cref="Environment.NewLine"/>
 /// on every engine, as in FileHelpers 3.5.2, so every write path uses it by default; an explicit <c>"\r\n"</c>
-/// still gives the 4.8-4.9.1 bytes. The read side is unchanged from 4.9.1: multi-line HeaderText/FooterText are
-/// joined with <c>"\r\n"</c> unless <c>NewLineForWrite</c> was set explicitly.
+/// still gives the 4.8-4.9.1 bytes. Header and footer text on read: <see cref="HeaderFooterText3xTests"/>.
 /// </summary>
 [Category("Write")]
 public sealed class NewLineForWriteDefaultTests
@@ -66,8 +65,6 @@ public sealed class NewLineForWriteDefaultTests
         new MultiAsyncHeader { Kind = "H", Batch = "B1" },
         new MultiAsyncDetail { Kind = "D", Id = 1, Amount = 2.5m },
     ];
-
-    private const string FramedInput = "h1\nh2\n1,a\n2,b\nf1\nf2\n";
 
     private static MultiRecordEngine NewMultiRecordEngine() => new(
         MultiRecordType.For<MultiAsyncHeader>(line => line.StartsWith("H|", StringComparison.Ordinal)),
@@ -291,78 +288,5 @@ public sealed class NewLineForWriteDefaultTests
         await Assert.That(inNewLine).IsEqualTo("1,\r\na\r\n");
         await Assert.That(multi.WriteString(s_mixed)).IsEqualTo("H|B1\r\nD|1|2.5\r\n");
         await Assert.That(masterDetail.WriteString(Groups())).IsEqualTo("M|A\r\nD|A|2\r\n");
-    }
-
-    // ---- Read side: unchanged from 4.9.1 (Ruling R40) ------------------------------------
-
-    [Test]
-    [DisplayName("Read: multi-line HeaderText/FooterText are joined with \\r\\n by default on every OS (4.9.1)")]
-    public async Task Read_DefaultJoin_IsCrLf()
-    {
-        // Arrange
-        var engine = new FileHelperEngine<NlFramed>();
-        using var asyncEngine = new FileHelperAsyncEngine<NlFramed>();
-
-        // Act: array read and async-engine session
-        var records = engine.ReadString(FramedInput);
-        asyncEngine.BeginReadString(FramedInput);
-        while (asyncEngine.ReadNext() is not null)
-        {
-        }
-
-        // Assert
-        await Assert.That(records.Length).IsEqualTo(2);
-        await Assert.That(engine.HeaderText).IsEqualTo("h1\r\nh2");
-        await Assert.That(engine.FooterText).IsEqualTo("f1\r\nf2");
-        await Assert.That(asyncEngine.HeaderText).IsEqualTo("h1\r\nh2");
-        await Assert.That(asyncEngine.FooterText).IsEqualTo("f1\r\nf2");
-    }
-
-    [Test]
-    [DisplayName("Read: an explicit NewLineForWrite = \"\\n\" joins HeaderText/FooterText with \\n (4.9.1)")]
-    public async Task Read_ExplicitLf_JoinsWithLf()
-    {
-        // Arrange
-        var engine = new FileHelperEngine<NlFramed> { NewLineForWrite = "\n" };
-        using var asyncEngine = new FileHelperAsyncEngine<NlFramed> { NewLineForWrite = "\n" };
-
-        // Act
-        engine.ReadString(FramedInput);
-        asyncEngine.BeginReadString(FramedInput);
-        while (asyncEngine.ReadNext() is not null)
-        {
-        }
-
-        // Assert
-        await Assert.That(engine.HeaderText).IsEqualTo("h1\nh2");
-        await Assert.That(engine.FooterText).IsEqualTo("f1\nf2");
-        await Assert.That(asyncEngine.HeaderText).IsEqualTo("h1\nh2");
-        await Assert.That(asyncEngine.FooterText).IsEqualTo("f1\nf2");
-    }
-
-    [Test]
-    [DisplayName("Read: ParallelReadString joins HeaderText/FooterText like ReadString (\\r\\n default, explicit \\n)")]
-    public async Task ParallelRead_Join_MatchesReadString()
-    {
-        // Arrange: input large enough to be split into chunks (at least two 64 K chunks)
-        var sb = new StringBuilder("h1\nh2\n");
-        for (int i = 0; i < 30_000; i++)
-            sb.Append(i).Append(",name\n");
-        sb.Append("f1\nf2\n");
-        string input = sb.ToString();
-        var byDefault = new FileHelperEngine<NlFramed>();
-        var explicitLf = new FileHelperEngine<NlFramed> { NewLineForWrite = "\n" };
-
-        // Act
-        var defaultRecords = byDefault.ParallelReadString(input, 64 * 1024);
-        var lfRecords = explicitLf.ParallelReadString(input, 64 * 1024);
-
-        // Assert
-        await Assert.That(defaultRecords.Length).IsEqualTo(30_000);
-        await Assert.That(byDefault.HeaderText).IsEqualTo("h1\r\nh2");
-        await Assert.That(byDefault.FooterText).IsEqualTo("f1\r\nf2");
-        await Assert.That(lfRecords.Length).IsEqualTo(30_000);
-        await Assert.That(explicitLf.HeaderText).IsEqualTo("h1\nh2");
-        await Assert.That(explicitLf.FooterText).IsEqualTo("f1\nf2");
     }
 }

@@ -42,7 +42,6 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     private readonly IRecordDescriptor<T> _descriptor;
     private readonly RecordReadCore<T> _core;
     private readonly bool _implementsNotifyWrite;   // T implements INotifyWrite<T>
-    private string? _newLineForWrite;               // set through NewLineForWrite; null = never set (Environment.NewLine)
 
     /// <summary>
     /// Creates an engine instance backed by the source-generated descriptor for <typeparamref name="T"/>.
@@ -90,14 +89,15 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     public int TotalRecords { get; private set; }
 
     /// <summary>
-    /// Header captured from the leading <see cref="IgnoreFirstAttribute"/> lines (original text, joined with
-    /// <see cref="NewLineForWrite"/> when it was set, else <c>"\r\n"</c>) during the most recent read.
-    /// <see langword="null"/> when <see cref="IgnoreFirstAttribute"/> is not set or the input had no lines.
+    /// Header captured from the leading <see cref="IgnoreFirstAttribute"/> lines during the most recent read, as in
+    /// FileHelpers 3.x: each line (original text) followed by <see cref="Environment.NewLine"/>, the last one
+    /// included. Empty (<c>""</c>) after construction, at the start of each read, and when
+    /// <see cref="IgnoreFirstAttribute"/> is not set or the input had no lines.
     /// Setting this property emits it before the records in <see cref="WriteString"/>, <see cref="WriteStream"/> and
-    /// <see cref="WriteFile"/> (when non-empty; <see cref="NewLineForWrite"/> is added unless it already ends with it);
-    /// ignored by <c>AppendToFile</c>.
+    /// <see cref="WriteFile"/> (when non-empty; <see cref="NewLineForWrite"/> is added unless it already ends with
+    /// it or with <see cref="Environment.NewLine"/>); ignored by <c>AppendToFile</c>.
     /// </summary>
-    public string? HeaderText { get; set; }
+    public string? HeaderText { get; set; } = string.Empty;
 
     /// <summary>
     /// Builds the header line FileHelpers 3.x <c>GetFileHeader()</c> returns: the caption (<c>[FieldCaption]</c>,
@@ -108,41 +108,24 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     public string GetFileHeader() => FileHeaderBuilder.Build(_descriptor);
 
     /// <summary>
-    /// Footer captured from the trailing <see cref="IgnoreLastAttribute"/> lines (original text, joined with
-    /// <see cref="NewLineForWrite"/> when it was set, else <c>"\r\n"</c>) during the most recent read.
-    /// <see langword="null"/> when <see cref="IgnoreLastAttribute"/> is not set, the input had no footer lines, or a
-    /// streaming read stopped before the end of the input.
+    /// Footer captured from the trailing <see cref="IgnoreLastAttribute"/> lines during the most recent read, as in
+    /// FileHelpers 3.x: each line (original text) followed by <see cref="Environment.NewLine"/>, the last one
+    /// included. Empty (<c>""</c>) after construction, at the start of each read, when
+    /// <see cref="IgnoreLastAttribute"/> is not set or the input had no footer lines, and when a streaming read
+    /// stopped before the end of the input.
     /// Setting this property emits it after the records in <see cref="WriteString"/>, <see cref="WriteStream"/> and
-    /// <see cref="WriteFile"/> (when non-empty; <see cref="NewLineForWrite"/> is added unless it already ends with it);
-    /// ignored by <c>AppendToFile</c>.
+    /// <see cref="WriteFile"/> (when non-empty; <see cref="NewLineForWrite"/> is added unless it already ends with
+    /// it or with <see cref="Environment.NewLine"/>); ignored by <c>AppendToFile</c>.
     /// </summary>
-    public string? FooterText { get; set; }
+    public string? FooterText { get; set; } = string.Empty;
 
     /// <summary>
     /// Line terminator written after the header, each record and the footer, and inside records with
     /// <see cref="FieldInNewLineAttribute"/> fields. Defaults to <see cref="Environment.NewLine"/> (<c>"\n"</c> on
     /// Linux and macOS, <c>"\r\n"</c> on Windows), as in FileHelpers 3.x; 4.8 to 4.9.1 wrote <c>"\r\n"</c> on every
-    /// platform, so set <c>"\r\n"</c> to keep that output.
-    /// When set, it also joins the lines captured into <see cref="HeaderText"/>/<see cref="FooterText"/> on read;
-    /// when never set, reads join them with <c>"\r\n"</c> on every platform (unchanged from 4.9.1).
+    /// platform, so set <c>"\r\n"</c> to keep that output. Reading does not use it.
     /// </summary>
-    public string NewLineForWrite
-    {
-        get => _newLineForWrite ?? Environment.NewLine;
-        set => _newLineForWrite = value;
-    }
-
-    /// <summary>
-    /// Separator that joins multi-line <see cref="HeaderText"/>/<see cref="FooterText"/> on read: the
-    /// <see cref="NewLineForWrite"/> the user set, else <c>"\r\n"</c> (4.9.1 read behaviour on every platform).
-    /// </summary>
-    internal string ReadJoinNewLine => _newLineForWrite ?? "\r\n";
-
-    /// <summary>
-    /// Copies an owning engine's <see cref="NewLineForWrite"/> state (<see langword="null"/> when the owner never
-    /// set it), so an unset owner leaves this engine unset too.
-    /// </summary>
-    internal void CopyNewLineForWrite(string? explicitNewLine) => _newLineForWrite = explicitNewLine;
+    public string NewLineForWrite { get; set; } = Environment.NewLine;
 
     /// <summary>
     /// Encoding used by <see cref="ReadFile(string)"/>, <see cref="WriteFile"/>, and
@@ -206,7 +189,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
         BeforeReadRecord is not null || AfterReadRecord is not null || Progress is not null || RecordReadCore<T>.HasNotifyRead;
 
     /// <summary>Publishes the outcome of a read performed outside a single session (parallel chunks).</summary>
-    internal void ApplyReadResult(int lineNumber, int totalRecords, string? headerText, string? footerText, IReadOnlyList<ErrorInfo> errors)
+    internal void ApplyReadResult(int lineNumber, int totalRecords, string headerText, string footerText, IReadOnlyList<ErrorInfo> errors)
     {
         LineNumber = lineNumber;
         TotalRecords = totalRecords;
@@ -880,10 +863,10 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     {
         LineNumber = 0;
         TotalRecords = 0;
-        HeaderText = null;
-        FooterText = null;
+        HeaderText = string.Empty;
+        FooterText = string.Empty;
         ErrorManager.ClearErrors();
-        return new RecordReadSession<T>(_core, this, this, ErrorManager, ReadJoinNewLine, maxRecords)
+        return new RecordReadSession<T>(_core, this, this, ErrorManager, maxRecords)
         {
             AllowRecycle = allowRecycle && RecycleRecords,
             KeepFooterAfterStop = keepFooterAfterStop,

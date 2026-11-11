@@ -102,7 +102,7 @@ public static class FileHelperEngineParallelExtensions
         if (!chunkable || content.Length < chunkSize * 2)
             return engine.ReadString(content);
 
-        var layout = SplitIntoChunks(content, core.Options, engine.ReadJoinNewLine, chunkSize);
+        var layout = SplitIntoChunks(content, core.Options, chunkSize);
         int totalChunks = layout.Chunks.Count;
         var results = new ChunkResult<T>[totalChunks];
         var progressGate = new Lock();
@@ -169,7 +169,7 @@ public static class FileHelperEngineParallelExtensions
     {
         var errors = new ErrorManager { ErrorMode = errorMode };
         var records = new List<T>();
-        using var session = new RecordReadSession<T>(core, engine, host: null, errors, engine.ReadJoinNewLine, maxRecords: 0, applyHeaderFooter: false, lineOffset);
+        using var session = new RecordReadSession<T>(core, engine, host: null, errors, maxRecords: 0, applyHeaderFooter: false, lineOffset);
         try
         {
             var lines = new SpanLines(chunk);
@@ -197,7 +197,7 @@ public static class FileHelperEngineParallelExtensions
     /// Splits <paramref name="content"/> into header, data chunks aligned to line boundaries (with the
     /// 1-based number of their first line) and footer.
     /// </summary>
-    private static ChunkLayout SplitIntoChunks(string content, RecordOptions options, string newLine, int chunkSize)
+    private static ChunkLayout SplitIntoChunks(string content, RecordOptions options, int chunkSize)
     {
         var span = content.AsSpan();
         int totalLines = LineSplitter.CountLines(span);
@@ -206,7 +206,7 @@ public static class FileHelperEngineParallelExtensions
         int dataLines = totalLines - headerLines - footerLines;
 
         int position = 0;
-        string? header = headerLines > 0 ? CollectLines(span, ref position, headerLines, newLine) : null;
+        string header = CollectLines(span, ref position, headerLines);
 
         var chunks = new List<Chunk>();
         int chunkStart = position;
@@ -223,19 +223,24 @@ public static class FileHelperEngineParallelExtensions
             }
         }
 
-        string? footer = footerLines > 0 ? CollectLines(span, ref position, footerLines, newLine) : null;
+        string footer = CollectLines(span, ref position, footerLines);
         return new ChunkLayout(chunks, header, footer);
     }
 
-    private static string CollectLines(ReadOnlySpan<char> content, ref int position, int count, string newLine)
+    /// <summary>
+    /// Header or footer text as 3.x builds it: each of the <paramref name="count"/> lines followed by
+    /// <see cref="Environment.NewLine"/>; empty when <paramref name="count"/> is 0.
+    /// </summary>
+    private static string CollectLines(ReadOnlySpan<char> content, ref int position, int count)
     {
+        if (count == 0)
+            return string.Empty;
+
         var sb = new StringBuilder();
         for (int i = 0; i < count; i++)
         {
             LineSplitter.TryFindLine(content[position..], isFinal: true, out int length, out int consumed, out _);
-            if (i > 0)
-                sb.Append(newLine);
-            sb.Append(content.Slice(position, length));
+            sb.Append(content.Slice(position, length)).Append(Environment.NewLine);
             position += consumed;
         }
 
@@ -245,7 +250,7 @@ public static class FileHelperEngineParallelExtensions
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Auto)]
     private readonly record struct Chunk(int Start, int Length, int FirstLine);
 
-    private sealed record ChunkLayout(List<Chunk> Chunks, string? HeaderText, string? FooterText);
+    private sealed record ChunkLayout(List<Chunk> Chunks, string HeaderText, string FooterText);
 
     private sealed record ChunkResult<T>(List<T> Records, IReadOnlyList<ErrorInfo> Errors, int LastLineNumber, ExceptionDispatchInfo? Failure);
 }

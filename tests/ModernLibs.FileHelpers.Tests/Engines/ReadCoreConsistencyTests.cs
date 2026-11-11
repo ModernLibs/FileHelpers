@@ -214,8 +214,8 @@ public sealed class ReadCoreConsistencyTests
         await AssertAllEqual(outcomes);
         var reference = outcomes["ReadString"];
         await Assert.That(reference.Records).IsEqualTo("1/plain/10|2/multi\\n\\n# not a comment\\nline/20|5/last/50");
-        await Assert.That(reference.Header).IsEqualTo("HEADER,\"x\",0");
-        await Assert.That(reference.Footer).IsEqualTo("TOTAL,\"5\",0\r\nEND");
+        await Assert.That(reference.Header).IsEqualTo("HEADER,\"x\",0" + Environment.NewLine);
+        await Assert.That(reference.Footer).IsEqualTo($"TOTAL,\"5\",0{Environment.NewLine}END{Environment.NewLine}");
         await Assert.That(reference.Errors).IsEqualTo("9:ConvertException,10:BadUsageException");
         await Assert.That(reference.Total).IsEqualTo(3);
         await Assert.That(reference.LineNumber).IsEqualTo(11);
@@ -246,8 +246,8 @@ public sealed class ReadCoreConsistencyTests
         await AssertAllEqual(outcomes);
         var reference = outcomes["ReadString"];
         await Assert.That(reference.Records).IsEqualTo("1/alpha/10|5/last/50");
-        await Assert.That(reference.Header).IsEqualTo("HEADER");
-        await Assert.That(reference.Footer).IsEqualTo("FOOTER");
+        await Assert.That(reference.Header).IsEqualTo("HEADER" + Environment.NewLine);
+        await Assert.That(reference.Footer).IsEqualTo("FOOTER" + Environment.NewLine);
         // 3.x: errors on the failing physical line; after a bad first line the next line starts a record
         await Assert.That(reference.Errors).IsEqualTo("7:ConvertException,8:FileHelpersException,9:BadUsageException,10:BadUsageException,11:BadUsageException");
         await Assert.That(reference.Total).IsEqualTo(2);
@@ -275,7 +275,7 @@ public sealed class ReadCoreConsistencyTests
         await AssertAllEqual(outcomes);
         var reference = outcomes["ReadString"];
         await Assert.That(reference.Records).IsEqualTo("1/alpha|4/delta");
-        await Assert.That(reference.Header).IsEqualTo("HEADER");
+        await Assert.That(reference.Header).IsEqualTo("HEADER" + Environment.NewLine);
         // 3.x: the bad value is on line 6; after the bad first line "junk" the next line starts a record
         await Assert.That(reference.Errors).IsEqualTo("6:ConvertException,7:BadUsageException,8:BadUsageException");
         await Assert.That(reference.LineNumber).IsEqualTo(10);
@@ -329,8 +329,8 @@ public sealed class ReadCoreConsistencyTests
         await AssertAllEqual(outcomes);
         var reference = outcomes["ReadString"];
         await Assert.That(reference.Records).IsEqualTo("1/two\\nlines/alpha/10|3/plain/gamma/30|4/x\\ny/delta/40");
-        await Assert.That(reference.Header).IsEqualTo("HEADER");
-        await Assert.That(reference.Footer).IsEqualTo("FOOTER");
+        await Assert.That(reference.Header).IsEqualTo("HEADER" + Environment.NewLine);
+        await Assert.That(reference.Footer).IsEqualTo("FOOTER" + Environment.NewLine);
         // The bad value is on physical line 9 (3.x reports that line)
         await Assert.That(reference.Errors).IsEqualTo("9:ConvertException");
         await Assert.That(reference.LineNumber).IsEqualTo(14);
@@ -358,7 +358,7 @@ public sealed class ReadCoreConsistencyTests
         await AssertAllEqual(outcomes);
         var reference = outcomes["ReadString"];
         await Assert.That(reference.Records).IsEqualTo("1/alpha/10|2/multi\\nline|x/20|5/q,|/50");
-        await Assert.That(reference.Footer).IsEqualTo("FOOTER");
+        await Assert.That(reference.Footer).IsEqualTo("FOOTER" + Environment.NewLine);
         await Assert.That(reference.Errors).IsEqualTo("5:FileHelpersException,6:BadUsageException");
         await Assert.That(reference.LineNumber).IsEqualTo(7);
     }
@@ -388,6 +388,6 @@ public sealed class ReadCoreConsistencyTests
         // Assert: identical outcomes
         await AssertAllEqual(outcomes);
         await Assert.That(outcomes["ReadString"].Total).IsEqualTo(25_000 - 21);
-        await Assert.That(outcomes["ReadString"].Footer).IsEqualTo("F1\r\nF2");
+        await Assert.That(outcomes["ReadString"].Footer).IsEqualTo($"F1{Environment.NewLine}F2{Environment.NewLine}");
     }
 }

@@ -340,14 +340,14 @@ public sealed class AsyncEngineReadTests
         _ = engine.ReadNext();
 
         // Assert: HeaderText captured from first session
-        await Assert.That(engine.HeaderText).IsEqualTo("HEADER");
+        await Assert.That(engine.HeaderText).IsEqualTo("HEADER" + Environment.NewLine);
         engine.Close();
 
         // Act: Open new session with empty content
         engine.BeginReadString(string.Empty);
 
         // Assert: HeaderText reset to null for new session
-        await Assert.That(engine.HeaderText).IsNull();
+        await Assert.That(engine.HeaderText).IsEqualTo(string.Empty);
     }
 
     /// <summary>
@@ -365,7 +365,7 @@ public sealed class AsyncEngineReadTests
         _ = engine.ReadNext();
 
         // Assert: FooterText captured from first session
-        await Assert.That(engine.FooterText).IsEqualTo("FOOTER");
+        await Assert.That(engine.FooterText).IsEqualTo("FOOTER" + Environment.NewLine);
         engine.Close();
 
         // Act: Open new session with empty content and attempt read
@@ -373,6 +373,6 @@ public sealed class AsyncEngineReadTests
         _ = engine.ReadNext();
 
         // Assert: FooterText reset to null for new session
-        await Assert.That(engine.FooterText).IsNull();
+        await Assert.That(engine.FooterText).IsEqualTo(string.Empty);
     }
 }

@@ -35,7 +35,6 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     private readonly IRecordDescriptor<T> _descriptor;
     private readonly RecordReadCore<T> _core;
     private readonly bool _implementsNotifyWrite;   // T implements INotifyWrite<T>
-    private string? _newLineForWrite;               // set through NewLineForWrite; null = never set (Environment.NewLine)
 
     // ---- Reader state -------------------------------------------------------
     private TextReader? _reader;
@@ -91,9 +90,11 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
 
     /// <summary>
     /// Header lines captured from the leading <see cref="IgnoreFirstAttribute"/> lines during
-    /// <c>BeginRead*</c>. Setting this property emits it as the first line in <c>BeginWrite*</c>.
+    /// <c>BeginRead*</c>, as in FileHelpers 3.x: each line followed by <see cref="Environment.NewLine"/>, the last
+    /// one included; empty (<c>""</c>) after construction and when there is no header.
+    /// Setting this property emits it as the first line in <c>BeginWrite*</c>.
     /// </summary>
-    public string? HeaderText { get; set; }
+    public string? HeaderText { get; set; } = string.Empty;
 
     /// <summary>
     /// Builds the header line FileHelpers 3.x <c>GetFileHeader()</c> returns: the caption (<c>[FieldCaption]</c>,
@@ -105,29 +106,19 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
 
     /// <summary>
     /// Footer lines captured from the trailing <see cref="IgnoreLastAttribute"/> lines once the end of the
-    /// input is reached. Setting this property emits it as the last line on <see cref="Close"/>.
+    /// input is reached, as in FileHelpers 3.x: each line followed by <see cref="Environment.NewLine"/>, the last
+    /// one included; empty (<c>""</c>) after construction, when there is no footer and before the end is reached.
+    /// Setting this property emits it as the last line on <see cref="Close"/>.
     /// </summary>
-    public string? FooterText { get; set; }
+    public string? FooterText { get; set; } = string.Empty;
 
     /// <summary>
     /// Line terminator written after the header, each record and the footer, and inside records with
     /// <see cref="FieldInNewLineAttribute"/> fields. Defaults to <see cref="Environment.NewLine"/> (<c>"\n"</c> on
     /// Linux and macOS, <c>"\r\n"</c> on Windows), as in FileHelpers 3.x; 4.8 to 4.9.1 wrote <c>"\r\n"</c> on every
-    /// platform, so set <c>"\r\n"</c> to keep that output.
-    /// When set, it also joins the lines captured into <see cref="HeaderText"/>/<see cref="FooterText"/> on read;
-    /// when never set, reads join them with <c>"\r\n"</c> on every platform (unchanged from 4.9.1).
+    /// platform, so set <c>"\r\n"</c> to keep that output. Reading does not use it.
     /// </summary>
-    public string NewLineForWrite
-    {
-        get => _newLineForWrite ?? Environment.NewLine;
-        set => _newLineForWrite = value;
-    }
-
-    /// <summary>
-    /// Separator that joins multi-line <see cref="HeaderText"/>/<see cref="FooterText"/> on read: the
-    /// <see cref="NewLineForWrite"/> the user set, else <c>"\r\n"</c> (4.9.1 read behaviour on every platform).
-    /// </summary>
-    private string ReadJoinNewLine => _newLineForWrite ?? "\r\n";
+    public string NewLineForWrite { get; set; } = Environment.NewLine;
 
     /// <summary>
     /// Encoding used by <see cref="BeginReadFile"/>, <c>ReadAsync</c> and <see cref="BeginWriteFile"/>.
@@ -529,8 +520,8 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
         _ownsWriter = true;
 
         // 3.x BeginAppendToFile: no header/footer in the middle of an existing file.
-        HeaderText = null;
-        FooterText = null;
+        HeaderText = string.Empty;
+        FooterText = string.Empty;
         InitWriteSession();
     }
 
@@ -756,11 +747,11 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     {
         LineNumber = 0;
         TotalRecords = 0;
-        HeaderText = null;
-        FooterText = null;
+        HeaderText = string.Empty;
+        FooterText = string.Empty;
         LastRecord = default;
         _errorManager.ClearErrors();
-        return new RecordReadSession<T>(_core, this, this, _errorManager, ReadJoinNewLine, maxRecords: 0);
+        return new RecordReadSession<T>(_core, this, this, _errorManager, maxRecords: 0);
     }
 
     /// <summary>Starts the session and consumes the <see cref="IgnoreFirstAttribute"/> header lines eagerly.</summary>

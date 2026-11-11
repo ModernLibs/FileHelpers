@@ -163,9 +163,13 @@ filter like `*FlameCsv_*` misses them).
 (`ParallelismOptions.Enabled` is true, one worker per core, original order kept), while every other library here is
 single-threaded. All RecordParser benchmarks get their options from `RecordParserOptions` with
 `ParallelismOptions = new() { Enabled = false }`, so all libraries run on one thread. There is no parallel variant.
-The setup of each RecordParser method calls `RecordParserOptions.AssertSingleThreaded`, which parses the first 20,000
-lines with the same options and a parser that records its thread, and fails the setup unless only the calling thread
-ran (with parallel processing on it reports 24 threads).
+The setup of each RecordParser method checks that these options have parallel processing off; it parses nothing, so
+the measured process runs no extra RecordParser code. The thread-level proof is separate:
+`dotnet run -c Release -f net10.0 --project benchmarks/ModernLibs.FileHelpers.Benchmarks -- --check-competitors`
+parses 20,000 rows of the 25-column and the fixed-width file with the same options and a parser that records its
+thread, prints the result and exits (0, or 1 when any row was parsed off the calling thread) before BenchmarkDotNet
+starts. It never runs in a measurement run. Run it after every RecordParser version bump (with parallel processing on
+it reports 24 threads).
 
 **Tier B**: one table each, one `<Library>_ReadAll` method per library, with 10K and 100K rows:
 `TierBComparisonBenchmarks` (25-column delimited file: NReco.Csv 1.0.3, TinyCsvParser 3.0.12, Cursively 1.2.0,

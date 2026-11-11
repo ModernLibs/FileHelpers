@@ -140,7 +140,7 @@ public class FixedWidthParseBenchmarks
     public void SetupRecordParser()
     {
         Prepare();
-        RecordParserOptions.AssertSingleThreaded(_filePath, fixedWidth: true);
+        RecordParserOptions.AssertSerial(fixedWidth: true);
         var rows = ReadAllRows_RecordParser();
         DataCheck.FixedWidth("RecordParser", DataCheck.DataLines(_filePath, hasHeader: false), rows.Count, i => FixedRecordText.Of(rows[i]));
     }
@@ -149,7 +149,7 @@ public class FixedWidthParseBenchmarks
     public void SetupDiscardRecordParser()
     {
         Prepare();
-        RecordParserOptions.AssertSingleThreaded(_filePath, fixedWidth: true);
+        RecordParserOptions.AssertSerial(fixedWidth: true);
         DataCheck.Equal(DiscardChecksum.FixedIdLastChars(DataCheck.DataLines(_filePath, hasHeader: false)),
             RecordParser_ParseAndDiscard(), "RecordParser parse-and-discard checksum");
     }

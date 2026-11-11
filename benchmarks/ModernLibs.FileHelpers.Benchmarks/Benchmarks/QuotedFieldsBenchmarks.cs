@@ -132,7 +132,7 @@ public abstract class QuotedFieldsBenchmarksBase
     public void SetupRecordParser()
     {
         Prepare();
-        RecordParserOptions.AssertSingleThreaded(_filePath, fixedWidth: false);
+        RecordParserOptions.AssertSerial(fixedWidth: false);
         CheckCompetitor("RecordParser", ReadAllRows_RecordParser());
     }
 
@@ -178,7 +178,7 @@ public abstract class QuotedFieldsBenchmarksBase
     public void SetupDiscardRecordParser()
     {
         Prepare();
-        RecordParserOptions.AssertSingleThreaded(_filePath, fixedWidth: false);
+        RecordParserOptions.AssertSerial(fixedWidth: false);
         CheckDiscard("RecordParser", RecordParser_ParseAndDiscard());
     }
 

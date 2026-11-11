@@ -103,7 +103,7 @@ public class SepComparisonBenchmarks
     public void SetupReadRecordParser()
     {
         Prepare();
-        RecordParserOptions.AssertSingleThreaded(_filePath, fixedWidth: false);
+        RecordParserOptions.AssertSerial(fixedWidth: false);
         var rows = ReadAllRows_RecordParser();
         DataCheck.PackageAssets("RecordParser", DataCheck.DataLines(_filePath, hasHeader: true), rows.Count, i => PackageAssetColumns.Of(rows[i]));
     }
@@ -119,7 +119,7 @@ public class SepComparisonBenchmarks
     public void SetupDiscardRecordParser()
     {
         Prepare();
-        RecordParserOptions.AssertSingleThreaded(_filePath, fixedWidth: false);
+        RecordParserOptions.AssertSerial(fixedWidth: false);
         DataCheck.Equal(DiscardChecksum.IdSum(Rows), RecordParser_ParseAndDiscard(), "RecordParser parse-and-discard checksum");
     }
 

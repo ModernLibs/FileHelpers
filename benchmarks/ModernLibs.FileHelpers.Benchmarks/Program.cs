@@ -20,6 +20,9 @@ internal static class Program
     /// </returns>
     private static int Main(string[] args)
     {
+        if (args.Contains("--check-competitors"))
+            return CompetitorCheck.Run();
+
         PrintVariant();
         var (config, arguments, error) = BenchConfig.FromArguments(args);
         if (config is null)

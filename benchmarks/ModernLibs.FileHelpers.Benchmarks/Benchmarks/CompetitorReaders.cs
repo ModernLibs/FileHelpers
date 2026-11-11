@@ -76,7 +76,8 @@ internal static class RecordParserReaders
 /// RecordParser 2.3.0 parses on the thread pool by default (<c>ParallelismOptions.Enabled</c> is true, one worker per
 /// core, original order kept). Every other library in the tables is single-threaded, so every RecordParser
 /// benchmark gets its options from here, with parallel processing switched off. The setups of those benchmarks call
-/// <see cref="AssertSingleThreaded"/>.
+/// <see cref="AssertSerial"/>, which parses nothing; the thread-level proof is <see cref="CompetitorCheck"/>
+/// (<c>--check-competitors</c>), which runs outside any benchmark process.
 /// </summary>
 internal static class RecordParserOptions
 {
@@ -97,7 +98,18 @@ internal static class RecordParserOptions
     };
 
     /// <summary>
-    /// Fails unless the first 20,000 lines of the file are parsed on the calling thread only. It runs the real
+    /// Setup guard: the options the benchmarks use have parallel processing off. It parses nothing, so it leaves no
+    /// RecordParser code profile in the measured (in-process) benchmark process.
+    /// </summary>
+    public static void AssertSerial(bool fixedWidth)
+    {
+        var parallelism = fixedWidth ? Fixed(_ => null!).ParallelismOptions : Variable().ParallelismOptions;
+        DataCheck.That(parallelism is { Enabled: false }, "RecordParser options must have ParallelismOptions.Enabled = false.");
+    }
+
+    /// <summary>
+    /// Fails unless the first 20,000 lines of the file are parsed on the calling thread only. Run only by
+    /// <see cref="CompetitorCheck"/>, never in a benchmark process. It runs the real
     /// options with a parser that records the thread it runs on; with parallel processing on, the same call reports
     /// worker threads.
     /// </summary>
@@ -191,5 +203,35 @@ internal static class CompetitorRuns
         foreach (var r in reader.ReadRecords(RecordParserOptions.Fixed(parser.Parse)))
             checksum += r.Id[^1];
         return checksum;
+    }
+}
+
+/// <summary>
+/// <c>--check-competitors</c>: parses small datasets with the RecordParser options of the benchmarks and fails when
+/// any parse leaves the calling thread. It runs and exits before BenchmarkDotNet starts and never in a measurement run.
+/// </summary>
+internal static class CompetitorCheck
+{
+    public static int Run()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "fh-competitor-check-" + Environment.ProcessId);
+        Directory.CreateDirectory(dir);
+        try
+        {
+            RecordParserOptions.AssertSingleThreaded(DatasetGenerator.EnsurePackageAssets(dir, 20_000), fixedWidth: false);
+            Console.WriteLine("// RecordParser, 25-column file: parsed on the calling thread only.");
+            RecordParserOptions.AssertSingleThreaded(DatasetGenerator.EnsureFixedWidth(dir, 20_000), fixedWidth: true);
+            Console.WriteLine("// RecordParser, fixed-width file: parsed on the calling thread only.");
+            return 0;
+        }
+        catch (InvalidOperationException e)
+        {
+            Console.Error.WriteLine(e.Message);
+            return 1;
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
     }
 }

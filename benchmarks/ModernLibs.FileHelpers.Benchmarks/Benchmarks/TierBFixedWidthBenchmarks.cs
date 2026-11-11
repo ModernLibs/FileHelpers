@@ -41,7 +41,7 @@ public class TierBFixedWidthBenchmarks
     public void SetupFlatFiles() { Prepare(); _flatMapper = BuildFlatFilesMapper(); Check("FlatFiles", FlatFiles_ReadAll()); }
 
     [GlobalSetup(Target = nameof(RecordParser_ReadAll))]
-    public void SetupRecordParser() { Prepare(); RecordParserOptions.AssertSingleThreaded(_filePath, fixedWidth: true); Check("RecordParser", RecordParser_ReadAll()); }
+    public void SetupRecordParser() { Prepare(); RecordParserOptions.AssertSerial(fixedWidth: true); Check("RecordParser", RecordParser_ReadAll()); }
 
     // FlatFiles builds its mapper once, in the setup, like the other readers.
     private static FlatFiles.TypeMapping.IFixedLengthTypeMapper<FixedRecord> BuildFlatFilesMapper()

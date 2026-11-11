@@ -27,7 +27,13 @@ public sealed class MasterDetailEngine<TMaster, TDetail>
     /// FileHelpers 3.x, like <see cref="FileHelperEngine{T}.NewLineForWrite"/>; set <c>"\r\n"</c> to keep the 4.8 to
     /// 4.9.1 output.
     /// </summary>
-    public string NewLineForWrite { get; set; } = Environment.NewLine;
+    /// <exception cref="ArgumentNullException">Thrown when the value is <see langword="null"/> (3.x threw
+    /// <see cref="ArgumentException"/> too).</exception>
+    public string NewLineForWrite
+    {
+        get;
+        set => field = value ?? throw new ArgumentNullException(nameof(value), "NewLine string must not be null.");
+    } = Environment.NewLine;
 
     /// <summary>Creates a master/detail engine with an explicit line selector.</summary>
     public MasterDetailEngine(MasterDetailSelector selector)

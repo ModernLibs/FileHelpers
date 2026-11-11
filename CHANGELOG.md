@@ -81,6 +81,8 @@ file.
     `MasterDetailEngine`. It covers every write path: `WriteString`, `WriteStream`, `WriteStreamAsync`,
     `WriteFile`, `AppendToFile`, `BeginWrite*`/`BeginAppendFile`, the header and footer, and the line
     break inside `[FieldInNewLine]` records.
+  - Setting `NewLineForWrite` to `null` throws `ArgumentNullException` (an `ArgumentException`, as 3.x
+    threw) on all four engines. 4.9.1 stored `null` and then wrote no line breaks or threw later.
   - `HeaderText` and `FooterText` read from `[IgnoreFirst]`/`[IgnoreLast]` lines end every line with
     `Environment.NewLine`, the last one included, whatever `NewLineForWrite` is. 4.9.1 joined them with
     `NewLineForWrite` and added no final line break: `"h1\r\nh2"` is now `"h1\nh2\n"` on Linux and

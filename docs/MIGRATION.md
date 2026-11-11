@@ -367,6 +367,8 @@ var engine = new FileHelperEngine<Customer>(Encoding.GetEncoding(1252));
 - From 4.8.0 to 4.9.1, `NewLineForWrite` defaulted to `"\r\n"` on every platform. From 4.10 on, the
   output on Linux and macOS uses `"\n"` unless you set `NewLineForWrite = "\r\n"`; Windows output is
   unchanged.
+- Setting `NewLineForWrite` to `null` throws `ArgumentNullException`, an `ArgumentException` as in 3.x.
+  3.x also rejected `""`; 4.x accepts it and writes the records without line breaks.
 - `HeaderText` and `FooterText` hold the `[IgnoreFirst]`/`[IgnoreLast]` lines as in 3.x: each line is
   followed by `Environment.NewLine`, the last one included, whatever the input's line endings and
   `NewLineForWrite` are. `[IgnoreFirst(2)]` on `h1\r\nh2\r\n...` gives `"h1\nh2\n"` on Linux and

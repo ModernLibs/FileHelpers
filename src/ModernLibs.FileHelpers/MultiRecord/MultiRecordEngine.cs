@@ -23,7 +23,13 @@ public sealed class MultiRecordEngine
     /// fields). Defaults to <see cref="Environment.NewLine"/>, as in FileHelpers 3.x, like
     /// <see cref="FileHelperEngine{T}.NewLineForWrite"/>; set <c>"\r\n"</c> to keep the 4.8 to 4.9.1 output.
     /// </summary>
-    public string NewLineForWrite { get; set; } = Environment.NewLine;
+    /// <exception cref="ArgumentNullException">Thrown when the value is <see langword="null"/> (3.x threw
+    /// <see cref="ArgumentException"/> too).</exception>
+    public string NewLineForWrite
+    {
+        get;
+        set => field = value ?? throw new ArgumentNullException(nameof(value), "NewLine string must not be null.");
+    } = Environment.NewLine;
 
     /// <summary>Creates a multi-record engine over an AOT-safe closed record set.</summary>
     public MultiRecordEngine(params IMultiRecordType[] recordTypes)

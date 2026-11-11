@@ -289,4 +289,89 @@ public sealed class NewLineForWriteDefaultTests
         await Assert.That(multi.WriteString(s_mixed)).IsEqualTo("H|B1\r\nD|1|2.5\r\n");
         await Assert.That(masterDetail.WriteString(Groups())).IsEqualTo("M|A\r\nD|A|2\r\n");
     }
+
+    // ---- null, and no hard-coded "\r\n" in the output --------------------------------------
+
+    [Test]
+    [DisplayName("NewLineForWrite = null throws on every engine, as in FileHelpers 3.5.2")]
+    public async Task Null_Throws_OnEveryEngine()
+    {
+        // Arrange
+        var engine = new FileHelperEngine<NlRecord>();
+        using var asyncEngine = new FileHelperAsyncEngine<NlRecord>();
+        var multi = NewMultiRecordEngine();
+        var masterDetail = NewMasterDetailEngine();
+
+        // Act + Assert: 3.5.2 throws ArgumentException from the setter; the value is kept
+        await Assert.That(() => engine.NewLineForWrite = null!).Throws<ArgumentException>();
+        await Assert.That(() => asyncEngine.NewLineForWrite = null!).Throws<ArgumentException>();
+        await Assert.That(() => multi.NewLineForWrite = null!).Throws<ArgumentException>();
+        await Assert.That(() => masterDetail.NewLineForWrite = null!).Throws<ArgumentException>();
+        await Assert.That(engine.NewLineForWrite).IsEqualTo(NL);
+        await Assert.That(asyncEngine.NewLineForWrite).IsEqualTo(NL);
+        await Assert.That(multi.NewLineForWrite).IsEqualTo(NL);
+        await Assert.That(masterDetail.NewLineForWrite).IsEqualTo(NL);
+    }
+
+    [Test]
+    [DisplayName("With NewLineForWrite = \"\\n\" no write path emits a CR (no hard-coded \"\\r\\n\" reaches the output)")]
+    public async Task NoHardCodedCrLf_ReachesTheOutput()
+    {
+        // Arrange: framing, a [FieldInNewLine] record, every engine
+        const string Lf = "\n";
+        var inNewLine = new[] { new NlInNewLine { Id = 1, Name = "a" }, new NlInNewLine { Id = 2, Name = "b" } };
+        var engine = new FileHelperEngine<NlInNewLine> { HeaderText = "H", FooterText = "F", NewLineForWrite = Lf };
+        using var asyncEngine = new FileHelperAsyncEngine<NlInNewLine> { HeaderText = "H", FooterText = "F", NewLineForWrite = Lf };
+        var multi = new MultiRecordEngine(
+            MultiRecordType.For<MultiAsyncHeader>(line => line.StartsWith("H|", StringComparison.Ordinal)),
+            MultiRecordType.For<NlInNewLine>(line => !line.StartsWith("H|", StringComparison.Ordinal)))
+        {
+            NewLineForWrite = Lf,
+        };
+        var masterDetail = new MasterDetailEngine<MdAsyncMaster, NlInNewLine>(
+            line => line.StartsWith("M|", StringComparison.Ordinal) ? RecordAction.Master : RecordAction.Detail)
+        {
+            NewLineForWrite = Lf,
+        };
+
+        // Act
+        var outputs = new List<string> { engine.WriteString(inNewLine) };
+        using (var writer = new StringWriter())
+        {
+            engine.WriteStream(writer, inNewLine);
+            outputs.Add(writer.ToString());
+        }
+
+        using (var writer = new StringWriter())
+        {
+            await engine.WriteStreamAsync(writer, inNewLine);
+            outputs.Add(writer.ToString());
+        }
+
+        using (var stream = new MemoryStream())
+        {
+            await engine.WriteStreamAsync(stream, inNewLine);
+            outputs.Add(Encoding.UTF8.GetString(stream.ToArray()));
+        }
+
+        outputs.Add(WithTempFile(path =>
+        {
+            engine.WriteFile(path, inNewLine);
+            File.AppendAllText(path, "X");
+            engine.AppendToFile(path, inNewLine);
+            return File.ReadAllText(path);
+        }));
+        asyncEngine.BeginWriteString();
+        asyncEngine.WriteNext(inNewLine);
+        outputs.Add(asyncEngine.EndWriteString());
+        outputs.Add(multi.WriteString([new MultiAsyncHeader { Kind = "H", Batch = "B1" }, inNewLine[0]]));
+        outputs.Add(masterDetail.WriteString([new MasterDetails<MdAsyncMaster, NlInNewLine>(new MdAsyncMaster { Kind = "M", Id = "A" }, inNewLine)]));
+
+        // Assert: every output has line breaks, none has a CR
+        foreach (string output in outputs)
+        {
+            await Assert.That(output.Contains('\n', StringComparison.Ordinal)).IsTrue();
+            await Assert.That(output.Contains('\r', StringComparison.Ordinal)).IsFalse().Because(output);
+        }
+    }
 }

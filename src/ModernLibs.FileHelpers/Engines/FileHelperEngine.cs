@@ -125,7 +125,13 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     /// Linux and macOS, <c>"\r\n"</c> on Windows), as in FileHelpers 3.x; 4.8 to 4.9.1 wrote <c>"\r\n"</c> on every
     /// platform, so set <c>"\r\n"</c> to keep that output. Reading does not use it.
     /// </summary>
-    public string NewLineForWrite { get; set; } = Environment.NewLine;
+    /// <exception cref="ArgumentNullException">Thrown when the value is <see langword="null"/> (3.x threw
+    /// <see cref="ArgumentException"/> too).</exception>
+    public string NewLineForWrite
+    {
+        get;
+        set => field = value ?? throw new ArgumentNullException(nameof(value), "NewLine string must not be null.");
+    } = Environment.NewLine;
 
     /// <summary>
     /// Encoding used by <see cref="ReadFile(string)"/>, <see cref="WriteFile"/>, and

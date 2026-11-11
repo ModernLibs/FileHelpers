@@ -102,6 +102,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     /// Builds the header line FileHelpers 3.x <c>GetFileHeader()</c> returns: the caption (<c>[FieldCaption]</c>,
     /// else the member name) of every field joined with one separator, without quoting or a line terminator.
     /// The separator is the delimiter of the first field for a delimited record, a tab for a fixed-length record.
+    /// Does not read or set <see cref="HeaderText"/>; assign it yourself to write the header with the records.
     /// </summary>
     public string GetFileHeader() => FileHeaderBuilder.Build(_descriptor);
 

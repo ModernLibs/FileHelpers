@@ -88,7 +88,7 @@ The read, write and append methods of 3.x are available with the same names and 
 | `ReadFileAsList`, `ReadStringAsList`, `ReadStreamAsList` | Not available. Use `new List<T>(engine.ReadFile(path))` or the `IEnumerable<T>` returned by `ReadSync`. |
 | `ReadFileAsDT`, `ReadStringAsDT`, `ReadStreamAsDT` (`DataTable`) | Not available. |
 | `WriteFile` / `WriteStream` / `WriteString` with a `maxRecords` argument | Not available. Pass `records.Take(n)`. |
-| `GetFileHeader()` | Not available. `[FieldCaption]` is accepted and stored in the field metadata, but no header line is generated from it. Set `HeaderText` yourself. |
+| `GetFileHeader()` | Available from 4.10 on the `FileHelperEngine<T>` and `FileHelperAsyncEngine<T>` classes (not on the interfaces). Returns the same text as 3.x: the `[FieldCaption]` (else the member name) of every field, joined by the first field's delimiter (a tab for fixed-length records), unquoted, without a line terminator. It does not set `HeaderText`; for 3.x-style header writing use `engine.HeaderText = engine.GetFileHeader()`. |
 | `Options` (run-time layout changes) | Not available, see [2.1](#21-types-that-are-not-available). |
 | `RecordType` | Not available. You already know `typeof(T)`. |
 | `where T : class` | No constraint: structs and `record struct` types work too. |

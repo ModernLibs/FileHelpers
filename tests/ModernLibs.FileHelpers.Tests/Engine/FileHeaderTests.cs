@@ -43,6 +43,22 @@ public sealed class FileHeaderTests
         => await Assert.That(new FileHelperAsyncEngine<HeaderD1>().GetFileHeader()).IsEqualTo("Order, ID,Name,Amount");
 
     [Test]
+    public async Task Inherited_Fields_Come_First()
+        => await Assert.That(new FileHelperEngine<HeaderDerived>().GetFileHeader()).IsEqualTo("Base Id,BaseName,Own,Own 2");
+
+    [Test]
+    public async Task FieldOrder_Decides_Order_And_The_First_Field_Delimiter()
+        => await Assert.That(new FileHelperEngine<HeaderOrdered>().GetFileHeader()).IsEqualTo("First|Second|3rd");
+
+    [Test]
+    public async Task Multi_Character_Delimiter_Is_Used_As_Is()
+        => await Assert.That(new FileHelperEngine<HeaderMulti>().GetFileHeader()).IsEqualTo("A||B b||C");
+
+    [Test]
+    public async Task Empty_Caption_Is_Kept_Without_Falling_Back_To_The_Name()
+        => await Assert.That(new FileHelperEngine<HeaderEmptyCaption>().GetFileHeader()).IsEqualTo(",B");
+
+    [Test]
     public async Task Existing_Fixture()
         => await Assert.That(new FileHelperEngine<CaptionedRecord>().GetFileHeader()).IsEqualTo("Order ID,Customer Name,Amount");
 }

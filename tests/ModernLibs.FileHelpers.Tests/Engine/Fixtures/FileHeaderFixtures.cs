@@ -41,6 +41,43 @@ internal sealed class HeaderP1
     [FieldHidden] public string H = string.Empty;
 }
 
+[DelimitedRecord(",")]
+internal class HeaderBase
+{
+    [FieldCaption("Base Id")] public int BaseId;
+    public string BaseName = string.Empty;
+}
+
+[DelimitedRecord(",")]
+internal sealed class HeaderDerived : HeaderBase
+{
+    public string Own = string.Empty;
+    [FieldCaption("Own 2")] public string Own2 = string.Empty;
+}
+
+[DelimitedRecord(",")]
+internal sealed class HeaderOrdered
+{
+    [FieldOrder(3)] [FieldCaption("3rd")] public string C = string.Empty;
+    [FieldOrder(1)] [FieldDelimiter("|")] public int First;
+    [FieldOrder(2)] [FieldCaption("Second")] public string B = string.Empty;
+}
+
+[DelimitedRecord("||")]
+internal sealed class HeaderMulti
+{
+    public int A;
+    [FieldCaption("B b")] public string B = string.Empty;
+    public string C = string.Empty;
+}
+
+[DelimitedRecord(",")]
+internal sealed class HeaderEmptyCaption
+{
+    [FieldCaption("")] public int A;
+    public string B = string.Empty;
+}
+
 [FixedLengthRecord]
 internal sealed class HeaderF1
 {

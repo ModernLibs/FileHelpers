@@ -54,7 +54,7 @@ it was considered and rejected. Contributions are welcome: please open an issue 
 | Gap | Status | Notes |
 |---|---|---|
 | `[FieldArrayLength]` (array fields) | Open | Needs generator support for repeated delimited values and per-element fixed widths. |
-| Header line from `[FieldCaption]` (`GetFileHeader()`) | Done in 4.10 | `[FieldCaption]` is already read into the field metadata. |
+| Header line from `[FieldCaption]` (`GetFileHeader()`) | Done in 4.10 | Same text as 3.x; on the engine classes, not the interfaces. |
 | Culture parameter on `[DelimitedRecord]` / `[FixedLengthRecord]` | Open | Culture can be set per field with `CultureName`. |
 | `[IgnoreCommentedLines]` with a multi-character marker | Open | The marker is one `char`; `anyPlace` works as in 3.x. |
 | Non-string `[FieldConverter(typeof(X), args)]` arguments | Open | Arguments are passed to the converter constructor, but must be strings. |

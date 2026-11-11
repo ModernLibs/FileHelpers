@@ -512,6 +512,19 @@ As in 3.x, a `ConverterBase` is not called for empty or blank input unless it ov
 copy of a struct record, so an `AfterReadRecord` handler cannot change a struct record (it can change a
 class record's members). `RecycleRecords` has no effect for structs.
 
+### 3.10 Limits that are the same as in 3.x
+
+These are not differences, but they surprise people who expect them to be fixed:
+
+- `[FieldQuoted(QuoteMode.OptionalForWrite)]` cannot read back its own unquoted output. The mode adds
+  quotes on write only when a value needs them, but it requires the quote on read, so a value written
+  without quotes (`x,1`) is rejected on read with "does not begin with the quote char". Use
+  `QuoteMode.OptionalForBoth` for a round trip. FileHelpers 3.5.2 behaves the same.
+- A fixed-length value that is longer than its field is cut silently on write, also for a right-aligned
+  field (`[FieldAlign(AlignMode.Right, '0')]`): the value is cut at its end to the first `Length`
+  characters (`12345` in a field of length 3 is written as `123`). This is the default in 3.x too. To get
+  an error instead, set `[FieldFixedLength(n, OverflowMode = OverflowMode.Error)]`.
+
 ## 4. What is new
 
 None of this is needed to migrate, but it is available once you have:

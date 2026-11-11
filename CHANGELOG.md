@@ -54,6 +54,22 @@ file.
   passes a block on (a `StreamWriter` may split it) is up to the writer. If the records, an event or
   the formatting throw, the records before it are written and the original exception is rethrown,
   also when that last write fails. The writer or stream is not disposed.
+- **Six `Read*AsList` methods** on `FileHelperEngine<T>` and, as default interface members, on
+  `IFileHelperEngine<T>`. They read into a `List<T>` instead of an array, as 3.x `ReadFileAsList` and its
+  siblings did: `ReadFileAsList(string filePath)`, `ReadFileAsList(string filePath, int maxRecords)`,
+  `ReadStringAsList(string content)`, `ReadStringAsList(string content, int maxRecords)`,
+  `ReadStreamAsList(TextReader reader)` and `ReadStreamAsList(TextReader reader, int maxRecords)`.
+  Each returns `List<T>`.
+- **`GetFileHeader()`** on `FileHelperEngine<T>` and `FileHelperAsyncEngine<T>`. It builds the header
+  line that FileHelpers 3.x `GetFileHeader()` returns: the caption (`[FieldCaption]`, else the member
+  name) of every field joined with one separator (the delimiter of the first field for a delimited
+  record, a tab for a fixed-length record), without quoting or a line terminator. It does not read or
+  set `HeaderText`: assign the result yourself to write the header with the records.
+- **A `net11.0` asset, compiled with runtime async.** The package now contains `lib/net10.0` and
+  `lib/net11.0`. The `net11.0` assembly is compiled with the C# `runtime-async` feature, so its `async`
+  methods use the runtime's async support instead of compiler-generated state machines. The `net10.0`
+  asset is unchanged. To build the `net11.0` library without runtime async (for a patch build), pass
+  `-p:FileHelpersRuntimeAsync=false`; CI builds and tests that variant too.
 
 ### Changed
 
@@ -69,6 +85,30 @@ file.
   ambiguous reference: name the overload, `ReadAsync(string, CancellationToken)`. Calls through
   `IFileHelperEngine<T>` and `IFileHelperAsyncEngine<T>`, typed variables and named arguments are not
   affected.
+- **The `Microsoft.SourceLink.GitHub` package reference is removed.** It failed the NuGet vulnerability
+  audit. The built-in Source Link of the .NET SDK still applies (`PublishRepositoryUrl`,
+  `EmbedUntrackedSources`, and `ContinuousIntegrationBuild` on GitHub Actions), so the symbol package
+  keeps its source information.
+- **A user extension method can be silently replaced by a new instance method.** If your code declares an
+  extension method with the same name and parameters as one of the new instance methods
+  (`ReadStream(this IFileHelperEngine<T>, Stream)`, `ReadFileAsList(...)`, `ReadStringAsList(...)`,
+  `ReadStreamAsList(...)`, `GetFileHeader()`), a call now binds to the instance method without a compiler
+  message and your extension method is no longer called. Check that the new method does what yours did,
+  or rename yours.
+- **New generator diagnostics can fail builds that treat warnings as errors.** The generator now reports
+  four layouts. The generated code does not change and every descriptor is still emitted:
+  - `MLFH030` (Warning): a `[FieldQuoted]` field is followed by a delimiter that starts with its quote
+    character.
+  - `MLFH031` (Warning): the record delimiter, or the `[FieldDelimiter]` of a field that is not the last,
+    contains a carriage return or a line feed.
+  - `MLFH032` (Info): a `[FieldTrim(mode, chars...)]` list contains a character of the delimiter that
+    follows the field.
+  - `MLFH033` (Warning): a `[FieldQuoted]` field has a `[FieldTrim]` list that contains its quote
+    character, with `TrimMode.Left` or `Both` and `QuoteMode.OptionalForRead` or `AlwaysQuoted`.
+
+  A project with `TreatWarningsAsErrors` can fail on upgrade. Fix the layout, or suppress the IDs in the
+  project file: `<NoWarn>$(NoWarn);MLFH030;MLFH031;MLFH033</NoWarn>`. See
+  [docs/diagnostics.md](docs/diagnostics.md).
 
 ## [4.9.1] - 2026-11-11
 

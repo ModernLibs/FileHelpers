@@ -814,10 +814,13 @@ that follows the field. Only the explicit list is checked: `[FieldTrim(mode)]` w
 white-space set. White space in a delimiter that is longer than one character (such as `" | "`) is not
 reported. The descriptor is still emitted. The quote character in the list is MLFH033.
 
-What the characters really do (identical in FileHelpers 3.5.2 and ModernLibs.FileHelpers 4.9.1; 48 of 48
-read cases of the trim probe matched): on an **unquoted** value only white space is trimmed, whatever the
-list says. The listed characters matter only for a `[FieldQuoted]` field with `QuoteMode.OptionalForRead` or `AlwaysQuoted`,
-where a leading run of them is stripped in front of the optional opening quote. Nothing is trimmed on write.
+What the characters really do (FileHelpers 3.5.2 and ModernLibs.FileHelpers 4.9.1 agree on the trim cases
+that do not put the delimiter in the list: 48 of 48 read cases of the trim probe matched; the delimiter case
+differs for quoted fields, see the table below): on an **unquoted** value only white space is trimmed,
+whatever the list says. The listed characters matter only for a `[FieldQuoted]` field with
+`QuoteMode.OptionalForRead` or `AlwaysQuoted`, where a leading run of them is stripped in front of the
+optional opening quote. Nothing is trimmed on write. The rule describes a layout, not a 3.x behaviour that
+4.x copies: with the delimiter in the list, 3.x fails on quoted values and 4.x reads them.
 
 ```csharp
 [DelimitedRecord(",")]
@@ -885,6 +888,25 @@ back):
 | `QuoteMode.OptionalForBoth` | reads back (not reported) |
 
 Both versions misread or fail, so the rule is a warning.
+
+**Why it stays a warning although unquoted input reads correctly.** Input without quotes reads correctly with
+this layout, because there is no opening quote to strip; only quoted values (including the engine's own
+output) are misread. The decision is to keep the rule at Warning anyway: a layout whose quoted values read
+back wrong is a slip in nearly every case, and the trim list is easy to fix. A project that has the layout
+on purpose, for example because it only reads unquoted input, can suppress the diagnostic. In the project
+file:
+
+```xml
+<NoWarn>$(NoWarn);MLFH033</NoWarn>
+```
+
+or at one place in the source:
+
+```csharp
+#pragma warning disable MLFH033
+[FieldQuoted] [FieldTrim(TrimMode.Both, '"')] public string A = "";
+#pragma warning restore MLFH033
+```
 
 **Not reported with `TrimGivenChars = true`** (4.10, opt-in). With the option the quote character is left out
 of the characters skipped in front of the opening quote, so the quoted value is recognised (escaped quotes and

@@ -265,7 +265,7 @@ twin: `Rows / 100` calls per invocation, each over a source that yields 3 record
 caught (the write path has no per-record error mode). Its setup checks one call's output (preamble and the 3 records),
 that `TotalRecords` is 0 and that the invocation caught `Rows / 100`. `Engine_ReadAsync_Stream` and
 `Engine_ReadAsync_TextReader` read the same file from memory with `ReadAsync(Stream)` and `ReadAsync(TextReader)`.
-These four methods (with `Engine_WriteStreamAsync_Null`) use 4.10-only API: they exist only in the 4.10
+These four methods use 4.10-only API: they exist only in the 4.10
 configurations, with no 4.9.x baseline.
 
 ## Configurations and A/B runs

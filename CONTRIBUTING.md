@@ -46,7 +46,7 @@ The test project is also an executable, which is how CI runs it:
 CI also builds and runs the migration sample, which must keep working:
 
 ```bash
-dotnet run --project samples/MigrationSamples -c Release
+dotnet run --project samples/MigrationSamples -c Release -f net11.0
 ```
 
 ### Mutation testing
@@ -82,10 +82,10 @@ mode that generates random inputs in-process. CI runs every target against the s
 ```bash
 dotnet build tests/ModernLibs.FileHelpers.Fuzz.Tests -c Release
 for file in tests/ModernLibs.FileHelpers.Fuzz.Tests/FuzzCorpus/*.txt; do
-  dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests -c Release --no-build -- delimited < "$file"
+  dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests -c Release --no-build -f net11.0 -- delimited < "$file"
 done
 
-dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests -c Release -- extended 10000
+dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests -c Release -f net11.0 -- extended 10000
 
 # property-style random-input tests in the TUnit suite
 ./tests/ModernLibs.FileHelpers.Tests/bin/Release/net11.0/ModernLibs.FileHelpers.Tests --treenode-filter "/*/*/*/*[Category=Fuzz]"
@@ -98,7 +98,7 @@ under AFL or libFuzzer as described in the SharpFuzz documentation. Add inputs t
 ### Benchmarks
 
 ```bash
-dotnet run -c Release --project benchmarks/ModernLibs.FileHelpers.Benchmarks -- --filter '*'
+dotnet run -c Release -f net11.0 --project benchmarks/ModernLibs.FileHelpers.Benchmarks -- --filter '*'
 ```
 
 Include before and after numbers, with your hardware and OS, in pull requests that claim a

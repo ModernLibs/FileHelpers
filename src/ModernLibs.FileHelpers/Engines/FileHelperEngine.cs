@@ -19,7 +19,7 @@ namespace ModernLibs.FileHelpers;
 /// <para>Every read method — batch (<see cref="ReadString(string)"/>, <see cref="ReadSpan(ReadOnlySpan{char})"/>,
 /// <see cref="ReadFile(string)"/>, <see cref="ReadStream(TextReader)"/>), callback, streaming
 /// (<see cref="ReadSync(TextReader)"/>, <see cref="ReadFile(string, Action{T})"/>) and asynchronous
-/// (<see cref="ReadAsync"/>, <see cref="ReadFileAsync(string, Action{T}, CancellationToken)"/>) — runs the same
+/// (<c>ReadAsync</c>, <see cref="ReadFileAsync(string, Action{T}, CancellationToken)"/>) — runs the same
 /// record pipeline, so the same input and options yield the same records, <see cref="HeaderText"/>,
 /// <see cref="FooterText"/>, errors and line numbers whichever method is used:
 /// header (<see cref="IgnoreFirstAttribute"/>) and footer (<see cref="IgnoreLastAttribute"/>) are the original
@@ -143,7 +143,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
 
     /// <summary>
     /// When <see langword="true"/>, callback and streaming reads (<c>Action&lt;T&gt;</c>/<see cref="SpanRecordCallback{T}"/>
-    /// overloads, <see cref="ReadSync(TextReader)"/>, <see cref="ReadAsync"/>, <see cref="ReadFileAsync(string, Action{T}, CancellationToken)"/>)
+    /// overloads, <see cref="ReadSync(TextReader)"/>, <c>ReadAsync</c>, <see cref="ReadFileAsync(string, Action{T}, CancellationToken)"/>)
     /// reuse a single <typeparamref name="T"/> instance (zero-alloc for class types). Array-returning reads are
     /// never affected. Requires <c>IRecyclableDescriptor&lt;T&gt;</c> — emitted by the source generator for
     /// class record types without init-only fields. Has no effect for struct types.
@@ -532,6 +532,90 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     }
 
     /// <summary>
+    /// Asynchronous streaming read that yields records one at a time via <see cref="IAsyncEnumerable{T}"/>, reading
+    /// <paramref name="stream"/> from its current position with asynchronous reads only (through
+    /// <see cref="PipelineLineReader"/>). Decodes with <see cref="Encoding"/> (a byte order mark wins). Same record
+    /// semantics as <see cref="ReadFile(string)"/>. <paramref name="stream"/> is NOT disposed, also when the
+    /// enumeration ends early, fails or is cancelled.
+    /// </summary>
+    /// <remarks>
+    /// For class record types each record is a new allocation unless <see cref="RecycleRecords"/> is set.
+    /// </remarks>
+    /// <param name="stream">The stream to read; the caller owns it.</param>
+    /// <param name="cancellationToken">Token to cancel the async enumeration.</param>
+    /// <returns>An async enumerable of parsed records.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="stream"/> is <see langword="null"/> (thrown when the enumeration starts).</exception>
+    /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
+    public async IAsyncEnumerable<T> ReadAsync(
+        Stream stream,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+
+        var lineReader = new PipelineLineReader(stream, Encoding);
+        await using var lineReaderScope = lineReader.ConfigureAwait(false);
+        using var session = BeginSession(maxRecords: 0, allowRecycle: true);
+        try
+        {
+            while (!session.Stopped && await lineReader.ReadLineAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (session.Push(lineReader.CurrentLine.Span, lineReader.CurrentEnding))
+                {
+                    SyncPosition(session);
+                    yield return session.Current;
+                }
+            }
+
+            session.Complete();
+        }
+        finally
+        {
+            SyncPosition(session);
+        }
+    }
+
+    /// <summary>
+    /// Asynchronous streaming read that yields records one at a time via <see cref="IAsyncEnumerable{T}"/>, reading
+    /// <paramref name="reader"/> with <see cref="TextReader.ReadAsync(Memory{char}, CancellationToken)"/>. Same record
+    /// semantics as <see cref="ReadSync(TextReader)"/>. <paramref name="reader"/> is NOT disposed — the caller owns
+    /// its lifetime.
+    /// </summary>
+    /// <remarks>
+    /// For class record types each record is a new allocation unless <see cref="RecycleRecords"/> is set.
+    /// </remarks>
+    /// <param name="reader">The text reader to read; the caller owns it.</param>
+    /// <param name="cancellationToken">Token to cancel the async enumeration.</param>
+    /// <returns>An async enumerable of parsed records.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="reader"/> is <see langword="null"/> (thrown when the enumeration starts).</exception>
+    /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
+    public async IAsyncEnumerable<T> ReadAsync(
+        TextReader reader,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+
+        using var source = new TextReaderLineSource(reader);
+        using var session = BeginSession(maxRecords: 0, allowRecycle: true);
+        try
+        {
+            while (!session.Stopped && await source.ReadLineAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (session.Push(source.CurrentLine.Span, source.CurrentEnding))
+                {
+                    SyncPosition(session);
+                    yield return session.Current;
+                }
+            }
+
+            session.Complete();
+        }
+        finally
+        {
+            SyncPosition(session);
+        }
+    }
+
+    /// <summary>
     /// Synchronous streaming read from a <see cref="TextReader"/> that yields
     /// records one at a time via <see cref="IEnumerable{T}"/>. The reader is NOT disposed
     /// by the engine — the caller owns its lifetime.
@@ -619,6 +703,55 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
         ArgumentNullException.ThrowIfNull(writer);
         ArgumentNullException.ThrowIfNull(records);
         WriteCore(writer, records, includeHeaderFooter: true);
+    }
+
+    /// <summary>
+    /// Asynchronously writes <paramref name="records"/> to <paramref name="writer"/>: the text of
+    /// <see cref="WriteStream(TextWriter, IEnumerable{T})"/>, with <see cref="HeaderText"/>, <see cref="FooterText"/>
+    /// and the write events. Records are formatted synchronously into a buffer that is written with
+    /// <see cref="TextWriter.WriteAsync(ReadOnlyMemory{char}, CancellationToken)"/> each time it holds 16,384
+    /// characters or more and at the end, then <see cref="TextWriter.FlushAsync(CancellationToken)"/> is awaited.
+    /// The writer is NOT disposed — the caller owns its lifetime.
+    /// </summary>
+    /// <remarks>
+    /// The writer only ever receives whole records. When <paramref name="records"/>, a write event or the
+    /// formatting of a record throws, the records formatted before it are written and the exception is rethrown;
+    /// when <paramref name="cancellationToken"/> is cancelled, the records formatted since the last buffer write are
+    /// dropped. <see cref="TotalRecords"/> is set when the write completes.
+    /// </remarks>
+    /// <param name="writer">The writer to write to; the caller owns it.</param>
+    /// <param name="records">The records to write.</param>
+    /// <param name="cancellationToken">Token to cancel the write; checked before each record.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="writer"/> or <paramref name="records"/> is <see langword="null"/>.</exception>
+    /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
+    public async Task WriteStreamAsync(TextWriter writer, IEnumerable<T> records, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+        ArgumentNullException.ThrowIfNull(records);
+        await WriteCoreAsync(writer, records, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Asynchronously writes <paramref name="records"/> to <paramref name="stream"/> with asynchronous writes only,
+    /// encoded with <see cref="Encoding"/>: the bytes <see cref="WriteFile"/> writes to a new file, including the
+    /// encoding's preamble (when the stream is not seekable or at position 0). Otherwise as
+    /// <see cref="WriteStreamAsync(TextWriter, IEnumerable{T}, CancellationToken)"/>. <paramref name="stream"/> is NOT
+    /// disposed — the caller owns its lifetime.
+    /// </summary>
+    /// <param name="stream">The writable stream to write to; the caller owns it.</param>
+    /// <param name="records">The records to write.</param>
+    /// <param name="cancellationToken">Token to cancel the write; checked before each record.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="stream"/> or <paramref name="records"/> is <see langword="null"/>.</exception>
+    /// <exception cref="OperationCanceledException">The token was cancelled.</exception>
+    public async Task WriteStreamAsync(Stream stream, IEnumerable<T> records, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(records);
+        var writer = FileBuffers.OpenWriter(stream, Encoding);
+        await using (writer.ConfigureAwait(false))
+        {
+            await WriteCoreAsync(writer, records, cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <summary>
@@ -1146,6 +1279,63 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     }
 #pragma warning restore MA0051
 
+    /// <summary>Characters <see cref="WriteCoreAsync"/> buffers before it writes them to the writer.</summary>
+    private const int AsyncFlushThreshold = 16 * 1024;
+
+    /// <summary>
+    /// Asynchronous twin of <see cref="WriteCore"/> (header, records, footer): formats whole records into a pending
+    /// buffer with <see cref="FillPending"/> and writes it to <paramref name="writer"/> asynchronously.
+    /// </summary>
+    private async Task WriteCoreAsync(TextWriter writer, IEnumerable<T> records, CancellationToken cancellationToken)
+    {
+        TotalRecords = 0;
+
+        int initialSize = Math.Max(4096, _descriptor.Fields.Length * 64);
+        using var buf = new RentedBufferWriter(initialSize);
+        using var pending = new RentedBufferWriter(2 * AsyncFlushThreshold);
+
+        WriteFraming.WriteFrame(pending, HeaderText, NewLineForWrite);
+
+        int count = 0;
+        using (var enumerator = records.GetEnumerator())
+        {
+            bool ended;
+            do
+            {
+                try
+                {
+                    ended = FillPending(enumerator, buf, pending, ref count, cancellationToken);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // The records formatted before the fault reach the writer, as with the synchronous WriteStream
+                    // (not after a cancellation, which would turn the fault into an OperationCanceledException).
+                    if (!cancellationToken.IsCancellationRequested)
+                        await WritePendingAsync(writer, pending, cancellationToken).ConfigureAwait(false);
+                    throw;
+                }
+
+                await WritePendingAsync(writer, pending, cancellationToken).ConfigureAwait(false);
+            }
+            while (!ended);
+        }
+
+        WriteFraming.WriteFrame(pending, FooterText, NewLineForWrite);
+        await WritePendingAsync(writer, pending, cancellationToken).ConfigureAwait(false);
+        await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
+
+        TotalRecords = count;
+    }
+
+    private static async Task WritePendingAsync(TextWriter writer, RentedBufferWriter pending, CancellationToken cancellationToken)
+    {
+        if (pending.WrittenCount == 0)
+            return;
+
+        await writer.WriteAsync(pending.WrittenMemory, cancellationToken).ConfigureAwait(false);
+        pending.Reset();
+    }
+
     /// <summary>
     /// Writes one record for <see cref="MultiRecordEngine"/>: the text of <c>WriteString([record])</c> without its
     /// terminator (nothing when an event skips the record). Each record is record number 1, as it was when the
@@ -1160,6 +1350,52 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     /// </summary>
     private bool WriteRecordText(TextWriter writer, T record, int recordNumber, RentedBufferWriter buf)
     {
+        if (!FormatRecord(record, recordNumber, buf, out string? eventLine))
+            return false;
+
+        if (eventLine is not null)
+            writer.Write(eventLine);
+        else
+            writer.Write(buf.WrittenSpan);
+        return true;
+    }
+
+    /// <summary>
+    /// Formats records of <paramref name="records"/> into <paramref name="pending"/>, each followed by
+    /// <see cref="NewLineForWrite"/>, until it holds <see cref="AsyncFlushThreshold"/> characters or more or the
+    /// records end; <see langword="true"/> when they ended. Only complete records are ever in
+    /// <paramref name="pending"/>: a record whose formatting or events throw adds nothing.
+    /// </summary>
+    private bool FillPending(
+        IEnumerator<T> records, RentedBufferWriter buf, RentedBufferWriter pending, ref int count, CancellationToken cancellationToken)
+    {
+        while (pending.WrittenCount < AsyncFlushThreshold)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!records.MoveNext())
+                return true;
+
+            if (!FormatRecord(records.Current, count + 1, buf, out string? eventLine))
+                continue;
+
+            pending.Write(eventLine is not null ? eventLine.AsSpan() : buf.WrittenSpan);
+            pending.Write(NewLineForWrite.AsSpan()); // The engine, not the descriptor, writes the record terminator.
+            count++;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The per-record work of every write: raises the write events and formats <paramref name="record"/> without
+    /// its terminator into <paramref name="buf"/>; <see langword="false"/> when an event skipped it. The record's
+    /// text is <paramref name="eventLine"/> when write events ran (<see cref="AfterWriteRecord"/> can replace it),
+    /// otherwise <see cref="RentedBufferWriter.WrittenSpan"/> of <paramref name="buf"/>.
+    /// </summary>
+    private bool FormatRecord(T record, int recordNumber, RentedBufferWriter buf, out string? eventLine)
+    {
+        eventLine = null;
+
         // BeforeWriteRecord event, then INotifyWrite<T>.BeforeWrite
         if (BeforeWriteRecord is not null || _implementsNotifyWrite)
         {
@@ -1200,11 +1436,8 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
                 notifyWrite.AfterWrite(afterArgs);
             }
 
-            writer.Write(afterArgs.RecordLine);
-        }
-        else
-        {
-            writer.Write(buf.WrittenSpan);
+            // A handler that sets RecordLine to null writes nothing, as TextWriter.Write(null) did.
+            eventLine = afterArgs.RecordLine ?? string.Empty;
         }
 
         return true;

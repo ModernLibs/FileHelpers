@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Text;
 
 namespace ModernLibs.FileHelpers;
@@ -17,6 +18,17 @@ internal static class WriteFraming
         writer.Write(text);
         if (!text.EndsWith(newLine, StringComparison.Ordinal))
             writer.Write(newLine);
+    }
+
+    /// <summary><see cref="WriteFrame(TextWriter, string?, string)"/> into a buffer.</summary>
+    public static void WriteFrame(IBufferWriter<char> buffer, string? text, string newLine)
+    {
+        if (string.IsNullOrEmpty(text))
+            return;
+
+        buffer.Write(text.AsSpan());
+        if (!text.EndsWith(newLine, StringComparison.Ordinal))
+            buffer.Write(newLine.AsSpan());
     }
 
     /// <summary>

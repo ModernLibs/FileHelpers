@@ -35,12 +35,28 @@ file.
   default interface members, on `IFileHelperEngine<T>`. They read from the stream's current position to
   its end and decode with the engine's `Encoding`; a byte order mark takes precedence. The stream is
   not disposed.
+- **`ReadAsync(Stream)` and `ReadAsync(TextReader)`** on `FileHelperEngine<T>` and
+  `FileHelperAsyncEngine<T>`, as `IAsyncEnumerable<T>` with a `CancellationToken`. They read with
+  asynchronous I/O only, give the records, errors, `HeaderText`, `FooterText` and `LineNumber` of the
+  synchronous reads, and never dispose the stream or reader, also when the loop ends early or is
+  cancelled. The stream is read from its current position with the engine's `Encoding`; a byte order
+  mark takes precedence. The interfaces are unchanged.
+- **`WriteStreamAsync(TextWriter, records)` and `WriteStreamAsync(Stream, records)`** on
+  `FileHelperEngine<T>`, with a `CancellationToken`. They write the text of `WriteStream` (header,
+  footer and write events included) with asynchronous writes only; to a stream, the bytes `WriteFile`
+  writes, preamble included. Records are buffered and written in blocks of at least 16,384 characters,
+  so the writer only receives whole records. If the records or an event throw, the records before
+  it are written and the exception is rethrown. The writer or stream is not disposed.
 
 ### Changed
 
 - **`ReadStream(null)` and `ReadStream(null, n)` on `FileHelperEngine<T>` and `IFileHelperEngine<T>` are
   now ambiguous** between the `TextReader` and the `Stream` overload and no longer compile. Cast the
   argument: `ReadStream((TextReader)null!)`.
+- **`ReadAsync(null)` and `ReadAsync(null, cancellationToken)` on `FileHelperEngine<T>` and
+  `FileHelperAsyncEngine<T>` are now ambiguous** between the `string`, `Stream` and `TextReader`
+  overloads and no longer compile. Cast the argument: `ReadAsync((string)null!)`. Calls through
+  `IFileHelperEngine<T>` and `IFileHelperAsyncEngine<T>` are not affected.
 
 ## [4.9.1] - 2026-11-11
 

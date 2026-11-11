@@ -101,5 +101,35 @@ finally
     passed++;
 }
 
+// 8. WriteStreamAsync(Stream) gives the bytes of WriteString under the engine's Encoding, preamble included.
+{
+    string text = "1,Ann,10.5" + nl + "2,Bob,20" + nl;
+    var engine = new FileHelperEngine<Person> { Encoding = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true) };
+    var records = engine.ReadString(text);
+    using var ms = new MemoryStream();
+    await engine.WriteStreamAsync(ms, records);
+    byte[] expected = [0xEF, 0xBB, 0xBF, .. engine.Encoding.GetBytes(text)];
+    byte[] actual = ms.ToArray();
+    if (!actual.AsSpan().SequenceEqual(expected) || text != engine.WriteString(records))
+        return Fail(8, "WriteStreamAsync bytes", actual.Length + "/" + expected.Length);
+    passed++;
+}
+
+// 9. Enum, formatted date, nullable, custom converter and double: read and write.
+{
+    var engine = new FileHelperEngine<Wide>();
+    string text = "High,2026-11-11,7,abc,0.25" + nl + "Low,2024-02-29,,x,1.5" + nl;
+    var records = engine.ReadString(text);
+    if (records.Length != 2
+        || records[0].Level != Level.High || records[0].Day != new DateTime(2026, 11, 11) || records[0].Count != 7
+        || records[0].Tag != "abc" || records[0].Ratio != 0.25
+        || records[1].Level != Level.Low || records[1].Count is not null || records[1].Ratio != 1.5)
+        return Fail(9, "wide read", records.Length.ToString());
+    string written = engine.WriteString(records);
+    string expectedText = "High,2026-11-11,7,ABC,0.25" + nl + "Low,2024-02-29,,X,1.5" + nl;
+    if (written != expectedText) return Fail(9, "wide write", written);
+    passed++;
+}
+
 Console.WriteLine($"AOT smoke: {passed} checks passed");
 return 0;

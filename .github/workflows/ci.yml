@@ -249,5 +249,8 @@ jobs:
           python3 -I benchmarks/tools/ab.py --aot --a "$bench/${pair[0]}" --b "$bench/${pair[1]}" \
             --expect-a 'tfm=net10.0 runtime-async=off' --smoke --allow-dirty --launches 5 \
             --out "$RUNNER_TEMP/aot-bench.json" -- --rows 1000 --warmup 1 --iterations 3
+          # The real program's refusal path: a checksum no build reads must stop it before timing, with exit 3.
+          code=0; "$bench/${pair[1]}/ModernLibs.FileHelpers.Benchmarks.Aot" --rows 1000 --expect-checksum 0x1 || code=$?
+          [[ $code -eq 3 ]] || { echo "::error::AOT harness: expected exit 3 for a wrong checksum, got $code"; exit 1; }
 
   # Stryker.NET runs in mutation.yml (manual and weekly), not on every push.

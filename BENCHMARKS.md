@@ -374,9 +374,10 @@ per process, and per iteration `ReadFile(path, r => checksum += r.Id)`. One proc
    strings), once computed from the text with the BCL parsers and once from the records the library reads. They
    must agree, and with `--expect-checksum` they must also equal the checksum the other build of the pair read.
    Otherwise the process prints `// REFUSED, nothing timed: ...` and exits 3;
-4. `--warmup` untimed reads (default 5), then `--iterations` timed reads (default 20). Before each timed read it
-   runs a full garbage collection (BenchmarkDotNet does the same between iterations by default); each read is timed
-   with `Stopwatch.GetTimestamp` and must return the Id sum of the file;
+4. `--warmup` untimed reads (default 5), then `--iterations` timed reads (default 20). Before every timed read it
+   runs a full garbage collection, outside the timed region; each read is timed with `Stopwatch.GetTimestamp` and
+   must return the Id sum of the file. This differs from BenchmarkDotNet, which forces a collection between
+   iterations, and one of its iterations can hold several reads (see "What it cannot do");
 5. prints one JSON line: scenario, variant, library, build (`native-aot=yes`, app target framework, runtime
    identifier), runtime, rows, warm-up and iteration counts, the data checksum and every iteration time in ns.
 
@@ -419,7 +420,12 @@ needs a native toolchain on the machine: CI installs `clang` and `zlib1g-dev` wh
 sets or forbids them). Before the first timed launch, `ab.py` runs each side once with `--checksum-only` and stops
 unless both report the same data checksum; every timed launch then gets `--expect-checksum` with that value. One
 sample is the median of the iteration times of one launch. The start-up lines of every process must show the
-folder's variant and `native-aot=yes`, and the SHA-256 of each executable must not change during the run. The
+folder's variant and `native-aot=yes`; for `pkg-net10` and `pkg-net11` also a package library and the .NET major
+version of the folder's name (both package folders print the same variant line, so the runtime is what tells them
+apart), for `net10`, `net11-ra-on` and `net11-ra-off` the `project` library. `ab.py` prints these lines for each
+side after the checksum run. A and B must hold different executables (the same folder twice, or a copy, is
+refused), and the SHA-256 of each executable must not change during the run. With `--aot`, `pkg-net10` and
+`pkg-net11` need no `--expect-a`/`--expect-b`. The
 result file has `"harness": "aot"`, `"aot_checksum"` and `"program_args"`; the case is named
 `ModernLibs.FileHelpers.Benchmarks.Aot.PackageAssets_ParseAndDiscard(Rows: 100000)`.
 
@@ -434,6 +440,19 @@ python3 -I benchmarks/tools/ab.py --aot --a ~/fh-aot/pkg-net10 --b ~/fh-aot/net1
 - Its numbers compare AOT builds with each other (4.9.1 against 4.10, runtime async on against off). They are not a
   ratio against a BenchmarkDotNet number: the timing loops differ (BenchmarkDotNet has a pilot stage, chooses its
   iteration counts, removes outliers and subtracts its overhead; this harness has fixed counts and none of that).
+- Garbage collection: the harness collects before every read, so no read pays for the garbage of the one before.
+  BenchmarkDotNet collects between iterations only, and at 10K and 100K rows one iteration can hold several reads,
+  so later reads of an iteration can pay for a collection. Expect AOT times per read to be somewhat lower for that
+  reason alone.
+- No AOT control build. For the JIT pairs, the control build (the 4.9.1 source compiled with SDK 11, design 2.5
+  item 9) separates the compiler and SDK effect from the code effect. The AOT pairs compare the 4.9.1 package with
+  this build only, so an AOT 4.9.1-against-4.10 ratio contains both the code change and the compiler and SDK
+  change. Read it as "what a consumer gets", not as "what our code changed".
+- Instruction set: the publish sets no `IlcInstructionSet` (the `.ilc.rsp` has no `--instruction-set` line), so the
+  AOT compiler targets its default x64 baseline, which does not assume AVX2 (design 2.1: .NET 11 raises the x64
+  minimum to x86-64-v2; Native AOT still does not assume AVX2). Code that the JIT compiles for AVX2 on the same machine can
+  take a narrower vector path under AOT. SIMD comparisons between JIT and AOT (T21) must keep this in mind; an
+  AVX2 AOT build would need `-p:IlcInstructionSet=x86-64-v3`, which the script does not pass.
 - No memory diagnoser: no Gen0/Gen1/Gen2 or allocation columns.
 - One scenario. Another one needs code in the harness and an entry in `AOT_SCENARIOS` of `ab.py`.
 - The published program has the feature switches `PublishAot` sets for every AOT application (for example

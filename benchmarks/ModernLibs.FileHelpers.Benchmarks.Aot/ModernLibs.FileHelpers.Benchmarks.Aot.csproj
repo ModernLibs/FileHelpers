@@ -50,7 +50,8 @@
     <_HarnessLibraryTfm Condition="'$(FileHelpersPackageVersion)' == ''">$(TargetFramework)</_HarnessLibraryTfm>
     <_HarnessLibraryTfm Condition="'$(FileHelpersPackageVersion)' != ''">net10.0</_HarnessLibraryTfm>
     <_HarnessRuntimeAsync>off</_HarnessRuntimeAsync>
-    <_HarnessRuntimeAsync Condition="'$(FileHelpersPackageVersion)' == '' and '$(TargetFramework)' == 'net11.0' and '$(FileHelpersRuntimeAsync)' != 'false'">on</_HarnessRuntimeAsync>
+    <!-- The library's own test (src/ModernLibs.FileHelpers/ModernLibs.FileHelpers.csproj): empty means true, then == 'true'. -->
+    <_HarnessRuntimeAsync Condition="'$(FileHelpersPackageVersion)' == '' and '$(TargetFramework)' == 'net11.0' and ('$(FileHelpersRuntimeAsync)' == '' or '$(FileHelpersRuntimeAsync)' == 'true')">on</_HarnessRuntimeAsync>
   </PropertyGroup>
   <Target Name="_WriteHarnessBuild" BeforeTargets="CoreCompile">
     <PropertyGroup>

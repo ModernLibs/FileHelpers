@@ -323,6 +323,30 @@ class AotStartupAndResultTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             ab.check_startup(_aot_startup_log(runtime=".NET 11.0.0"), bench, ab.expected_variant(bench, None), aot=True)
 
+    def test_package_folders_have_a_runtime_and_a_library_expectation(self):
+        self.assertEqual(ab.aot_expected_variant("/x/pkg-net10", None), ("tfm=net10.0 runtime-async=off", "10", "package "))
+        self.assertEqual(ab.aot_expected_variant("/x/pkg-net11", "tfm=net10.0 runtime-async=off"),
+                         ("tfm=net10.0 runtime-async=off", "11", "package "))
+        self.assertEqual(ab.aot_expected_variant("/x/net11-ra-on", None), ("tfm=net11.0 runtime-async=on", "11", "project"))
+        self.assertEqual(ab.aot_expected_variant("/x/other", "tfm=net10.0 runtime-async=off"),
+                         ("tfm=net10.0 runtime-async=off", None, None))
+        with self.assertRaises(ValueError):
+            ab.aot_expected_variant("/x/pkg-net11", "tfm=net11.0 runtime-async=on")
+
+    def test_aot_startup_refuses_a_package_build_on_the_wrong_runtime(self):
+        # A pkg-net10 build passed where pkg-net11 was meant prints the same variant line; the runtime differs.
+        log = _aot_startup_log().replace("library: project", "library: package 4.9.1")
+        ab.check_startup(log, "/x/pkg-net10", ab.aot_expected_variant("/x/pkg-net10", None), aot=True)
+        with self.assertRaises(RuntimeError):
+            ab.check_startup(log, "/x/pkg-net11", ab.aot_expected_variant("/x/pkg-net11", None), aot=True)
+
+    def test_aot_startup_refuses_the_wrong_library(self):
+        log_package = _aot_startup_log().replace("library: project", "library: package 4.9.1")
+        with self.assertRaises(RuntimeError):
+            ab.check_startup(log_package, "/x/net10", ab.aot_expected_variant("/x/net10", None), aot=True)
+        with self.assertRaises(RuntimeError):
+            ab.check_startup(_aot_startup_log(), "/x/pkg-net10", ab.aot_expected_variant("/x/pkg-net10", None), aot=True)
+
     def test_a_benchmarkdotnet_log_is_not_an_aot_log(self):
         bench = "/x/net11-ra-on"
         with self.assertRaises(RuntimeError):
@@ -462,12 +486,15 @@ class AotMainTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.dirs = {}
-        for name, library in (("pkg-net10", "package 4.9.1"), ("net10", "project")):
+        # Every fake program prints a .NET 10 runtime, so the pkg-net11 folder is a package build on the wrong
+        # runtime (a pkg-net10 build copied or passed under the pkg-net11 name).
+        for name, library in (("pkg-net10", "package 4.9.1"), ("net10", "project"), ("pkg-net11", "package 4.9.1")):
             folder = os.path.join(self._tmp.name, name)
             os.makedirs(folder)
             exe = os.path.join(folder, ab.AOT_EXECUTABLE)
             with open(exe, "w", encoding="utf-8") as f:
-                f.write(_FAKE_AOT_PROGRAM)
+                # One comment line per folder: the executables differ, as two real builds do.
+                f.write(_FAKE_AOT_PROGRAM + "# %s\n" % name)
             os.chmod(exe, 0o755)
             files = {
                 "checksum": "0x00000000000000aa\n",
@@ -510,6 +537,41 @@ class AotMainTests(unittest.TestCase):
         self.assertEqual(row["a_median_ns"], [105.0] * 7)
         self.assertEqual(row["verdict"], "no-change")
         self.assertEqual((self._timed("pkg-net10"), self._timed("net10")), (7, 7))
+
+    def _document(self):
+        with open(self.out, encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_smoke_in_aot_mode_is_never_b4(self):
+        # Lead ruling R21 / R20 in AOT mode (review-T47, Minor 3).
+        self.assertEqual(ab.main(["--aot", "--a", self.dirs["pkg-net10"], "--b", self.dirs["net10"],
+                                  "--launches", "5", "--smoke", "--out", self.out]), 0)
+        document = self._document()
+        self.assertFalse(document["b4"])
+        self.assertEqual(document["not_b4_reason"], "smoke")
+
+    def test_allow_dirty_in_aot_mode_is_never_b4(self):
+        self.assertEqual(self._main("--allow-dirty"), 0)
+        document = self._document()
+        self.assertFalse(document["b4"])
+        self.assertIn("uncommitted changes", document["not_b4_reason"])
+
+    def test_the_same_executable_on_both_sides_is_refused(self):
+        with self.assertRaises(SystemExit):
+            ab.main(["--aot", "--a", self.dirs["net10"], "--b", self.dirs["net10"], "--launches", "7",
+                     "--out", self.out])
+        with open(os.path.join(self.dirs["net10"], ab.AOT_EXECUTABLE), "w", encoding="utf-8") as f:
+            f.write(_FAKE_AOT_PROGRAM + "# pkg-net10\n")
+        with self.assertRaises(SystemExit):
+            self._main()
+        self.assertEqual((self._timed("pkg-net10"), self._timed("net10")), (0, 0))
+
+    def test_a_package_folder_on_the_wrong_runtime_is_refused_before_timing(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            ab.main(["--aot", "--a", self.dirs["pkg-net11"], "--b", self.dirs["net10"], "--launches", "7",
+                     "--out", self.out])
+        self.assertIn("expected .NET 11", str(ctx.exception))
+        self.assertEqual((self._timed("pkg-net11"), self._timed("net10")), (0, 0))
 
     def test_a_checksum_that_differs_between_the_builds_refuses_to_time(self):
         with open(os.path.join(self.dirs["net10"], "checksum"), "w", encoding="utf-8") as f:

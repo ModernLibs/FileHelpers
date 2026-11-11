@@ -24,6 +24,12 @@ namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks;
 /// <item><see cref="Engine_WriteStreamAsync_Null"/>: <c>WriteStreamAsync(Stream.Null, records)</c> of the dataset's
 /// records, read once in the setup. The setup checks one call's output on a <see cref="MemoryStream"/>: its length is
 /// the encoded <c>WriteString</c> text plus the preamble. Returns <c>TotalRecords</c>.</item>
+/// <item><see cref="Engine_ReadAsync_Stream"/>, <see cref="Engine_ReadAsync_TextReader"/>: <c>await foreach</c> over
+/// <c>ReadAsync(Stream)</c> / <c>ReadAsync(TextReader)</c> of the same file held in memory (a new
+/// <see cref="MemoryStream"/> per call), the sum of the Ids.</item>
+/// <item><see cref="Engine_WriteStreamAsync_Null_SourceThrows"/>: <c>WriteStreamAsync(Stream.Null, records)</c> where
+/// the source throws at the middle record; the benchmark catches it. The write path has no per-record error mode, so
+/// the fault is one exception per call. Returns the number caught (1).</item>
 /// </list>
 /// </remarks>
 [MemoryDiagnoser]
@@ -32,6 +38,7 @@ public class EngineAsyncBenchmarks
     private string _path = "";
     private FileHelperEngine<PackageAsset> _engine = null!;
     private PackageAsset[] _records = [];
+    private byte[] _bytes = [];
 
     [Params(10_000, 100_000)]
     public int Rows { get; set; }
@@ -77,6 +84,61 @@ public class EngineAsyncBenchmarks
         DataCheck.Equal(Rows, await Engine_WriteStreamAsync_Null(), nameof(Engine_WriteStreamAsync_Null) + " TotalRecords");
     }
 
+    [GlobalSetup(Target = nameof(Engine_ReadAsync_Stream))]
+    public void SetupReadAsyncStream()
+    {
+        _bytes = File.ReadAllBytes(DatasetGenerator.EnsurePackageAssets(ComponentData.DataDir(), Rows));
+        _engine = new FileHelperEngine<PackageAsset>();
+        DataCheck.Equal(DiscardChecksum.IdSum(Rows), Engine_ReadAsync_Stream().GetAwaiter().GetResult(), nameof(Engine_ReadAsync_Stream) + " checksum");
+    }
+
+    [GlobalSetup(Target = nameof(Engine_ReadAsync_TextReader))]
+    public void SetupReadAsyncTextReader()
+    {
+        _bytes = File.ReadAllBytes(DatasetGenerator.EnsurePackageAssets(ComponentData.DataDir(), Rows));
+        _engine = new FileHelperEngine<PackageAsset>();
+        DataCheck.Equal(DiscardChecksum.IdSum(Rows), Engine_ReadAsync_TextReader().GetAwaiter().GetResult(), nameof(Engine_ReadAsync_TextReader) + " checksum");
+    }
+
+    [GlobalSetup(Target = nameof(Engine_WriteStreamAsync_Null_SourceThrows))]
+    public async Task SetupWriteStreamAsyncSourceThrows()
+    {
+        _engine = new FileHelperEngine<PackageAsset>();
+        _records = _engine.ReadFile(DatasetGenerator.EnsurePackageAssets(ComponentData.DataDir(), Rows));
+        DataCheck.Equal(Rows, _records.Length, nameof(Engine_WriteStreamAsync_Null_SourceThrows) + " records");
+        DataCheck.Equal(1, await Engine_WriteStreamAsync_Null_SourceThrows(), nameof(Engine_WriteStreamAsync_Null_SourceThrows) + " exceptions caught");
+        DataCheck.Equal(0, _engine.TotalRecords, nameof(Engine_WriteStreamAsync_Null_SourceThrows) + " TotalRecords after the fault");
+    }
+
+    [Benchmark]
+    public async Task<long> Engine_ReadAsync_Stream()
+    {
+        long checksum = 0;
+        using var stream = new MemoryStream(_bytes, writable: false);
+        await foreach (var record in _engine.ReadAsync(stream))
+            checksum += record.Id;
+        return checksum;
+    }
+
+    [Benchmark]
+    public async Task<long> Engine_ReadAsync_TextReader()
+    {
+        long checksum = 0;
+        using var reader = new StreamReader(new MemoryStream(_bytes, writable: false), _engine.Encoding);
+        await foreach (var record in _engine.ReadAsync(reader))
+            checksum += record.Id;
+        return checksum;
+    }
+
+    /// <summary>The records up to the middle one, then an <see cref="InvalidOperationException"/>.</summary>
+    private static IEnumerable<PackageAsset> ThrowAtMiddle(PackageAsset[] records)
+    {
+        int stop = records.Length / 2;
+        for (int i = 0; i < stop; i++)
+            yield return records[i];
+        throw new InvalidOperationException("Benchmark source fault.");
+    }
+
     [Benchmark]
     public async Task<long> Engine_ReadAsync_Path()
     {
@@ -108,5 +170,20 @@ public class EngineAsyncBenchmarks
     {
         await _engine.WriteStreamAsync(Stream.Null, _records);
         return _engine.TotalRecords;
+    }
+
+    [Benchmark]
+    public async Task<int> Engine_WriteStreamAsync_Null_SourceThrows()
+    {
+        int caught = 0;
+        try
+        {
+            await _engine.WriteStreamAsync(Stream.Null, ThrowAtMiddle(_records));
+        }
+        catch (InvalidOperationException)
+        {
+            caught++;
+        }
+        return caught;
     }
 }

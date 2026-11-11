@@ -2,6 +2,7 @@
 #pragma warning disable MA0004
 
 using BenchmarkDotNet.Attributes;
+using ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components;
 using ModernLibs.FileHelpers.Benchmarks.Data;
 
 namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks;
@@ -32,17 +33,10 @@ public class EngineAsyncBenchmarks
     [Params(10_000, 100_000)]
     public int Rows { get; set; }
 
-    private static string DataDir()
-    {
-        var dataDir = Path.Combine(Path.GetDirectoryName(typeof(EngineAsyncBenchmarks).Assembly.Location)!, "Data");
-        Directory.CreateDirectory(dataDir);
-        return dataDir;
-    }
-
     [GlobalSetup(Target = nameof(Engine_ReadAsync_Path))]
     public void SetupReadAsync()
     {
-        _path = DatasetGenerator.EnsurePackageAssets(DataDir(), Rows);
+        _path = DatasetGenerator.EnsurePackageAssets(ComponentData.DataDir(), Rows);
         _engine = new FileHelperEngine<PackageAsset>();
         DataCheck.Equal(DiscardChecksum.IdSum(Rows), Engine_ReadAsync_Path().GetAwaiter().GetResult(), nameof(Engine_ReadAsync_Path) + " checksum");
     }
@@ -50,7 +44,7 @@ public class EngineAsyncBenchmarks
     [GlobalSetup(Target = nameof(Engine_ReadFileAsync_Callback))]
     public void SetupReadFileAsync()
     {
-        _path = DatasetGenerator.EnsurePackageAssets(DataDir(), Rows);
+        _path = DatasetGenerator.EnsurePackageAssets(ComponentData.DataDir(), Rows);
         _engine = new FileHelperEngine<PackageAsset>();
         DataCheck.Equal(DiscardChecksum.IdSum(Rows), Engine_ReadFileAsync_Callback().GetAwaiter().GetResult(), nameof(Engine_ReadFileAsync_Callback) + " checksum");
     }
@@ -58,7 +52,7 @@ public class EngineAsyncBenchmarks
     [GlobalSetup(Target = nameof(Engine_ReadAsync_Path_ExceptionEvery100))]
     public void SetupExceptionEvery100()
     {
-        _path = DatasetGenerator.EnsurePackageAssetsBadEvery100(DataDir(), Rows);
+        _path = DatasetGenerator.EnsurePackageAssetsBadEvery100(ComponentData.DataDir(), Rows);
         _engine = new FileHelperEngine<PackageAsset> { ErrorMode = ErrorMode.SaveAndContinue };
         DataCheck.Equal(Rows / DatasetGenerator.BadRowEvery, Engine_ReadAsync_Path_ExceptionEvery100().GetAwaiter().GetResult(), nameof(Engine_ReadAsync_Path_ExceptionEvery100) + " ErrorCount");
         DataCheck.Equal(Rows - (Rows / DatasetGenerator.BadRowEvery), _engine.TotalRecords, nameof(Engine_ReadAsync_Path_ExceptionEvery100) + " records read");

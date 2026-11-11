@@ -7,13 +7,23 @@ namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks.Prototypes;
 /// <summary>
 /// Gate R6 (design 3.2): quoted parse-and-discard, <c>ReadFile(path, callback)</c> on the seeded quoted set, with the
 /// generated descriptor (<see cref="R6_Current"/>, the same work as
-/// <c>QuotedFieldsBenchmarks.FileHelpers_ParseAndDiscard</c>) and with the upper-bound descriptor
-/// <see cref="QuotedPrecomputedEndsDescriptor"/> in the same engine (<see cref="R6_PrecomputedEnds"/>).
+/// <c>QuotedFieldsBenchmarks.FileHelpers_ParseAndDiscard</c>) and, in the same engine, with the two upper-bound
+/// descriptors that take precomputed field ends.
 /// </summary>
 /// <remarks>
-/// Both return the sum of the Ids. Each setup reads the file once through its own engine and callback, checks every
-/// record against the dataset (<see cref="DataCheck.QuotedRandom"/> and the Name column) and checks the checksum.
-/// <c>--check-prototypes</c> compares the two paths' records field by field.
+/// <para>
+/// <see cref="R6_PrecomputedEnds"/> is the gate (lead ruling R32): precomputed ends with today's emitted strip pass
+/// (<see cref="QuotedPrecomputedEndsEmittedUnquote"/>), R6 alone. <see cref="R6_PrecomputedEnds_FastUnquote"/> is
+/// informative: precomputed ends with the fastest unquote (<see cref="QuotedPrecomputedEndsFastUnquote"/>), R6 plus R3.
+/// The gate ratio is <c>R6_PrecomputedEnds / R6_Current</c> within one 4.10 build; the Step 0 report gives both
+/// prototype ratios.
+/// </para>
+/// <para>
+/// All three return the sum of the Ids. Each setup reads the file once through its own engine and callback, checks
+/// every record against the dataset (<see cref="DataCheck.QuotedRandom"/> and the Name column), that the prototype
+/// parsed every row, and the checksum. <c>--check-prototypes</c> compares both prototypes' records with
+/// <c>R6_Current</c> field by field.
+/// </para>
 /// </remarks>
 [MemoryDiagnoser]
 public class R6UpperBoundBenchmarks
@@ -42,6 +52,18 @@ public class R6UpperBoundBenchmarks
             DataCheck.Equal(s_names[i % s_names.Length], records[i].Name, $"{name} row {i} Name");
     }
 
+    private void SetupPrototype(string name, Func<string, QuotedPrecomputedEndsDescriptor> create, Func<long> benchmark)
+    {
+        _path = DatasetGenerator.EnsureQuotedFieldsRandom(ComponentData.DataDir(), Rows);
+        _descriptor = create(_path);
+        _engine = PrototypeEngine.Create<QuotedRecord>(_descriptor);
+        _descriptor.Rewind();
+        CheckRecords(name, Collect(_engine, _path));
+        DataCheck.Equal(Rows, _descriptor.RowsParsed, name + " rows parsed by the prototype");
+        DataCheck.Equal(DiscardChecksum.IdSum(Rows), benchmark(), name + " checksum");
+        DataCheck.Equal(Rows, _descriptor.RowsParsed, name + " rows parsed by the prototype");
+    }
+
     [GlobalSetup(Target = nameof(R6_Current))]
     public void SetupCurrent()
     {
@@ -52,17 +74,12 @@ public class R6UpperBoundBenchmarks
     }
 
     [GlobalSetup(Target = nameof(R6_PrecomputedEnds))]
-    public void SetupPrecomputedEnds()
-    {
-        _path = DatasetGenerator.EnsureQuotedFieldsRandom(ComponentData.DataDir(), Rows);
-        _descriptor = QuotedPrecomputedEndsDescriptor.FromFile(_path);
-        _engine = PrototypeEngine.Create(_descriptor);
-        _descriptor.Rewind();
-        CheckRecords(nameof(R6_PrecomputedEnds), Collect(_engine, _path));
-        DataCheck.Equal(Rows, _descriptor.RowsParsed, nameof(R6_PrecomputedEnds) + " rows parsed by the prototype");
-        DataCheck.Equal(DiscardChecksum.IdSum(Rows), R6_PrecomputedEnds(), nameof(R6_PrecomputedEnds) + " checksum");
-        DataCheck.Equal(Rows, _descriptor.RowsParsed, nameof(R6_PrecomputedEnds) + " rows parsed by the prototype");
-    }
+    public void SetupPrecomputedEnds() =>
+        SetupPrototype(nameof(R6_PrecomputedEnds), path => new QuotedPrecomputedEndsEmittedUnquote(path), R6_PrecomputedEnds);
+
+    [GlobalSetup(Target = nameof(R6_PrecomputedEnds_FastUnquote))]
+    public void SetupPrecomputedEndsFastUnquote() =>
+        SetupPrototype(nameof(R6_PrecomputedEnds_FastUnquote), path => new QuotedPrecomputedEndsFastUnquote(path), R6_PrecomputedEnds_FastUnquote);
 
     [Benchmark(Baseline = true)]
     public long R6_Current()
@@ -72,8 +89,19 @@ public class R6UpperBoundBenchmarks
         return checksum;
     }
 
+    /// <summary>The gate: precomputed ends, today's strip pass (R6 alone).</summary>
     [Benchmark]
     public long R6_PrecomputedEnds()
+    {
+        _descriptor.Rewind();
+        long checksum = 0;
+        _engine.ReadFile(_path, r => checksum += r.Id);
+        return checksum;
+    }
+
+    /// <summary>Informative: precomputed ends, fastest unquote (R6 plus R3).</summary>
+    [Benchmark]
+    public long R6_PrecomputedEnds_FastUnquote()
     {
         _descriptor.Rewind();
         long checksum = 0;

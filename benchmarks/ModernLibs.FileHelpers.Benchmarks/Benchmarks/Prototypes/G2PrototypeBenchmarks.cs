@@ -14,7 +14,10 @@ namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks.Prototypes;
 /// so the engine's write pipeline (header, the rented record buffer, the newline, <c>PooledStringWriter</c>, the result
 /// string) is measured in both. Each setup loads the records with a separate engine through the callback read (no
 /// pooled record buffer stays in the process), copies the header it read, writes once and compares the text with the
-/// file line by line (<see cref="DataCheck.WrittenPackageAssets"/>). <c>--check-prototypes</c> compares the two texts.
+/// file line by line (<see cref="DataCheck.WrittenPackageAssets"/>); the prototype's setup also checks that the
+/// prototype formatted every record (<see cref="PackageAssetSpanFormat.FormatCalls"/>). <c>--check-prototypes</c>
+/// compares the two texts. The record is still formatted into the engine's record buffer and then copied into the
+/// <c>PooledStringWriter</c>, so the gate excludes P5 (formatting straight into the chunk, design 5.1).
 /// </remarks>
 [MemoryDiagnoser]
 public class G2PrototypeBenchmarks
@@ -55,9 +58,12 @@ public class G2PrototypeBenchmarks
     public void SetupSingleSpan()
     {
         string? header = Prepare();
-        _engine = PrototypeEngine.Create<PackageAsset>(new PackageAssetSpanFormat());
+        var prototype = new PackageAssetSpanFormat();
+        _engine = PrototypeEngine.Create<PackageAsset>(prototype);
         _engine.HeaderText = header;
         DataCheck.WrittenPackageAssets(nameof(G2_SingleSpan), DataCheck.DataLines(_sourceFile, hasHeader: false), G2_SingleSpan());
+        // Proof that the engine wrote through the prototype, not through the generated Format.
+        DataCheck.Equal((long)Rows, prototype.FormatCalls, nameof(G2_SingleSpan) + " records formatted by the prototype");
     }
 
     [Benchmark(Baseline = true)]

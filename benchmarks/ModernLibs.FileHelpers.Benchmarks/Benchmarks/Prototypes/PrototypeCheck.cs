@@ -29,7 +29,7 @@ internal static class PrototypeCheck
         try
         {
             int rows = CheckR6(dir);
-            Console.WriteLine($"// R6_PrecomputedEnds: {rows} records of the seeded quoted set equal R6_Current field by field.");
+            Console.WriteLine($"// R6_PrecomputedEnds and R6_PrecomputedEnds_FastUnquote: {rows} records of the seeded quoted set equal R6_Current field by field.");
             int lines = CheckG2(dir);
             Console.WriteLine($"// G2_SingleSpan: WriteString of {PackageRows} records equals G2_Current ({lines} lines).");
             Console.WriteLine($"// Tokenizer_*: the four tokenizers give the same field ends on {CheckTokenizers(dir)} lines.");
@@ -43,33 +43,48 @@ internal static class PrototypeCheck
         }
         finally
         {
-            Directory.Delete(dir, recursive: true);
+            // A folder that cannot be deleted (a file still open) must not replace the result with an exception.
+            try
+            {
+                Directory.Delete(dir, recursive: true);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                Console.Error.WriteLine($"// --check-prototypes: could not delete {dir}: {e.Message}");
+            }
         }
     }
 
-    /// <summary>R6_PrecomputedEnds records equal R6_Current records, field by field, on the seeded quoted set.</summary>
+    /// <summary>
+    /// The records of both R6 prototypes (gate and fast-unquote variants) equal R6_Current records, field by field,
+    /// on the seeded quoted set.
+    /// </summary>
     private static int CheckR6(string dir)
     {
         string path = DatasetGenerator.EnsureQuotedFieldsRandom(dir, QuotedRows);
         var current = R6UpperBoundBenchmarks.Collect(new FileHelperEngine<QuotedRecord>(), path);
+        CompareR6("R6_PrecomputedEnds", current, new QuotedPrecomputedEndsEmittedUnquote(path), path);
+        CompareR6("R6_PrecomputedEnds_FastUnquote", current, new QuotedPrecomputedEndsFastUnquote(path), path);
+        return current.Count;
+    }
 
-        var descriptor = QuotedPrecomputedEndsDescriptor.FromFile(path);
-        var engine = PrototypeEngine.Create(descriptor);
+    private static void CompareR6(string name, List<QuotedRecord> current, QuotedPrecomputedEndsDescriptor descriptor, string path)
+    {
+        var engine = PrototypeEngine.Create<QuotedRecord>(descriptor);
         descriptor.Rewind();
         var prototype = R6UpperBoundBenchmarks.Collect(engine, path);
-        DataCheck.Equal(QuotedRows, descriptor.RowsParsed, "R6_PrecomputedEnds rows parsed");
+        DataCheck.Equal(QuotedRows, descriptor.RowsParsed, name + " rows parsed");
 
-        DataCheck.Equal(current.Count, prototype.Count, "R6 record count");
+        DataCheck.Equal(current.Count, prototype.Count, name + " record count");
         for (int i = 0; i < current.Count; i++)
         {
             QuotedRecord a = current[i], b = prototype[i];
-            DataCheck.Equal(a.Id, b.Id, $"R6 row {i} Id");
-            DataCheck.Equal(a.Name, b.Name, $"R6 row {i} Name");
-            DataCheck.Equal(a.Description, b.Description, $"R6 row {i} Description");
-            DataCheck.Equal(a.Notes, b.Notes, $"R6 row {i} Notes");
-            DataCheck.Equal(a.Category, b.Category, $"R6 row {i} Category");
+            DataCheck.Equal(a.Id, b.Id, $"{name} row {i} Id");
+            DataCheck.Equal(a.Name, b.Name, $"{name} row {i} Name");
+            DataCheck.Equal(a.Description, b.Description, $"{name} row {i} Description");
+            DataCheck.Equal(a.Notes, b.Notes, $"{name} row {i} Notes");
+            DataCheck.Equal(a.Category, b.Category, $"{name} row {i} Category");
         }
-        return current.Count;
     }
 
     /// <summary>G2_SingleSpan text equals G2_Current text for the same records.</summary>
@@ -79,11 +94,14 @@ internal static class PrototypeCheck
         var (records, header) = G2PrototypeBenchmarks.Load(path);
 
         var current = new FileHelperEngine<PackageAsset> { HeaderText = header };
-        var prototype = PrototypeEngine.Create<PackageAsset>(new PackageAssetSpanFormat());
+        var format = new PackageAssetSpanFormat();
+        var prototype = PrototypeEngine.Create<PackageAsset>(format);
         prototype.HeaderText = header;
 
         var expected = DataCheck.TextLines(current.WriteString(records));
+        format.ResetCalls();
         var actual = DataCheck.TextLines(prototype.WriteString(records));
+        DataCheck.Equal((long)records.Length, format.FormatCalls, "G2_SingleSpan records formatted by the prototype");
         DataCheck.Equal(expected.Length, actual.Length, "G2 written line count");
         for (int i = 0; i < expected.Length; i++)
         {

@@ -28,6 +28,10 @@ namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks.Prototypes;
 /// Only <c>Format</c> is hand-written; the rest delegates to the generated descriptor, and <c>Parse</c> is not
 /// supported. <see cref="PrototypeEngine"/> runs it in the engine's write path.
 /// </para>
+/// <para>
+/// <see cref="FormatCalls"/> counts the records formatted, so that a setup can prove the engine wrote through the
+/// prototype (as <c>RowsParsed</c> does for R6). It costs one increment per record.
+/// </para>
 /// </remarks>
 internal sealed class PackageAssetSpanFormat : IRecordDescriptor<PackageAsset>
 {
@@ -36,8 +40,16 @@ internal sealed class PackageAssetSpanFormat : IRecordDescriptor<PackageAsset>
     private static readonly IRecordDescriptor<PackageAsset> s_generated = FileHelperRegistry<PackageAsset>.Descriptor;
     private static readonly DateTimeConverter s_date = new(DatasetGenerator.DateFormat);
 
+    private long _formatCalls;
+
+    /// <summary>The number of <c>Format</c> calls since the last <see cref="ResetCalls"/>.</summary>
+    public long FormatCalls => _formatCalls;
+
+    public void ResetCalls() => _formatCalls = 0;
+
     public void Format(PackageAsset record, IBufferWriter<char> writer)
     {
+        _formatCalls++;
         int size = FirstSpan;
         while (true)
         {

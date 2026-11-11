@@ -8,7 +8,8 @@ namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks.Prototypes;
 /// <summary>
 /// The R6 upper bound (design 3.1, gate R6): a hand-written descriptor for <see cref="QuotedRecord"/> whose
 /// <c>Parse</c> takes the field ends of each record from an array computed before the read, so it pays nothing for
-/// tokenizing. It only slices, unquotes, converts and constructs.
+/// tokenizing. It only slices, unquotes, converts and constructs. Two variants differ only in how they unquote:
+/// <see cref="QuotedPrecomputedEndsEmittedUnquote"/> (the gate) and <see cref="QuotedPrecomputedEndsFastUnquote"/>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -26,40 +27,34 @@ namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks.Prototypes;
 /// is not the length of the record it is given, so a read that is out of step with the array fails.
 /// </para>
 /// <para>
-/// Unquoting is the fastest correct code for the flags: a quoted field without a doubled quote is one
-/// <c>new string</c> of its inner text; with one, a single <c>string.Create</c> of the final length copies the blocks
-/// between quotes (no rented buffer, unlike the emitted strip pass). The bound therefore also includes the gain of
-/// R3 on these fields. The <c>Id</c> field is converted with <see cref="Int32Converter.Instance"/>, as the generated
-/// code does; unquoted text fields are <c>new string</c>, as the generated code does (R4 is not part of the bound).
+/// The array holds the ends of the whole file (2 MB on the large object heap at 100,000 rows; each record reads 20
+/// bytes of it). A real tokenizer writes into one small buffer that it reuses, so the array costs the prototype a
+/// little memory traffic that R6 would not have: a small effect against the bound.
+/// </para>
+/// <para>
+/// The <c>Id</c> field is converted with <see cref="Int32Converter.Instance"/> and unquoted text fields are
+/// <c>new string</c>, as the generated code does (R4 is not part of the bound).
 /// </para>
 /// </remarks>
-internal sealed class QuotedPrecomputedEndsDescriptor : IRecordDescriptor<QuotedRecord>
+internal abstract class QuotedPrecomputedEndsDescriptor : IRecordDescriptor<QuotedRecord>
 {
+    protected const int QuotedFlag = 1 << 30;
+    protected const int DoubledFlag = 1 << 29;
+    protected const int EndMask = DoubledFlag - 1;
+    protected const char Quote = '"';
     private const int FieldsPerRow = 5;
-    private const int QuotedFlag = 1 << 30;
-    private const int DoubledFlag = 1 << 29;
-    private const int EndMask = DoubledFlag - 1;
-    private const char Quote = '"';
 
     private static readonly IRecordDescriptor<QuotedRecord> s_generated = FileHelperRegistry<QuotedRecord>.Descriptor;
 
     private readonly int[] _ends;
     private int _row;
 
-    private QuotedPrecomputedEndsDescriptor(int[] ends) => _ends = ends;
-
-    /// <summary>The number of records parsed since the last <see cref="Rewind"/>.</summary>
-    public int RowsParsed => _row;
-
-    /// <summary>Starts again at the first row; call it before each read.</summary>
-    public void Rewind() => _row = 0;
-
     /// <summary>
     /// Computes the field ends of every data line of <paramref name="path"/> (a file of the seeded quoted set, header
     /// skipped as <see cref="QuotedRecord"/>'s <c>[IgnoreFirst]</c> does) with <see cref="ComponentData.QuotedFields"/>,
     /// a reference splitter that does not use the library's scanner.
     /// </summary>
-    public static QuotedPrecomputedEndsDescriptor FromFile(string path)
+    protected QuotedPrecomputedEndsDescriptor(string path)
     {
         string[] lines = DataCheck.DataLines(path, hasHeader: true);
         var ends = new int[lines.Length * FieldsPerRow];
@@ -82,10 +77,19 @@ internal sealed class QuotedPrecomputedEndsDescriptor : IRecordDescriptor<Quoted
                 ends[row * FieldsPerRow + k] = packed;
             }
         }
-        return new QuotedPrecomputedEndsDescriptor(ends);
+        _ends = ends;
     }
 
-    public QuotedRecord Parse(ReadOnlySpan<char> lines, int lineCount)
+    /// <summary>The number of records parsed since the last <see cref="Rewind"/>.</summary>
+    public int RowsParsed => _row;
+
+    /// <summary>Starts again at the first row; call it before each read.</summary>
+    public void Rewind() => _row = 0;
+
+    public abstract QuotedRecord Parse(ReadOnlySpan<char> lines, int lineCount);
+
+    /// <summary>The five packed ends of the next row, after the line-count check and the guard; advances the row.</summary>
+    protected (int E0, int E1, int E2, int E3, int E4) NextRow(ReadOnlySpan<char> lines, int lineCount)
     {
         if (lineCount != 1)
             throw new BadUsageException($"Expected 1 lines for the record but received {lineCount}. Check that all multi-line fields are present.");
@@ -94,19 +98,131 @@ internal sealed class QuotedPrecomputedEndsDescriptor : IRecordDescriptor<Quoted
         int[] ends = _ends;
         if ((uint)(b + FieldsPerRow) > (uint)ends.Length)
             throw new InvalidOperationException($"R6 upper bound: no precomputed ends for row {_row}.");
-        int e0 = ends[b], e1 = ends[b + 1], e2 = ends[b + 2], e3 = ends[b + 3], e4 = ends[b + 4];
+        int e4 = ends[b + 4];
         if ((e4 & EndMask) != lines.Length)
             throw new InvalidOperationException($"R6 upper bound: the precomputed ends of row {_row} do not belong to this record.");
         _row++;
+        return (ends[b], ends[b + 1], ends[b + 2], ends[b + 3], e4);
+    }
 
-        int end0 = e0 & EndMask;
-        if (!Int32Converter.Instance.TryParse(lines.Slice(0, end0), out int id))
-            throw new InvalidOperationException($"R6 upper bound: '{lines.Slice(0, end0)}' is not an Id.");
+    /// <summary>The <c>Id</c> field, converted as the generated code does.</summary>
+    protected static int ParseId(ReadOnlySpan<char> field)
+    {
+        if (!Int32Converter.Instance.TryParse(field, out int id))
+            throw new InvalidOperationException($"R6 upper bound: '{field}' is not an Id.");
+        return id;
+    }
 
-        int end1 = e1 & EndMask, end2 = e2 & EndMask, end3 = e3 & EndMask;
+    public void Format(QuotedRecord record, IBufferWriter<char> writer) => s_generated.Format(record, writer);
+
+    public ReadOnlySpan<FieldDescriptor> Fields => s_generated.Fields;
+
+    public RecordOptions Options => s_generated.Options;
+
+    public QuotedRecord CreateDefaultInstance() => new();
+}
+
+/// <summary>
+/// The R6 gate variant (<c>R6_PrecomputedEnds</c>, lead ruling R32): precomputed ends, then today's emitted strip
+/// pass (<c>DescriptorEmitter.cs:1088-1128</c>) on every quoted field: a scalar search for a doubled quote and, on a
+/// hit, a char-by-char copy into a rented buffer, all buffers returned in one <c>finally</c> per record after the
+/// strings are made, as in the generated parser. It ignores the doubled-quote flag, which the emitted code does not
+/// have. This is R6 alone, a little conservative, because the real tokenizer also hands over the flag and saves the
+/// search.
+/// </summary>
+internal sealed class QuotedPrecomputedEndsEmittedUnquote(string path) : QuotedPrecomputedEndsDescriptor(path)
+{
+    public override QuotedRecord Parse(ReadOnlySpan<char> lines, int lineCount)
+    {
+        var (e0, e1, e2, e3, e4) = NextRow(lines, lineCount);
+        int end0 = e0 & EndMask, end1 = e1 & EndMask, end2 = e2 & EndMask, end3 = e3 & EndMask;
+
+        char[]? rent1 = null;
+        char[]? rent2 = null;
+        char[]? rent3 = null;
+        char[]? rent4 = null;
+        try
+        {
+            var f0 = lines.Slice(0, end0);
+            var f1 = Strip(lines, end0 + 1, e1, ref rent1);
+            var f2 = Strip(lines, end1 + 1, e2, ref rent2);
+            var f3 = Strip(lines, end2 + 1, e3, ref rent3);
+            var f4 = Strip(lines, end3 + 1, e4, ref rent4);
+            return new QuotedRecord
+            {
+                Id = ParseId(f0),
+                Name = new string(f1),
+                Description = new string(f2),
+                Notes = new string(f3),
+                Category = new string(f4),
+            };
+        }
+        finally
+        {
+            if (rent1 is not null) ArrayPool<char>.Shared.Return(rent1);
+            if (rent2 is not null) ArrayPool<char>.Shared.Return(rent2);
+            if (rent3 is not null) ArrayPool<char>.Shared.Return(rent3);
+            if (rent4 is not null) ArrayPool<char>.Shared.Return(rent4);
+        }
+    }
+
+    /// <summary>The field's raw text or, when it is quoted, the result of today's emitted strip pass.</summary>
+    private static ReadOnlySpan<char> Strip(ReadOnlySpan<char> line, int start, int packed, ref char[]? rent)
+    {
+        int end = packed & EndMask;
+        var field = line.Slice(start, end - start);
+        if ((packed & QuotedFlag) == 0)
+            return field;
+
+        var inner = field.Slice(1, field.Length - 2);
+        bool hasDoubled = false;
+        for (int i = 0; i < inner.Length - 1; i++)
+        {
+            if (inner[i] == Quote && inner[i + 1] == Quote)
+            {
+                hasDoubled = true;
+                break;
+            }
+        }
+        if (!hasDoubled)
+            return inner;
+
+        // Rented buffer, returned in the finally block after the value is materialised.
+        var buffer = ArrayPool<char>.Shared.Rent(inner.Length);
+        rent = buffer;
+        int length = 0;
+        for (int i = 0; i < inner.Length; i++)
+        {
+            char c = inner[i];
+            if (c == Quote && i + 1 < inner.Length && inner[i + 1] == Quote)
+            {
+                buffer[length++] = Quote;
+                i++;
+            }
+            else
+            {
+                buffer[length++] = c;
+            }
+        }
+        return new ReadOnlySpan<char>(buffer, 0, length);
+    }
+}
+
+/// <summary>
+/// The informative variant (<c>R6_PrecomputedEnds_FastUnquote</c>): precomputed ends and the fastest correct unquote
+/// for the flags. A quoted field without a doubled quote is one <c>new string</c> of its inner text; with one, a single
+/// <c>string.Create</c> of the final length copies the blocks between quotes (no search, no rented buffer). This is
+/// R6 plus the gain of R3 on these fields.
+/// </summary>
+internal sealed class QuotedPrecomputedEndsFastUnquote(string path) : QuotedPrecomputedEndsDescriptor(path)
+{
+    public override QuotedRecord Parse(ReadOnlySpan<char> lines, int lineCount)
+    {
+        var (e0, e1, e2, e3, e4) = NextRow(lines, lineCount);
+        int end0 = e0 & EndMask, end1 = e1 & EndMask, end2 = e2 & EndMask, end3 = e3 & EndMask;
         return new QuotedRecord
         {
-            Id = id,
+            Id = ParseId(lines.Slice(0, end0)),
             Name = Text(lines, end0 + 1, e1),
             Description = Text(lines, end1 + 1, e2),
             Notes = Text(lines, end2 + 1, e3),
@@ -141,12 +257,4 @@ internal sealed class QuotedPrecomputedEndsDescriptor : IRecordDescriptor<Quoted
             }
         });
     }
-
-    public void Format(QuotedRecord record, IBufferWriter<char> writer) => s_generated.Format(record, writer);
-
-    public ReadOnlySpan<FieldDescriptor> Fields => s_generated.Fields;
-
-    public RecordOptions Options => s_generated.Options;
-
-    public QuotedRecord CreateDefaultInstance() => new();
 }

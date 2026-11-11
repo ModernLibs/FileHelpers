@@ -4,6 +4,16 @@ using ModernLibs.FileHelpers.Benchmarks.Data;
 
 namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components;
 
+/// <summary>Which quoted values <see cref="UnquoteBenchmarks"/> unquotes.</summary>
+public enum UnquoteSet
+{
+    /// <summary>Every quoted value of the seeded quoted set, with and without doubled quotes.</summary>
+    All,
+
+    /// <summary>Only the quoted values that hold a doubled quote (the case R3 targets).</summary>
+    DoubledOnly,
+}
+
 /// <summary>
 /// Unquoting only (design B3, R3): every quoted value of 10,000 lines of the seeded quoted set, from the text between
 /// its outer quotes to the field's string.
@@ -14,7 +24,13 @@ namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components;
 /// <c>new string</c>. <see cref="Unquote_IndexOf"/> is the R3 helper of design 4.6 (<c>UnquoteToString</c>): an
 /// <c>IndexOf</c> test, and with a doubled quote one <c>string.Create</c> that copies the blocks between quotes, with
 /// no intermediate buffer. Both return the total length of the strings; each setup compares every string with
-/// <c>Replace("\"\"", "\"")</c> of the input.
+/// <c>Replace("\"\"", "\"")</c> of the input. <see cref="Values"/> selects all quoted values or only those with a doubled
+/// quote, so a result for doubled quotes alone can be read without the mix.
+/// <para>
+/// <c>UnquoteCurrent</c> has one <c>try/finally</c> per value; the generated parser has one per record for all its
+/// quoted fields. That costs <c>Unquote_Current</c> a little more than the emitted code pays, in favour of
+/// <c>Unquote_IndexOf</c>.
+/// </para>
 /// </remarks>
 [MemoryDiagnoser]
 public class UnquoteBenchmarks
@@ -25,6 +41,9 @@ public class UnquoteBenchmarks
     private string[] _lines = [];
     private int[] _inner = [];
 
+    [Params(UnquoteSet.All, UnquoteSet.DoubledOnly)]
+    public UnquoteSet Values { get; set; }
+
     private void Prepare()
     {
         _lines = DataCheck.DataLines(DatasetGenerator.EnsureQuotedFieldsRandom(ComponentData.DataDir(), 10_000), hasHeader: true);
@@ -33,8 +52,11 @@ public class UnquoteBenchmarks
         {
             foreach (var (start, end, quoted) in ComponentData.QuotedFields(_lines[li]))
             {
-                if (quoted)
-                    inner.AddRange([li, start + 1, end - start - 2]);
+                if (!quoted)
+                    continue;
+                if (Values == UnquoteSet.DoubledOnly && !_lines[li].AsSpan(start + 1, end - start - 2).Contains("\"\"", StringComparison.Ordinal))
+                    continue;
+                inner.AddRange([li, start + 1, end - start - 2]);
             }
         }
         _inner = inner.ToArray();
@@ -55,6 +77,8 @@ public class UnquoteBenchmarks
             DataCheck.Equal(expected, unquote(raw), $"{name} line {_inner[k]} value at {_inner[k + 1]}");
         }
         DataCheck.That(doubled > 0, "the quoted set has no doubled quote");
+        if (Values == UnquoteSet.DoubledOnly)
+            DataCheck.Equal(_inner.Length / 3, doubled, name + " values with a doubled quote");
         DataCheck.Equal(length, checksum, name + " total length");
     }
 

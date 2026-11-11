@@ -182,12 +182,17 @@ generates small datasets in a temporary folder, runs the comparisons between cod
 not run (see "Datasets" for why), prints one line per check and exits (0, or 1 when any check fails, with the first
 difference) before BenchmarkDotNet starts:
 
-- `R6_PrecomputedEnds` gives the same records as `R6_Current`, field by field (10,000 rows of the seeded quoted set);
-- `G2_SingleSpan` writes the same text as `G2_Current` (10,000 records of the 25-column file, header included);
+- `R6_PrecomputedEnds` and `R6_PrecomputedEnds_FastUnquote` each give the same records as `R6_Current`, field by
+  field, and each prototype parses every row (10,000 rows of the seeded quoted set);
+- `G2_SingleSpan` writes the same text as `G2_Current`, and the prototype formats every record (10,000 records of the
+  25-column file, header included);
 - the four `Tokenizer_*` methods give the same field ends on every line of the 25-column, 150-column and long-line
   sets, and agree on random lines with too few, the right number and too many fields;
 - `Scan_SpanCreate` gives the same result as `Scan_LoadUnsafe` (and both as a scalar reference) on every line of
   those sets, the seeded quoted set and random lines of delimiters, quotes and text.
+
+The R6 and G2 comparisons run on 10,000 rows, while the benchmarks run up to 100,000. Correctness at 100,000 rows is
+covered by each benchmark's own setup, which checks every record or written line against the dataset.
 
 **A Step 0 round runs both checks before it measures**, `--check-competitors` and `--check-prototypes`, on every
 configuration it measures (`dotnet <folder>/ModernLibs.FileHelpers.Benchmarks.dll --check-prototypes` for a built
@@ -229,23 +234,29 @@ These classes measure parts of the read and write path on their own (design B3 a
 numbers decide gates R6 and G2 of the 4.10 design. Their method names are fixed; the Step 0 report uses them as they
 stand. The filter `*Components*` selects the component classes, `*Prototypes*` the two gate classes.
 
+The brief of T10 named the tokenizer, scan, format-shape, gate and async methods. The methods of the three B3 classes
+for unquoting, string creation and one-record `Format` were named in T10, and the Step 0 report uses them verbatim
+too: `Unquote_Current`, `Unquote_IndexOf`, `CreateString_New`, `CreateString_Cached`, `FormatRecord_Current` and
+`FormatRecord_SingleSpan`.
+
 | Class | Methods (baseline first) | What it measures |
 |---|---|---|
 | `TokenizerBenchmarks` | `Tokenizer_CountPlusIndexOf`, `Tokenizer_SinglePassScalar`, `Tokenizer_SinglePassVector`, `Tokenizer_SinglePassVector_AnyMatchFirst` | The field ends of every line of a plain dataset (`Dataset`: 10,000 lines of the 25-column file, 1,000 of the 150-column file, 5,000 long lines) written into one preallocated `int[]`. The baseline is today's work: one `Count(',')` for the field-count check and N - 1 sequential `IndexOf(',')` in the generated parser. The vector tokenizers compare 16 (`Vector256`) or 8 (`Vector128`) characters at a time and walk the bits; `_AnyMatchFirst` tests the compare for a match before extracting the bits (expensive on Arm64). |
 | `VectorLoopShapeBenchmarks` | `Scan_LoadUnsafe`, `Scan_SpanCreate` | The delimiter-and-quote loop of `QuoteBalanceScanner.ScanSingleQuote`, reduced to counting, written with `Vector256.LoadUnsafe` from a `ref` (as in the library) and with `Vector256.Create(span.Slice(i, n))` (`Dataset`: the seeded quoted set, long lines). |
 | `ConverterCallShapeBenchmarks` | `Format_GenericHelper`, `Format_GenericWriter`, `Format_DirectCall` | One `int`, one `DateTime` and one `string` field written 1,000 times into the engine's record buffer: through today's generic helper into a `stackalloc` buffer and a copy, through a generic `Format<TConverter, TValue>` on a `ref struct` writer, and through direct `TryFormat` calls into one span. |
-| `UnquoteBenchmarks` | `Unquote_Current`, `Unquote_IndexOf` | Every quoted value of 10,000 lines of the seeded quoted set unquoted to a string: today's emitted strip pass (scalar search, rented buffer) against an `IndexOf` and `string.Create` helper (R3). |
+| `UnquoteBenchmarks` | `Unquote_Current`, `Unquote_IndexOf` | The quoted values of 10,000 lines of the seeded quoted set unquoted to a string: today's emitted strip pass (scalar search, rented buffer) against an `IndexOf` and `string.Create` helper (R3). `Values`: all quoted values, or only those with a doubled quote. |
 | `CreateStringBenchmarks` | `CreateString_New`, `CreateString_Cached` | `new string(span)` against a helper that returns `string.Empty` and cached one-character strings (R4), on the string columns of the 25-column file and the Name and Category columns of the quoted set. |
 | `FormatOneRecordBenchmarks` | `FormatRecord_Current`, `FormatRecord_SingleSpan` | `Format` of 1,000 PackageAssets records into the engine's record buffer, with the generated descriptor and with the G2 prototype: `Format` without the rest of `WriteString`. |
-| `R6UpperBoundBenchmarks` | `R6_Current`, `R6_PrecomputedEnds` | Gate R6. `ReadFile(path, callback)` of the seeded quoted set (the work of `QuotedFieldsBenchmarks.FileHelpers_ParseAndDiscard`) with the generated descriptor, and in the same engine with a hand-written descriptor whose `Parse` takes the field ends of each row from an array computed in the setup. It only slices, unquotes, converts and constructs, so it pays nothing for tokenizing: the most that R6 can give. Its unquoting is the fastest correct code (no rented buffer), so the bound includes the gain of R3 on those fields. |
-| `G2PrototypeBenchmarks` | `G2_Current`, `G2_SingleSpan` | Gate G2. `WriteString` of 100,000 records with the generated `Format`, and in the same engine with a hand-written `Format` that takes one `GetSpan(4096)`, writes the 25 fields with direct `TryFormat` calls and calls `Advance` once: the most that G2 can give. |
+| `R6UpperBoundBenchmarks` | `R6_Current`, `R6_PrecomputedEnds`, `R6_PrecomputedEnds_FastUnquote` | Gate R6. `ReadFile(path, callback)` of the seeded quoted set (the work of `QuotedFieldsBenchmarks.FileHelpers_ParseAndDiscard`) with the generated descriptor, and in the same engine with hand-written descriptors whose `Parse` takes the field ends of each row from an array computed in the setup. They only slice, unquote, convert and construct, so they pay nothing for tokenizing. `R6_PrecomputedEnds` unquotes with today's emitted strip pass (doubled-quote search, rented buffer): R6 alone. `R6_PrecomputedEnds_FastUnquote` unquotes with the fastest correct code: R6 plus R3. **The gate uses `R6_PrecomputedEnds`**; its ratio is `R6_PrecomputedEnds / R6_Current` within one 4.10 build. The Step 0 report gives both prototype ratios. |
+| `G2PrototypeBenchmarks` | `G2_Current`, `G2_SingleSpan` | Gate G2. `WriteString` of 100,000 records with the generated `Format`, and in the same engine with a hand-written `Format` that takes one `GetSpan(4096)`, writes the 25 fields with direct `TryFormat` calls and calls `Advance` once: the most that G2 can give. The record is still copied from the engine's record buffer into the result, so the gate does not include P5 (formatting straight into the result's chunk). |
 
 **How the prototypes run.** `FileHelperEngine<T>` takes its descriptor from the registry, which holds the generated
 one. The prototypes are run through `PrototypeEngine`, which builds a normal engine and replaces its descriptor and its
 read core by reflection, so the prototype runs inside exactly the engine code the generated descriptor runs in: the line
 reader, the multiline assembler and its quote scan, the field-count check, the `TextWriter` pipeline. Only the
 descriptor's `Parse` (R6) or `Format` (G2) differs. If the engine's private fields change, `PrototypeEngine` throws
-instead of measuring the generated descriptor.
+instead of measuring the generated descriptor. The prototypes need reflection over private fields, so the two gate
+classes are not part of an AOT run.
 
 `EngineAsyncBenchmarks` has no `Engine_WriteStreamAsync_Null` method yet; it is added when
 `FileHelperEngine<T>.WriteStreamAsync` exists.

@@ -66,6 +66,7 @@ it was considered and rejected. Contributions are welcome: please open an issue 
 | Gap | Status | Notes |
 |---|---|---|
 | `ReadFileAsList` / `ReadStringAsList` / `ReadStreamAsList` | Done in 4.10 | One-line wrappers around the array methods. |
+| Asynchronous reads and writes on a caller's stream (`ReadAsync(Stream)`, `ReadAsync(TextReader)`, `WriteStreamAsync(TextWriter / Stream, records)`) | Done in 4.10 | On the engine classes, not the interfaces. Asynchronous I/O only; the stream, reader or writer is not disposed. `ReadAsync` also on `FileHelperAsyncEngine<T>`. |
 | `WriteFile` / `WriteStream` / `WriteString` with `maxRecords` (all engines) | Open | `records.Take(n)` does the same. |
 | `[IgnoreFirst]` / `[IgnoreLast]` in `MultiRecordEngine` | Open | 3.x applies the options of the first record type. |
 | Record-by-record API on `MultiRecordEngine` (`BeginReadFile`, `ReadNext`, `WriteNext`, ...) | Open | `MultiRecordAsyncEngine.ReadAsync` covers streaming reads. |

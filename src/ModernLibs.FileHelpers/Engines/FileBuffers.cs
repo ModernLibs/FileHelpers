@@ -51,13 +51,6 @@ internal static class FileBuffers
     public static StreamWriter OpenWriter(string filePath, bool append, Encoding encoding) =>
         new(filePath, append, encoding, bufferSize: Size);
 
-    /// <summary>
-    /// A writer to the caller's <paramref name="stream"/>; it writes the preamble of <paramref name="encoding"/>
-    /// unless the stream is seekable and not at position 0. Disposing the writer leaves the stream open.
-    /// </summary>
-    public static StreamWriter OpenWriter(Stream stream, Encoding encoding) =>
-        new(stream, encoding, bufferSize: Size, leaveOpen: true);
-
     private static StreamReader OpenReader(string filePath, Encoding encoding, FileOptions options)
     {
         // Sharing as StreamReader(string) opens files. bufferSize 1: the StreamReader buffers, so the FileStream

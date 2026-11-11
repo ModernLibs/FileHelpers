@@ -40,23 +40,35 @@ file.
   asynchronous I/O only, give the records, errors, `HeaderText`, `FooterText` and `LineNumber` of the
   synchronous reads, and never dispose the stream or reader, also when the loop ends early or is
   cancelled. The stream is read from its current position with the engine's `Encoding`; a byte order
-  mark takes precedence. The interfaces are unchanged.
+  mark takes precedence. The input is read ahead in blocks, so after an early exit its position is
+  past the last record returned. The interfaces are unchanged.
 - **`WriteStreamAsync(TextWriter, records)` and `WriteStreamAsync(Stream, records)`** on
   `FileHelperEngine<T>`, with a `CancellationToken`. They write the text of `WriteStream` (header,
   footer and write events included) with asynchronous writes only; to a stream, the bytes `WriteFile`
-  writes, preamble included. Records are buffered and written in blocks of at least 16,384 characters,
-  so the writer only receives whole records. If the records or an event throw, the records before
-  it are written and the exception is rethrown. The writer or stream is not disposed.
+  writes, preamble included. Records are buffered and written when 16,384 characters or more are
+  buffered, and at the end, so each write receives whole records. To a stream, each block is encoded
+  and written with one `Stream.WriteAsync` call and the token is checked before each record and each
+  block: a cancellation leaves whole records in the stream, and nothing (not even the preamble) is
+  written when the token is cancelled before the call. A stream that writes part of a buffer before
+  it honours the cancellation is outside the engine's control. To a `TextWriter`, how the writer
+  passes a block on (a `StreamWriter` may split it) is up to the writer. If the records, an event or
+  the formatting throw, the records before it are written and the original exception is rethrown,
+  also when that last write fails. The writer or stream is not disposed.
 
 ### Changed
 
 - **`ReadStream(null)` and `ReadStream(null, n)` on `FileHelperEngine<T>` and `IFileHelperEngine<T>` are
   now ambiguous** between the `TextReader` and the `Stream` overload and no longer compile. Cast the
   argument: `ReadStream((TextReader)null!)`.
-- **`ReadAsync(null)` and `ReadAsync(null, cancellationToken)` on `FileHelperEngine<T>` and
-  `FileHelperAsyncEngine<T>` are now ambiguous** between the `string`, `Stream` and `TextReader`
-  overloads and no longer compile. Cast the argument: `ReadAsync((string)null!)`. Calls through
-  `IFileHelperEngine<T>` and `IFileHelperAsyncEngine<T>` are not affected.
+- **`ReadAsync(null)`, `ReadAsync(default)` and the same with a `cancellationToken` on
+  `FileHelperEngine<T>` and `FileHelperAsyncEngine<T>` are now ambiguous** (CS0121) between the
+  `string`, `Stream` and `TextReader` overloads and no longer compile. Cast the argument:
+  `ReadAsync((string)null!)`. A method group without a target type, `var read = engine.ReadAsync;`,
+  no longer has a natural delegate type (CS8917): give the type, `Func<string, CancellationToken,
+  IAsyncEnumerable<T>> read = engine.ReadAsync;`. An XML doc `<see cref="...ReadAsync"/>` becomes an
+  ambiguous reference: name the overload, `ReadAsync(string, CancellationToken)`. Calls through
+  `IFileHelperEngine<T>` and `IFileHelperAsyncEngine<T>`, typed variables and named arguments are not
+  affected.
 
 ## [4.9.1] - 2026-11-11
 

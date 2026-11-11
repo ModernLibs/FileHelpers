@@ -527,6 +527,14 @@ None of this is needed to migrate, but it is available once you have:
   `ReadString` and `ReadSpan`, and by-reference callbacks (`SpanRecordCallback<T>`).
 - **Streaming.** `ReadSync` (`IEnumerable<T>`), `ReadAsync` (`IAsyncEnumerable<T>`) on both engines,
   `ReadFileAsync` with a callback, and `MultiRecordAsyncEngine` / `MasterDetailAsyncEngine`.
+- **Asynchronous streams (4.10).** `ReadAsync(Stream)` and `ReadAsync(TextReader)` on
+  `FileHelperEngine<T>` and `FileHelperAsyncEngine<T>`, and `WriteStreamAsync(TextWriter, records)` /
+  `WriteStreamAsync(Stream, records)` on `FileHelperEngine<T>`, with a `CancellationToken`. They use
+  asynchronous I/O only and never dispose the caller's stream, reader or writer. `WriteStreamAsync(Stream)`
+  writes the bytes of `WriteFile`; after a cancellation the stream holds whole records only. Since these
+  overloads exist, `engine.ReadAsync(null)` and `engine.ReadAsync(default)` are ambiguous on the classes:
+  cast the argument, `engine.ReadAsync((string)null!)`. The same holds for `ReadStream(null)` since
+  `ReadStream(Stream)` was added.
 - **Parallel reads.** `ParallelReadFile` / `ParallelReadString` with sequential semantics.
 - **Record-level multiline switch.** `[DelimitedRecord(",", MultilineMode = ...)]` sets the multiline
   mode of every quoted field at once.

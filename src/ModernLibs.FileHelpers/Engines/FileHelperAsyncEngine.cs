@@ -310,8 +310,8 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     /// </summary>
     /// <param name="filePath">Path to the file to read. Must not be null.</param>
     /// <param name="cancellationToken">
-    /// Cancellation token. The <c>[EnumeratorCancellation]</c> attribute ensures callers using
-    /// <c>.WithCancellation(ct)</c> have their token correctly merged with this parameter.
+    /// Cancellation token. Callers using <c>.WithCancellation(ct)</c> have their token correctly merged with this
+    /// parameter.
     /// </param>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="filePath"/> is null.</exception>
     /// <exception cref="InvalidOperationException">
@@ -320,28 +320,15 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     /// <see cref="HeaderText"/>/<see cref="FooterText"/> and <see cref="ErrorManager"/>. Use a separate engine
     /// instance for concurrent reads.
     /// </exception>
-    public async IAsyncEnumerable<T> ReadAsync(
-        string filePath,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(filePath);
-        int id = BeginStreamingRead();
-        try
-        {
-            await foreach (var record in StreamPipelineAsync(filePath, stream: null, id, cancellationToken).ConfigureAwait(false))
-                yield return record;
-        }
-        finally
-        {
-            EndStreamingRead(id);
-        }
-    }
+    public IAsyncEnumerable<T> ReadAsync(string filePath, CancellationToken cancellationToken = default) =>
+        ReadPipelineAsync(filePath, stream: null, fromFile: true, cancellationToken);
 
     /// <summary>
     /// Streams records from <paramref name="stream"/>, from its current position, with asynchronous reads only (via
     /// <see cref="PipelineLineReader"/>), decoding with <see cref="Encoding"/> (a byte order mark wins); the same
     /// record semantics as the synchronous reads. <paramref name="stream"/> is NOT disposed, also when the
-    /// enumeration ends early, fails or is cancelled.
+    /// enumeration ends early, fails or is cancelled. The stream is read ahead in blocks: after an early exit or a
+    /// cancellation its position is past the last record returned.
     /// </summary>
     /// <param name="stream">The stream to read; the caller owns it.</param>
     /// <param name="cancellationToken">Token to cancel the async enumeration.</param>
@@ -350,27 +337,14 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     /// Thrown when a <c>BeginRead*</c> or <c>BeginWrite*</c> session is open, or another <c>ReadAsync</c>
     /// enumeration is running on this engine (see <see cref="ReadAsync(string, CancellationToken)"/>).
     /// </exception>
-    public async IAsyncEnumerable<T> ReadAsync(
-        Stream stream,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(stream);
-        int id = BeginStreamingRead();
-        try
-        {
-            await foreach (var record in StreamPipelineAsync(filePath: null, stream, id, cancellationToken).ConfigureAwait(false))
-                yield return record;
-        }
-        finally
-        {
-            EndStreamingRead(id);
-        }
-    }
+    public IAsyncEnumerable<T> ReadAsync(Stream stream, CancellationToken cancellationToken = default) =>
+        ReadPipelineAsync(filePath: null, stream, fromFile: false, cancellationToken);
 
     /// <summary>
     /// Streams records from <paramref name="reader"/> with
     /// <see cref="TextReader.ReadAsync(Memory{char}, CancellationToken)"/>; the same record semantics as the
-    /// synchronous reads. <paramref name="reader"/> is NOT disposed — the caller owns its lifetime.
+    /// synchronous reads. <paramref name="reader"/> is NOT disposed — the caller owns its lifetime. The reader is
+    /// read ahead in blocks: after an early exit or a cancellation its position is past the last record returned.
     /// </summary>
     /// <param name="reader">The text reader to read; the caller owns it.</param>
     /// <param name="cancellationToken">Token to cancel the async enumeration.</param>
@@ -379,22 +353,8 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     /// Thrown when a <c>BeginRead*</c> or <c>BeginWrite*</c> session is open, or another <c>ReadAsync</c>
     /// enumeration is running on this engine (see <see cref="ReadAsync(string, CancellationToken)"/>).
     /// </exception>
-    public async IAsyncEnumerable<T> ReadAsync(
-        TextReader reader,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(reader);
-        int id = BeginStreamingRead();
-        try
-        {
-            await foreach (var record in StreamReaderAsync(reader, id, cancellationToken).ConfigureAwait(false))
-                yield return record;
-        }
-        finally
-        {
-            EndStreamingRead(id);
-        }
-    }
+    public IAsyncEnumerable<T> ReadAsync(TextReader reader, CancellationToken cancellationToken = default) =>
+        ReadTextAsync(reader, cancellationToken);
 
     /// <summary>Checks the session guards of <c>ReadAsync</c> and marks a streaming read as running; returns its id.</summary>
     private int BeginStreamingRead()
@@ -415,71 +375,102 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
             _streamingRead = false;
     }
 
-    /// <summary>Reads <paramref name="filePath"/>, or else the caller's <paramref name="stream"/> (left open).</summary>
-    private async IAsyncEnumerable<T> StreamPipelineAsync(string? filePath, Stream? stream, int id, [EnumeratorCancellation] CancellationToken cancellationToken)
+    /// <summary>
+    /// The <see cref="PipelineLineReader"/> read of <c>ReadAsync</c>: opens and owns <paramref name="filePath"/> when
+    /// <paramref name="fromFile"/>, else reads the caller's <paramref name="stream"/> and leaves it open. The null
+    /// check and the session guards run when the enumeration starts.
+    /// </summary>
+    private async IAsyncEnumerable<T> ReadPipelineAsync(
+        string? filePath, Stream? stream, bool fromFile, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        using var ownedStream = filePath is null ? null : FileBuffers.OpenAsyncStream(filePath);
-        var lineReader = new PipelineLineReader(ownedStream ?? stream!, Encoding);
-        await using var lineReaderScope = lineReader.ConfigureAwait(false);
-        using var session = BeginSession();
-        session.AllowRecycle = RecycleRecords;
+        if (fromFile)
+            ArgumentNullException.ThrowIfNull(filePath);
+        else
+            ArgumentNullException.ThrowIfNull(stream);
+
+        int id = BeginStreamingRead();
         try
         {
-            while (id == _streamingReadId && !session.Stopped && await lineReader.ReadLineAsync(cancellationToken).ConfigureAwait(false))
+            using var ownedStream = fromFile ? FileBuffers.OpenAsyncStream(filePath!) : null;
+            var lineReader = new PipelineLineReader(ownedStream ?? stream!, Encoding);
+            await using var lineReaderScope = lineReader.ConfigureAwait(false);
+            using var session = BeginSession();
+            session.AllowRecycle = RecycleRecords;
+            try
             {
-                if (session.Push(lineReader.CurrentLine.Span, lineReader.CurrentEnding))
+                while (id == _streamingReadId && !session.Stopped && await lineReader.ReadLineAsync(cancellationToken).ConfigureAwait(false))
                 {
-                    // A Close() from AfterReadRecord still returns this record, then ends the enumeration.
-                    if (id == _streamingReadId)
+                    if (session.Push(lineReader.CurrentLine.Span, lineReader.CurrentEnding))
                     {
-                        LastRecord = session.Current;
-                        SyncPosition(session);
+                        // A Close() from AfterReadRecord still returns this record, then ends the enumeration.
+                        if (id == _streamingReadId)
+                        {
+                            LastRecord = session.Current;
+                            SyncPosition(session);
+                        }
+
+                        yield return session.Current;
                     }
-
-                    yield return session.Current;
                 }
-            }
 
-            if (id == _streamingReadId)
-                session.Complete();
+                if (id == _streamingReadId)
+                    session.Complete();
+            }
+            finally
+            {
+                if (id == _streamingReadId)
+                    SyncPosition(session);
+            }
         }
         finally
         {
-            if (id == _streamingReadId)
-                SyncPosition(session);
+            EndStreamingRead(id);
         }
     }
 
-    /// <summary><see cref="StreamPipelineAsync"/> over the caller's <paramref name="reader"/> (not disposed).</summary>
-    private async IAsyncEnumerable<T> StreamReaderAsync(TextReader reader, int id, [EnumeratorCancellation] CancellationToken cancellationToken)
+    /// <summary>
+    /// The <see cref="TextReader"/> read of <c>ReadAsync</c>; the reader is not disposed. The null check and the
+    /// session guards run when the enumeration starts.
+    /// </summary>
+    private async IAsyncEnumerable<T> ReadTextAsync(TextReader? reader, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        using var source = new TextReaderLineSource(reader);
-        using var session = BeginSession();
-        session.AllowRecycle = RecycleRecords;
+        ArgumentNullException.ThrowIfNull(reader);
+
+        int id = BeginStreamingRead();
         try
         {
-            while (id == _streamingReadId && !session.Stopped && await source.ReadLineAsync(cancellationToken).ConfigureAwait(false))
+            using var source = new TextReaderLineSource(reader);
+            using var session = BeginSession();
+            session.AllowRecycle = RecycleRecords;
+            try
             {
-                if (session.Push(source.CurrentLine.Span, source.CurrentEnding))
+                while (id == _streamingReadId && !session.Stopped && await source.ReadLineAsync(cancellationToken).ConfigureAwait(false))
                 {
-                    // A Close() from AfterReadRecord still returns this record, then ends the enumeration.
-                    if (id == _streamingReadId)
+                    if (session.Push(source.CurrentLine.Span, source.CurrentEnding))
                     {
-                        LastRecord = session.Current;
-                        SyncPosition(session);
+                        // A Close() from AfterReadRecord still returns this record, then ends the enumeration.
+                        if (id == _streamingReadId)
+                        {
+                            LastRecord = session.Current;
+                            SyncPosition(session);
+                        }
+
+                        yield return session.Current;
                     }
-
-                    yield return session.Current;
                 }
-            }
 
-            if (id == _streamingReadId)
-                session.Complete();
+                if (id == _streamingReadId)
+                    session.Complete();
+            }
+            finally
+            {
+                if (id == _streamingReadId)
+                    SyncPosition(session);
+            }
         }
         finally
         {
-            if (id == _streamingReadId)
-                SyncPosition(session);
+            EndStreamingRead(id);
         }
     }
 

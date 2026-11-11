@@ -12,7 +12,9 @@ internal sealed class AsyncOnlyStream(Stream inner) : Stream
     public bool Disposed { get; private set; }
 
     /// <summary>Number of synchronous I/O calls attempted (each one threw).</summary>
-    public int SyncCalls { get; private set; }
+    public int SyncCalls => _syncCalls;
+
+    private int _syncCalls;
 
     public override bool CanRead => inner.CanRead;
 
@@ -68,7 +70,7 @@ internal sealed class AsyncOnlyStream(Stream inner) : Stream
 
     private NotSupportedException SyncIo()
     {
-        SyncCalls++;
+        Interlocked.Increment(ref _syncCalls); // base BeginRead/BeginWrite call the sync members on a pool thread
         return new NotSupportedException("sync I/O");
     }
 }

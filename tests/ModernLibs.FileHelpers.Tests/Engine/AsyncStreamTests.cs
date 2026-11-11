@@ -39,11 +39,11 @@ public sealed class AsyncStreamTests
 
     private static byte[] Build(int count) => Encoding.UTF8.GetBytes(Text(count));
 
-    private static List<CsvOrder> Records(int count)
+    private static List<CsvOrder> Records(int count, string name = "name")
     {
         var records = new List<CsvOrder>(count);
         for (int i = 1; i <= count; i++)
-            records.Add(new CsvOrder { OrderId = i, CustomerName = $"name{i}", Amount = i + 0.5m });
+            records.Add(new CsvOrder { OrderId = i, CustomerName = $"{name}{i}", Amount = i + 0.5m });
         return records;
     }
 
@@ -66,12 +66,12 @@ public sealed class AsyncStreamTests
         }
     }
 
-    /// <summary>Yields <paramref name="records"/>, then throws <see cref="InvalidOperationException"/>("boom").</summary>
-    private static IEnumerable<CsvOrder> ThrowAfter(IEnumerable<CsvOrder> records)
+    /// <summary>Yields <paramref name="records"/>, then throws <paramref name="exception"/> (default <see cref="InvalidOperationException"/>("boom")).</summary>
+    private static IEnumerable<CsvOrder> ThrowAfter(IEnumerable<CsvOrder> records, Exception? exception = null)
     {
         foreach (var record in records)
             yield return record;
-        throw new InvalidOperationException("boom");
+        throw exception ?? new InvalidOperationException("boom");
     }
 
     /// <summary>Yields <paramref name="count"/> records and cancels <paramref name="cts"/> after the last one.</summary>
@@ -249,7 +249,7 @@ public sealed class AsyncStreamTests
         });
 
         await Assert.That(stream.Disposed).IsFalse();
-        await Assert.That(seen).IsLessThan(5000);
+        await Assert.That(seen).IsEqualTo(10); // the token is checked before each line
     }
 
     [Test]
@@ -311,45 +311,76 @@ public sealed class AsyncStreamTests
     // Writes
     // =========================================================================
 
-    [Test]
-    public async Task WriteStreamAsync_Stream_Writes_The_Bytes_Of_WriteFile_And_Does_No_Sync_IO()
+    private static Encoding EncodingNamed(string name) => name switch
     {
-        var engine = new FileHelperEngine<CsvOrder>();
-        var records = Records(5000);
+        "utf-8-bom" => new UTF8Encoding(encoderShouldEmitUTF8Identifier: true),
+        "utf-8" => new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+        "utf-16" => Encoding.Unicode,
+        "utf-16BE" => Encoding.BigEndianUnicode,
+        "utf-32" => Encoding.UTF32,
+        "latin1" => Encoding.Latin1,
+        _ => throw new ArgumentOutOfRangeException(nameof(name), name, null),
+    };
+
+    private static byte[] WriteFileBytes(FileHelperEngine<CsvOrder> engine, IEnumerable<CsvOrder> records)
+    {
         string temp = Path.GetTempFileName();
-        byte[] expected;
         try
         {
             engine.WriteFile(temp, records);
-            expected = File.ReadAllBytes(temp);
+            return File.ReadAllBytes(temp);
         }
         finally
         {
             File.Delete(temp);
         }
+    }
 
-        var inner = new MemoryStream();
-        var stream = new AsyncOnlyStream(inner);
-        await engine.WriteStreamAsync(stream, records);
-
-        await Assert.That(inner.ToArray().AsSpan().StartsWith(Encoding.UTF8.Preamble)).IsTrue();
-        await Assert.That(inner.ToArray().SequenceEqual(expected)).IsTrue();
-        await Assert.That(engine.TotalRecords).IsEqualTo(5000);
-        await Assert.That(stream.SyncCalls).IsEqualTo(0);
-        await Assert.That(stream.Disposed).IsFalse();
+    /// <summary>The text is a prefix of <paramref name="expected"/> that ends at a record boundary (or is empty).</summary>
+    private static async Task AssertWholeRecordPrefix(string written, string expected)
+    {
+        await Assert.That(expected.StartsWith(written, StringComparison.Ordinal)).IsTrue();
+        await Assert.That(written.Length == 0 || written.EndsWith("\r\n", StringComparison.Ordinal)).IsTrue();
     }
 
     [Test]
-    public async Task WriteStreamAsync_Stream_Uses_The_Engine_Encoding()
+    [Arguments("utf-8-bom")]
+    [Arguments("utf-8")]
+    [Arguments("utf-16")]
+    [Arguments("utf-16BE")]
+    [Arguments("utf-32")]
+    [Arguments("latin1")]
+    public async Task WriteStreamAsync_Stream_Writes_The_Bytes_Of_WriteFile_And_Does_No_Sync_IO(string encodingName)
     {
-        var engine = new FileHelperEngine<CsvOrder>(Encoding.Unicode) { HeaderText = Header };
-        var records = Records(3);
-        var inner = new MemoryStream();
+        var encoding = EncodingNamed(encodingName);
+        foreach (int count in new[] { 0, 3, 5000 })
+        {
+            foreach (string? header in new[] { null, Header })
+            {
+                var engine = new FileHelperEngine<CsvOrder>(encoding) { HeaderText = header, FooterText = header is null ? null : "end" };
+                var records = Records(count, "né€\U0001F600"); // é, €, an emoji (a surrogate pair)
+                byte[] expected = WriteFileBytes(engine, records);
 
-        await engine.WriteStreamAsync(new AsyncOnlyStream(inner), records);
+                var inner = new MemoryStream();
+                var stream = new AsyncOnlyStream(inner);
+                await engine.WriteStreamAsync(stream, records);
+                await Assert.That(inner.ToArray().SequenceEqual(expected)).IsTrue();
+                await Assert.That(engine.TotalRecords).IsEqualTo(count);
+                await Assert.That(stream.SyncCalls).IsEqualTo(0);
+                await Assert.That(stream.Disposed).IsFalse();
 
-        byte[] expected = [.. Encoding.Unicode.Preamble, .. Encoding.Unicode.GetBytes(engine.WriteString(records))];
-        await Assert.That(inner.ToArray().SequenceEqual(expected)).IsTrue();
+                var seekable = new MemoryStream();
+                await engine.WriteStreamAsync(seekable, records);
+                await Assert.That(seekable.ToArray().SequenceEqual(expected)).IsTrue();
+
+                // As StreamWriter: no preamble when the seekable stream is not at position 0.
+                var appended = new MemoryStream();
+                appended.Write([1, 2, 3]);
+                await engine.WriteStreamAsync(appended, records);
+                byte[] expectedAppended = [1, 2, 3, .. expected.AsSpan(encoding.Preamble.Length)];
+                await Assert.That(appended.ToArray().SequenceEqual(expectedAppended)).IsTrue();
+            }
+        }
     }
 
     [Test]
@@ -374,6 +405,18 @@ public sealed class AsyncStreamTests
     }
 
     [Test]
+    public async Task WriteStreamAsync_TextWriter_With_No_Records_Equals_WriteString()
+    {
+        var engine = new FileHelperEngine<CsvOrder> { HeaderText = Header, FooterText = "end" };
+        var writer = new StringWriter();
+
+        await engine.WriteStreamAsync(writer, []);
+
+        await Assert.That(writer.ToString()).IsEqualTo(engine.WriteString([]));
+        await Assert.That(engine.TotalRecords).IsEqualTo(0);
+    }
+
+    [Test]
     public async Task A_Throwing_Source_Propagates_And_Keeps_What_Was_Written()
     {
         var engine = new FileHelperEngine<CsvOrder>();
@@ -384,7 +427,6 @@ public sealed class AsyncStreamTests
             () => engine.WriteStreamAsync(stream, ThrowAfter(Records(3))));
 
         await Assert.That(thrown!.Message).IsEqualTo("boom");
-        await stream.FlushAsync();
         string written = new UTF8Encoding(false).GetString(inner.ToArray().AsSpan(Encoding.UTF8.Preamble.Length));
         await Assert.That(written).IsEqualTo(engine.WriteString(Records(3)));
         await Assert.That(stream.SyncCalls).IsEqualTo(0);
@@ -403,6 +445,57 @@ public sealed class AsyncStreamTests
     }
 
     [Test]
+    public async Task A_Throwing_Write_Event_Propagates_And_Keeps_The_Records_Before_It()
+    {
+        var engine = new FileHelperEngine<CsvOrder>();
+        engine.BeforeWriteRecord += (_, e) =>
+        {
+            if (e.Record.OrderId == 3)
+                throw new InvalidOperationException("handler");
+        };
+        var writer = new StringWriter();
+
+        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(() => engine.WriteStreamAsync(writer, Records(5)));
+
+        await Assert.That(thrown!.Message).IsEqualTo("handler");
+        await Assert.That(writer.ToString()).IsEqualTo(new FileHelperEngine<CsvOrder>().WriteString(Records(2)));
+    }
+
+    [Test]
+    public async Task A_Source_Fault_Wins_When_The_Write_After_It_Fails_Or_Is_Cancelled()
+    {
+        var engine = new FileHelperEngine<CsvOrder>();
+
+        // The writer fails on the write of the records before the fault.
+        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => engine.WriteStreamAsync(new FailingWriter(), ThrowAfter(Records(3))));
+        await Assert.That(thrown!.Message).IsEqualTo("boom");
+
+        // The stream fails on that write.
+        thrown = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => engine.WriteStreamAsync(new ScriptedWriteStream { FailWrites = true }, ThrowAfter(Records(3))));
+        await Assert.That(thrown!.Message).IsEqualTo("boom");
+
+        // The token is cancelled during that write.
+        using var cts = new CancellationTokenSource();
+        thrown = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => engine.WriteStreamAsync(new CancellingWriter(cts), ThrowAfter(Records(3)), cts.Token));
+        await Assert.That(thrown!.Message).IsEqualTo("boom");
+    }
+
+    [Test]
+    public async Task A_Source_That_Throws_Its_Own_OperationCanceledException_Keeps_The_Records_Before_It()
+    {
+        var engine = new FileHelperEngine<CsvOrder>();
+        var writer = new StringWriter();
+
+        await Assert.ThrowsAsync<SourceCanceledException>(
+            () => engine.WriteStreamAsync(writer, ThrowAfter(Records(3), new SourceCanceledException())));
+
+        await Assert.That(writer.ToString()).IsEqualTo(engine.WriteString(Records(3)));
+    }
+
+    [Test]
     public async Task Cancellation_Throws_OperationCanceledException_Without_Sync_IO()
     {
         var engine = new FileHelperEngine<CsvOrder>();
@@ -416,10 +509,152 @@ public sealed class AsyncStreamTests
         await Assert.That(stream.SyncCalls).IsEqualTo(0);
         await Assert.That(stream.Disposed).IsFalse();
 
-        // At least one flush reached the stream before the cancellation, and it holds whole lines only.
+        // At least one block reached the stream before the cancellation, and it holds whole records only.
         string written = new UTF8Encoding(false).GetString(inner.ToArray().AsSpan(Encoding.UTF8.Preamble.Length));
         await Assert.That(written.Length).IsGreaterThan(0);
-        await Assert.That(written.EndsWith("\r\n", StringComparison.Ordinal)).IsTrue();
-        await Assert.That(written.Split("\r\n").Length - 1).IsLessThanOrEqualTo(20_001);
+        await AssertWholeRecordPrefix(written, engine.WriteString(Records(20_001)));
+    }
+
+    [Test]
+    public async Task A_Token_Cancelled_Before_The_Call_Writes_Nothing()
+    {
+        var engine = new FileHelperEngine<CsvOrder>();
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+        var inner = new MemoryStream();
+        var writer = new StringWriter();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => engine.WriteStreamAsync(new AsyncOnlyStream(inner), Records(3), cts.Token));
+        await Assert.ThrowsAsync<OperationCanceledException>(() => engine.WriteStreamAsync(writer, Records(3), cts.Token));
+
+        await Assert.That(inner.Length).IsEqualTo(0); // not even the preamble
+        await Assert.That(writer.ToString()).IsEqualTo(string.Empty);
+    }
+
+    [Test]
+    [Arguments(1, true)]
+    [Arguments(1, false)]
+    [Arguments(2, true)]
+    [Arguments(2, false)]
+    [Arguments(7, true)]
+    [Arguments(7, false)]
+    [Arguments(40, true)]
+    [Arguments(40, false)]
+    public async Task A_Cancellation_Inside_A_Stream_Write_Leaves_Whole_Records(int cancelAtWrite, bool streamHonoursIt)
+    {
+        var engine = new FileHelperEngine<CsvOrder>(new UTF8Encoding(false));
+        var records = Records(20_000, new string('n', 200));
+        using var cts = new CancellationTokenSource();
+        var stream = new ScriptedWriteStream { Cancel = cts, CancelAtWrite = cancelAtWrite, HonourCancellation = streamHonoursIt };
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => engine.WriteStreamAsync(stream, records, cts.Token));
+
+        string written = Encoding.UTF8.GetString(stream.Inner.ToArray());
+        await AssertWholeRecordPrefix(written, engine.WriteString(records));
+        await Assert.That(stream.Writes).IsEqualTo(cancelAtWrite); // nothing is written after the cancellation
+    }
+
+    [Test]
+    public async Task A_Cancellation_Inside_The_Write_Of_A_Record_Larger_Than_A_Block_Leaves_Whole_Records()
+    {
+        var engine = new FileHelperEngine<CsvOrder>(new UTF8Encoding(false));
+        var records = Records(2);
+        records.Add(new CsvOrder { OrderId = 3, CustomerName = new string('x', 100_000), Amount = 3.5m });
+        records.AddRange(Records(2));
+        using var cts = new CancellationTokenSource();
+        var stream = new ScriptedWriteStream { Cancel = cts, CancelAtWrite = 1, HonourCancellation = false };
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => engine.WriteStreamAsync(stream, records, cts.Token));
+
+        string written = Encoding.UTF8.GetString(stream.Inner.ToArray());
+        await AssertWholeRecordPrefix(written, engine.WriteString(records));
+        await Assert.That(written.Length).IsGreaterThan(100_000);
+    }
+
+#pragma warning disable RCS1194 // Test-only exception: thrown by the record source, never constructed with a message.
+    private sealed class SourceCanceledException : OperationCanceledException;
+#pragma warning restore RCS1194
+
+    /// <summary>Fails every asynchronous write with <see cref="IOException"/>.</summary>
+    private sealed class FailingWriter : StringWriter
+    {
+        public override Task WriteAsync(ReadOnlyMemory<char> buffer, CancellationToken cancellationToken = default) =>
+            Task.FromException(new IOException("disk full"));
+    }
+
+    /// <summary>Cancels the token on every asynchronous write, and honours it.</summary>
+    private sealed class CancellingWriter(CancellationTokenSource cts) : StringWriter
+    {
+        public override Task WriteAsync(ReadOnlyMemory<char> buffer, CancellationToken cancellationToken = default)
+        {
+            cts.Cancel();
+            return Task.FromCanceled(cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Write-only, asynchronous-only stream over <see cref="Inner"/>. Write number <see cref="CancelAtWrite"/>
+    /// cancels <see cref="Cancel"/>, yields, then writes its whole buffer, or nothing when
+    /// <see cref="HonourCancellation"/> (it throws <see cref="OperationCanceledException"/> instead).
+    /// <see cref="FailWrites"/> fails every write with <see cref="IOException"/>.
+    /// </summary>
+    private sealed class ScriptedWriteStream : Stream
+    {
+        public MemoryStream Inner { get; } = new();
+
+        public CancellationTokenSource? Cancel { get; init; }
+
+        public int CancelAtWrite { get; init; }
+
+        public bool HonourCancellation { get; init; }
+
+        public bool FailWrites { get; init; }
+
+        public int Writes { get; private set; }
+
+        public override bool CanRead => false;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => true;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            if (FailWrites)
+                throw new IOException("disk full");
+
+            if (++Writes == CancelAtWrite)
+            {
+                await Cancel!.CancelAsync();
+                await Task.Yield();
+                if (HonourCancellation)
+                    cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            await Inner.WriteAsync(buffer, CancellationToken.None);
+        }
+
+        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            WriteAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+        public override Task FlushAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public override void Flush() => throw new NotSupportedException("sync I/O");
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException("sync I/O");
     }
 }

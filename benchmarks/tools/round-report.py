@@ -67,6 +67,8 @@ COMPONENTS = [
     ("CreateStringBenchmarks", "CreateString_New", ["CreateString_Cached"]),
     ("FormatOneRecordBenchmarks", "FormatRecord_Current", ["FormatRecord_SingleSpan"]),
 ]
+METHOD_CLASSES = {cls for _, cls, _, _ in PATTERN_CHOICES} | {cls for cls, _, _ in COMPONENTS} | {
+    "R6UpperBoundBenchmarks", "G2PrototypeBenchmarks"}
 R6_CLASS = "R6UpperBoundBenchmarks"
 R6_GATE = 0.94          # R6_PrecomputedEnds at least 6 % faster than R6_Current
 G2_CLASS = "G2PrototypeBenchmarks"
@@ -308,6 +310,7 @@ def scenario_groups(vm):
     """[(title, [case]), ...] for the scenario tables; one table "Scenarios" without a filter file."""
     method_results = [r for r in vm.results if vm.group_of(r.filter) in METHOD_GROUPS]
     method_cases = set(_cases_in_order(vm, method_results))
+    method_cases.update(c for c in _cases_in_order(vm, vm.results) if parse_case(c)[0] in METHOD_CLASSES)
     if not vm.filters:
         cases = [c for c in _cases_in_order(vm, vm.results) if c not in method_cases]
         return [("Scenarios", sorted(cases, key=_sort_key), [])]
@@ -351,19 +354,6 @@ def pair_table(vm, a, b, a_label, b_label, ratio_label, groups=None):
             rows.append([case_label(row["name"]), fmt_time(median(row["a_median_ns"])),
                          fmt_time(median(row["b_median_ns"])), fmt_ratio(row), fmt_verdict(row, result.b4)])
     return _table(PAIR_HEADER % (a_label, b_label, ratio_label), rows)
-
-
-def method_samples(vm, build, cls, method, params):
-    """(samples, result) of one method on one build from the first run that measured it there, or (None, None)."""
-    for result in vm.results:
-        side = result.side(build)
-        if side is None:
-            continue
-        for row in result.rows:
-            c, m, p = parse_case(row["name"])
-            if c == cls and m == method and p == params:
-                return row[side + "_median_ns"], result
-    return None, None
 
 
 def method_params(vm, cls, method):
@@ -563,26 +553,26 @@ def slope(vm):
             continue
         for row in result.rows:
             cls, method, params = parse_case(row["name"])
-            if "Rows" in params:
+            if "Rows" in params and cls not in METHOD_CLASSES:
                 key = (cls, method, tuple((k, v) for k, v in params.items() if k != "Rows"))
                 if key not in families:
                     families.append(key)
+    names = {}
+    for result in vm.results:
+        for row in result.rows:
+            cls, method, params = parse_case(row["name"])
+            names[(cls, method, tuple(sorted(params.items())))] = row["name"]
     for cls, method, other in sorted(families):
         for build in SLOPE_BUILDS:
             per_row = {}
             for rows_value in ("10000", "100000"):
                 params = dict(other)
                 params["Rows"] = rows_value
-                samples, _ = method_samples(vm, build, cls, method, params)
+                case = names.get((cls, method, tuple(sorted(params.items()))))
                 # Pooled over every run of this build, like the value columns.
-                case = None
-                for result in vm.results:
-                    for row in result.rows:
-                        c, m, p = parse_case(row["name"])
-                        if c == cls and m == method and p == params:
-                            case = row["name"]
-                if samples and case:
-                    per_row[rows_value] = vm.value(build, case) / int(rows_value)
+                value = vm.value(build, case) if case else None
+                if value is not None:
+                    per_row[rows_value] = value / int(rows_value)
             if len(per_row) == 2:
                 label = "%s.%s" % (cls, method) + (" (%s)" % fmt_params(dict(other)) if other else "")
                 rows.append([label, build, "%.1f" % per_row["10000"], "%.1f" % per_row["100000"],

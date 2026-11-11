@@ -255,9 +255,13 @@ bdn_args=()
 [[ -n "$job" ]] && bdn_args=(-- --job "$job")
 
 lists_any() {
-    # True when the build in folder $1 has a benchmark method that matches glob $2.
-    (cd "$checks_cwd" && dotnet "$bin/$1/ModernLibs.FileHelpers.Benchmarks.dll" --list flat --filter "$2" 2>/dev/null) \
-        | grep -Eq '^[A-Za-z_][A-Za-z0-9_.]*\.[A-Za-z0-9_]+$'
+    # True when the build in folder $1 has a benchmark method that matches glob $2. The listing process exits 1
+    # (it measured nothing, Program.cs), so its output is captured first: in a pipeline, pipefail would turn that
+    # exit code into "no match".
+    local listing
+    listing="$(cd "$checks_cwd" && dotnet "$bin/$1/ModernLibs.FileHelpers.Benchmarks.dll" --list flat \
+        --filter "$2" 2>/dev/null || true)"
+    grep -Eq '^[A-Za-z_][A-Za-z0-9_.]*\.[A-Za-z0-9_]+$' <<< "$listing"
 }
 
 results=0

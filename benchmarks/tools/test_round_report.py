@@ -173,6 +173,7 @@ class GateAndGapTests(unittest.TestCase):
         markdown = round_report.build(self.round)
         self.assertIn("R6_PrecomputedEnds meets the 6 % gate on net11-ra-on", markdown)
         self.assertNotIn("different sides of 6 %", markdown)
+        self.assertNotIn(HEADER, markdown)      # prototype methods are not scenario rows
 
     def test_r6_variants_on_different_sides_leave_the_decision_to_the_owner(self):
         self.r6("v410-net11", "pkg-net11", "net11-ra-on", 0.96, 0.90)

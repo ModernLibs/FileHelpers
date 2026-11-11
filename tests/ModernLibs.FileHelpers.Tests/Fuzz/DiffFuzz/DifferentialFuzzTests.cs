@@ -123,6 +123,18 @@ public sealed class DifferentialFuzzTests
     }
 
     [Test]
+    public async Task Shape_Input_Throws_For_An_Unknown_Shape_Name()
+    {
+        var generator = new LineGenerator(1);
+        await Assert.That(() => ShapeInput.CreateGenerator("Compat49NoSuchShape", 1)).Throws<ArgumentException>()
+            .WithMessageContaining("Compat49NoSuchShape", StringComparison.Ordinal);
+        await Assert.That(() => ShapeInput.Baseline("Compat49NoSuchShape")).Throws<ArgumentException>()
+            .WithMessageContaining("Compat49NoSuchShape", StringComparison.Ordinal);
+        await Assert.That(() => ShapeInput.Next("Compat49NoSuchShape", generator)).Throws<ArgumentException>()
+            .WithMessageContaining("Compat49NoSuchShape", StringComparison.Ordinal);
+    }
+
+    [Test]
     public async Task Shape_Input_Replaces_One_Field_Between_The_Shape_Separators()
     {
         // Struct: ';' fields, and the generator uses ';'. Fixed: the replaced slice is cut or padded to its width

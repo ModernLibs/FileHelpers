@@ -37,17 +37,39 @@ internal static class ShapeInput
         ["Compat49Struct"] = [";"],
     };
 
+    /// <summary>The names of the <see cref="Compat49Matrix"/> shapes.</summary>
+    private static readonly HashSet<string> KnownShapes =
+        new(Compat49Matrix.All().Select(c => c.Name), StringComparer.Ordinal);
+
+    /// <summary>A shape the matrix does not know is a mistake of the caller, not a comma-delimited shape.</summary>
+    private static void RequireShape(string name)
+    {
+        if (!KnownShapes.Contains(name))
+            throw new ArgumentException($"Unknown shape '{name}'.", nameof(name));
+    }
+
     /// <summary>A generator for <paramref name="name"/>: its delimiter is the shape's record delimiter.</summary>
-    public static LineGenerator CreateGenerator(string name, int seed) =>
-        new(seed, string.Equals(name, "Compat49Struct", StringComparison.Ordinal) ? ';' : ',');
+    /// <exception cref="ArgumentException"><paramref name="name"/> is not a shape of the matrix.</exception>
+    public static LineGenerator CreateGenerator(string name, int seed)
+    {
+        RequireShape(name);
+        return new(seed, string.Equals(name, "Compat49Struct", StringComparison.Ordinal) ? ';' : ',');
+    }
 
     /// <summary>The file of <see cref="Next"/> without the fuzzed row: what the valid rows alone read to.</summary>
-    public static string Baseline(string name) => File(name, fuzzedRow: null);
+    /// <exception cref="ArgumentException"><paramref name="name"/> is not a shape of the matrix.</exception>
+    public static string Baseline(string name)
+    {
+        RequireShape(name);
+        return File(name, fuzzedRow: null);
+    }
 
     /// <summary>The next shape-aware input for <paramref name="name"/>.</summary>
+    /// <exception cref="ArgumentException"><paramref name="name"/> is not a shape of the matrix.</exception>
     public static string Next(string name, LineGenerator generator)
     {
         ArgumentNullException.ThrowIfNull(generator);
+        RequireShape(name);
 
         IReadOnlyList<string> rows = Compat49Inputs.ValidRows(name);
         string row = rows[generator.Next(rows.Count)];

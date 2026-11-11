@@ -25,6 +25,13 @@ internal static class FileBuffers
         OpenReader(filePath, encoding, FileOptions.SequentialScan);
 
     /// <summary>
+    /// A reader over the caller's <paramref name="stream"/>, from its current position; a byte order mark wins
+    /// over <paramref name="encoding"/>. Disposing the reader leaves the stream open.
+    /// </summary>
+    public static StreamReader OpenReader(Stream stream, Encoding encoding) =>
+        new(stream, encoding, detectEncodingFromByteOrderMarks: true, bufferSize: Size, leaveOpen: true);
+
+    /// <summary>
     /// A reader over <paramref name="filePath"/> opened for asynchronous I/O where the platform supports it (on
     /// Windows asynchronous reads are then overlapped I/O instead of synchronous reads on the thread pool). Same
     /// sharing and encoding detection as <see cref="OpenReader(string, Encoding)"/>.

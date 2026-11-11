@@ -341,6 +341,29 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     }
 
     /// <summary>
+    /// Reads <paramref name="stream"/> from its current position to its end, decoding it with
+    /// <see cref="Encoding"/> (a byte order mark wins), and parses it; the records, errors, header and footer are
+    /// those of <see cref="ReadString(string)"/> for the same text. <paramref name="stream"/> is NOT disposed.
+    /// </summary>
+    public T[] ReadStream(Stream stream)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        using var reader = FileBuffers.OpenReader(stream, Encoding);
+        return ReadToArray(reader, maxRecords: 0, readToEnd: true);
+    }
+
+    /// <summary>
+    /// <see cref="ReadStream(Stream)"/> with a record-count cap. The stream is still read to its end, so
+    /// <see cref="FooterText"/> holds the last lines of the input.
+    /// </summary>
+    public T[] ReadStream(Stream stream, int maxRecords)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        using var reader = FileBuffers.OpenReader(stream, Encoding);
+        return ReadToArray(reader, maxRecords, readToEnd: true);
+    }
+
+    /// <summary>
     /// Reads <paramref name="filePath"/> with the current <see cref="Encoding"/> (a byte order
     /// mark wins) and parses it as it is read; the records, errors, header and footer are those of
     /// <see cref="ReadString(string)"/> for the same text.

@@ -31,6 +31,15 @@ file.
   and the generated code are exactly as in 4.9.1. See the
   [migration guide](docs/MIGRATION.md#trim-characters-and-trimgivenchars).
   New members: `FieldTrimAttribute.TrimGivenChars`, `FieldDescriptor.TrimGivenChars`.
+- **`ReadStream(Stream)` and `ReadStream(Stream, int maxRecords)`** on `FileHelperEngine<T>` and, as
+  default interface members, on `IFileHelperEngine<T>`. They read from the stream's current position to
+  its end and decode with the engine's `Encoding`; a byte order mark takes precedence. The stream is
+  not disposed.
+
+### Changed
+
+- **`ReadStream(null)` on `FileHelperEngine<T>` is now ambiguous** between the `TextReader` and the
+  `Stream` overload and no longer compiles. Cast the argument: `ReadStream((TextReader)null!)`.
 
 ## [4.9.1] - 2026-11-11
 

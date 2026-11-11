@@ -122,6 +122,30 @@ public interface IFileHelperEngine<T>
     /// <returns>An array of parsed records.</returns>
     T[] ReadStream(TextReader reader, int maxRecords);
 
+    /// <summary>
+    /// Reads all records from <paramref name="stream"/>, from its current position to its end, decoding it with
+    /// <see cref="Encoding"/> (a byte order mark wins). The stream is not disposed.
+    /// </summary>
+    /// <param name="stream">The stream to read from.</param>
+    /// <returns>An array of parsed records.</returns>
+    T[] ReadStream(Stream stream)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        using var reader = new StreamReader(stream, Encoding, detectEncodingFromByteOrderMarks: true, bufferSize: -1, leaveOpen: true);
+        return ReadStream(reader);
+    }
+
+    /// <summary>Reads at most <paramref name="maxRecords"/> records from <paramref name="stream"/>; see <see cref="ReadStream(Stream)"/>.</summary>
+    /// <param name="stream">The stream to read from.</param>
+    /// <param name="maxRecords">The maximum number of records to read.</param>
+    /// <returns>An array of parsed records.</returns>
+    T[] ReadStream(Stream stream, int maxRecords)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        using var reader = new StreamReader(stream, Encoding, detectEncodingFromByteOrderMarks: true, bufferSize: -1, leaveOpen: true);
+        return ReadStream(reader, maxRecords);
+    }
+
     /// <summary>Reads all records from a file as an async enumerable with backpressure.</summary>
     /// <param name="filePath">The path to the input file.</param>
     /// <param name="cancellationToken">A token to cancel the operation.</param>

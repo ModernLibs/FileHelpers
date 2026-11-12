@@ -22,6 +22,8 @@ public interface IFileHelperEngine<T>
     Encoding Encoding { get; set; }
 
     /// <summary>Gets or sets the newline sequence used when writing. Defaults to <see cref="System.Environment.NewLine"/>.</summary>
+    /// <exception cref="ArgumentException">Thrown when the value is <see langword="null"/> or empty, with the
+    /// FileHelpers 3.x message <c>NewLine string must not be null or empty</c>.</exception>
     string NewLineForWrite { get; set; }
 
     /// <summary>Gets or sets how parse errors are handled. Defaults to ThrowException.</summary>

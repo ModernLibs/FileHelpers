@@ -406,6 +406,9 @@ public sealed class AsyncStreamTests
     [Arguments("utf-32", 40)]
     public async Task WriteStreamAsync_Stream_Splits_A_Surrogate_Pair_At_A_Block_End_Like_WriteFile(string encodingName, int count)
     {
+        // The first character (a low surrogate) and the last (the final terminator, a high surrogate) are unpaired on
+        // purpose. The terminator must be a high surrogate: blocks end right after a terminator, so only a terminator
+        // that is the first half of a pair lets a pair straddle a block end ("|" or any other character would not).
         var engine = new FileHelperEngine<SurrogateTail>(EncodingNamed(encodingName)) { NewLineForWrite = "\uD83D" };
         var records = new List<SurrogateTail>();
         for (int i = 0; i < count; i++)

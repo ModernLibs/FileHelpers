@@ -269,36 +269,12 @@ for entry in "${folders[@]}"; do
     } >> "$raw/variants.txt"
 done
 
-# AOT folders (build-aot-variants.sh already checked each publish; this checks the folders that will be measured).
-aot_folders=(
-    "net10|tfm=net10.0 runtime-async=off|10"
-    "net11-ra-on|tfm=net11.0 runtime-async=on|11"
-    "net11-ra-off|tfm=net11.0 runtime-async=off|11"
-    "pkg-net10|tfm=net10.0 runtime-async=off|10"
-    "pkg-net11|tfm=net10.0 runtime-async=off|11"
-)
-for entry in "${aot_folders[@]}"; do
-    IFS='|' read -r name line major <<< "$entry"
-    dir="$bin/aot/$name"
-    step="check aot/$name"
-    exe="$dir/ModernLibs.FileHelpers.Benchmarks.Aot"
-    [[ -x "$exe" ]] || mismatch "$dir" "no AOT harness executable in the folder"
-    [[ -f "$dir/variant.txt" && "$(head -n 1 "$dir/variant.txt")" == "$name: $line" ]] \
-        || mismatch "$dir" "variant.txt does not start with '$name: $line'"
-    startup="$(cd "$checks_cwd" && "$exe" --info 2>&1 | grep '^// ' || true)"
-    printed="$(sed -n 's#^// ModernLibs.FileHelpers variant: ##p' <<< "$startup")"
-    build_line="$(sed -n 's#^// Build: ##p' <<< "$startup")"
-    runtime="$(sed -n 's#^// Runtime: ##p' <<< "$startup")"
-    [[ "$printed" == "$line" ]] || mismatch "$dir" "AOT process printed variant '$printed', expected '$line'"
-    [[ "$build_line" == "native-aot=yes "* ]] || mismatch "$dir" "AOT process printed build '$build_line', not native-aot=yes"
-    [[ "$runtime" == ".NET $major."* ]] || mismatch "$dir" "AOT process ran on '$runtime', expected .NET $major"
-    {
-        echo "== aot/$name"
-        cat "$dir/variant.txt"
-        echo "$startup"
-        echo
-    } >> "$raw/variants.txt"
-done
+# AOT folders: build-aot-variants.sh already checked each publish; round_runs.py --check-aot checks the folders that
+# will be measured (tested in test_round_runs.py), prints "VARIANT MISMATCH <dir>" and exits 1 on a mismatch, and
+# writes their variants.txt blocks.
+step="check aot folders"
+python3 -I "$src/benchmarks/tools/round_runs.py" --check-aot "$bin/aot" --checks-cwd "$checks_cwd" >> "$raw/variants.txt" \
+    || exit 1
 
 step="library hashes"
 [[ "${library_sha[pkg-net10]}" == "${library_sha[pkg-net11]}" ]] \

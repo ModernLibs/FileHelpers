@@ -261,9 +261,71 @@ def process_runner(cmd, log):
         return subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, check=False).returncode
 
 
+# The Native AOT folders of a round (build-aot-variants.sh, T47): name, variant line, .NET major version.
+AOT_FOLDERS = [
+    ("net10", "tfm=net10.0 runtime-async=off", "10"),
+    ("net11-ra-on", "tfm=net11.0 runtime-async=on", "11"),
+    ("net11-ra-off", "tfm=net11.0 runtime-async=off", "11"),
+    ("pkg-net10", "tfm=net10.0 runtime-async=off", "10"),
+    ("pkg-net11", "tfm=net10.0 runtime-async=off", "11"),
+]
+AOT_EXECUTABLE = "ModernLibs.FileHelpers.Benchmarks.Aot"
+
+
+def check_aot_folder(folder, name, line, major, cwd=None, run=subprocess.run):
+    """The variants.txt block of one AOT folder; ValueError with the reason when the folder does not match its name.
+
+    build-aot-variants.sh checked each publish; this checks the folder that will be measured: the executable exists,
+    variant.txt starts with '<name>: <line>', and the executable started with --info prints that variant,
+    'native-aot=yes' and the .NET major version.
+    """
+    exe = os.path.join(folder, AOT_EXECUTABLE)
+    if not (os.path.isfile(exe) and os.access(exe, os.X_OK)):
+        raise ValueError("no AOT harness executable in the folder")
+    try:
+        with open(os.path.join(folder, "variant.txt"), encoding="utf-8") as f:
+            variant = f.read()
+    except OSError:
+        variant = ""
+    if variant.splitlines()[:1] != ["%s: %s" % (name, line)]:
+        raise ValueError("variant.txt does not start with '%s: %s'" % (name, line))
+    proc = run([exe, "--info"], cwd=cwd, capture_output=True, text=True, check=False)
+    startup = [text for text in (proc.stdout + proc.stderr).splitlines() if text.startswith("// ")]
+
+    def value(prefix):
+        for text in startup:
+            if text.startswith(prefix):
+                return text[len(prefix):].strip()
+        return ""
+    printed = value("// ModernLibs.FileHelpers variant: ")
+    build = value("// Build: ")
+    runtime = value("// Runtime: ")
+    if printed != line:
+        raise ValueError("AOT process printed variant '%s', expected '%s'" % (printed, line))
+    if not build.startswith("native-aot=yes "):
+        raise ValueError("AOT process printed build '%s', not native-aot=yes" % build)
+    if not runtime.startswith(".NET %s." % major):
+        raise ValueError("AOT process ran on '%s', expected .NET %s" % (runtime, major))
+    return "== aot/%s\n%s\n%s\n\n" % (name, variant.rstrip("\n"), "\n".join(startup))
+
+
+def check_aot(aot_dir, cwd=None, out=sys.stdout, err=sys.stderr, run=subprocess.run):
+    """Checks the five AOT folders; writes their variants.txt blocks to out. 0, or 1 after 'VARIANT MISMATCH <dir>'."""
+    for name, line, major in AOT_FOLDERS:
+        folder = os.path.join(aot_dir, name)
+        try:
+            out.write(check_aot_folder(folder, name, line, major, cwd=cwd, run=run))
+        except ValueError as e:
+            print("VARIANT MISMATCH %s\n  %s" % (folder, e), file=err)
+            return 1
+    return 0
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description="The A/B runs of a benchmark round (called by round.sh).")
     parser.add_argument("--check-filters", help="only validate this filter file and exit")
+    parser.add_argument("--check-aot", help="only check the five AOT folders under this folder (round.sh step 4), "
+                        "print their variants.txt blocks and exit")
     parser.add_argument("--raw")
     parser.add_argument("--bin")
     parser.add_argument("--src")
@@ -276,6 +338,8 @@ def main(argv):
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args(argv)
 
+    if args.check_aot:
+        return check_aot(args.check_aot, cwd=args.checks_cwd)
     path = args.check_filters or args.filters
     if not path:
         parser.error("--filters or --check-filters is required")

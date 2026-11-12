@@ -140,5 +140,72 @@ class RunTests(unittest.TestCase):
         self.assertEqual(round_runs.main(["--check-filters", filters]), 0)
 
 
+class AotFolderCheckTests(unittest.TestCase):
+    """round.sh step 4 for the Native AOT folders (round_runs.py --check-aot)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.aot = self.tmp.name
+        for name, line, major in round_runs.AOT_FOLDERS:
+            self.make(name, line, line, "native-aot=yes app-tfm=x rid=linux-x64", ".NET %s.0.1" % major)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def make(self, name, variant_line, printed, build, runtime, executable=True):
+        folder = os.path.join(self.aot, name)
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, "variant.txt"), "w", encoding="utf-8") as f:
+            f.write("%s: %s\ncommit=abc\naot=true\n" % (name, variant_line))
+        exe = os.path.join(folder, round_runs.AOT_EXECUTABLE)
+        with open(exe, "w", encoding="utf-8") as f:
+            f.write("#!/bin/sh\necho '// ModernLibs.FileHelpers variant: %s'\necho '// ModernLibs.FileHelpers library: x'\n"
+                    "echo '// Build: %s'\necho '// Runtime: %s'\n" % (printed, build, runtime))
+        os.chmod(exe, 0o755 if executable else 0o644)
+
+    def check(self):
+        out, err = io.StringIO(), io.StringIO()
+        code = round_runs.check_aot(self.aot, out=out, err=err)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_matching_folders_pass_and_give_the_variants_blocks(self):
+        code, out, err = self.check()
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(out.count("== aot/"), 5)
+        self.assertIn("== aot/pkg-net11\npkg-net11: tfm=net10.0 runtime-async=off\ncommit=abc\naot=true\n"
+                      "// ModernLibs.FileHelpers variant: tfm=net10.0 runtime-async=off", out)
+
+    def assert_mismatch(self, folder, reason):
+        code, _, err = self.check()
+        self.assertEqual(code, 1)
+        self.assertIn("VARIANT MISMATCH %s" % os.path.join(self.aot, folder), err)
+        self.assertIn(reason, err)
+
+    def test_wrong_printed_variant(self):
+        self.make("net11-ra-on", "tfm=net11.0 runtime-async=on", "tfm=net11.0 runtime-async=off",
+                  "native-aot=yes app-tfm=net11.0 rid=linux-x64", ".NET 11.0.0")
+        self.assert_mismatch("net11-ra-on", "printed variant 'tfm=net11.0 runtime-async=off'")
+
+    def test_a_jit_process(self):
+        self.make("net10", "tfm=net10.0 runtime-async=off", "tfm=net10.0 runtime-async=off",
+                  "native-aot=no app-tfm=net10.0 rid=linux-x64", ".NET 10.0.15")
+        self.assert_mismatch("net10", "not native-aot=yes")
+
+    def test_a_package_folder_on_the_wrong_runtime(self):
+        self.make("pkg-net11", "tfm=net10.0 runtime-async=off", "tfm=net10.0 runtime-async=off",
+                  "native-aot=yes app-tfm=net10.0 rid=linux-x64", ".NET 10.0.15")
+        self.assert_mismatch("pkg-net11", "expected .NET 11")
+
+    def test_variant_txt_of_another_folder(self):
+        self.make("net10", "tfm=net11.0 runtime-async=on", "tfm=net10.0 runtime-async=off",
+                  "native-aot=yes app-tfm=net10.0 rid=linux-x64", ".NET 10.0.15")
+        self.assert_mismatch("net10", "variant.txt does not start with 'net10: tfm=net10.0 runtime-async=off'")
+
+    def test_no_executable(self):
+        self.make("net11-ra-off", "tfm=net11.0 runtime-async=off", "tfm=net11.0 runtime-async=off",
+                  "native-aot=yes app-tfm=net11.0 rid=linux-x64", ".NET 11.0.0", executable=False)
+        self.assert_mismatch("net11-ra-off", "no AOT harness executable")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -64,14 +64,27 @@ today that is only the TUnit project. The tests written for the mutated parsers 
 dotnet tool restore
 dotnet stryker --config-file stryker-config.json
 
+# one file only (a --mutate on the command line replaces the "mutate" list of the config file)
+dotnet stryker --config-file stryker-config.json --mutate '**/Parsing/QuoteBalanceScanner.cs'
+
 # run the Mutation category only
 ./tests/ModernLibs.FileHelpers.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Tests --treenode-filter "/*/*/*/*[Category=Mutation]"
 ```
 
-The HTML report is written to `StrykerOutput/`. A full run takes a long time; to try a change, narrow
-the `mutate` list to the files you touched and lower the parallelism with `--concurrency`. Stryker runs
-in its own workflow (`mutation.yml`, started manually and once a week), not on every push. That
-workflow is informational (`continue-on-error`) until its first full run has measured the score.
+The HTML report is written to `StrykerOutput/`. Stryker builds Release (`"configuration"` in the config
+file). A full run takes a long time (the whole `mutate` list has 1326 mutants to test and did not finish
+in 2 hours on a hosted runner); to try a change, mutate only the files you touched and lower the
+parallelism with `--concurrency`. Stryker runs in its own workflow (`mutation.yml`, started manually and
+once a week), not on every push. That workflow is informational (`continue-on-error`) until a run has
+measured the score.
+
+To start the workflow manually, run it from the Actions tab (Mutation Testing, Run workflow) or with
+`gh workflow run mutation.yml --ref <branch> -f mutate='<glob>,<glob>'`. The `mutate` input is a
+comma-separated list of Stryker `--mutate` globs, one `--mutate` per glob; it defaults to
+`QuoteBalanceScanner.cs` and `RecordReadCore.cs`. The weekly run uses those two files plus
+`FixedLengthSlicer.cs`. The job has a 350 minute limit and writes one character per finished mutant to the
+log (`.` killed, `T` timeout, `S` survived, `E` error), 100 per line with a time stamp, so a run cut off by
+the limit still shows how far it got.
 
 ### Fuzzing
 

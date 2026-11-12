@@ -271,6 +271,17 @@ class GateAndGapTests(unittest.TestCase):
         self.assertLessEqual(r["median_ratio"], round_report.G2_GATE)
         self.assertNotEqual(r["verdict"], "faster")
 
+    def test_a_capped_round_with_a_gate_ratio_under_the_limit_but_no_verdict_asks_for_an_uncapped_rerun(self):
+        self.g2(0.85, noisy=True)
+        machine = os.path.join(self.vm, "machine.txt")
+        with open(machine, "w", encoding="utf-8") as f:
+            f.write("mode: round (B4: 7 launches per side, job default, max iterations 20)\n")
+        self.assertIn("rerun the gate lines uncapped", round_report.build(self.round))
+        self.assertIn("G2 on net11-ra-on", round_report.build(self.round))
+        with open(machine, "w", encoding="utf-8") as f:
+            f.write("mode: round (B4: 7 launches per side, job default)\n")          # uncapped: no such note
+        self.assertNotIn("rerun the gate lines uncapped", round_report.build(self.round))
+
     def test_r6_gate_both_variants_meet(self):
         self.r6("v410-net11", "pkg-net11", "net11-ra-on", 0.90, 0.85)
         markdown = round_report.build(self.round)
@@ -368,6 +379,97 @@ class AotTests(unittest.TestCase):
         section = self.aot_section()
         self.assertIn("compiler and SDK effect", section)
         self.assertIn("4.9.1 pkg (AOT)", section)       # the per-runtime pair tables
+
+
+class SectionTests(unittest.TestCase):
+    """runtime_async, slope, r6_against_package (review-T12 Minor 8) and damaged result files (rereview Minor 2)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.round = os.path.join(self.tmp.name, "raw", "r4")
+        self.vm = os.path.join(self.round, "vm1")
+        os.makedirs(self.vm)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def filters(self, text):
+        with open(os.path.join(self.vm, "filters.txt"), "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def load_vm(self):
+        return round_report.load(self.round)[0]
+
+    def test_runtime_async_lists_slower_cases_against_control_noise(self):
+        sylvan = NS + "DelimitedParseBenchmarks.Sylvan_ParseAndDiscard(Rows: 10000)"
+        write(os.path.join(self.vm, "ra", "030-control-x.json"), doc(
+            "/w/bin/net11-ra-off", "/w/bin/net11-ra-on", "*Sylvan*", [bench(sylvan, scaled(1_000), scaled(1_020))]))
+        slow = NS + "EngineAsyncBenchmarks.Engine_ReadAsync_Path(Rows: 10000)"
+        small = NS + "EngineAsyncBenchmarks.Engine_ReadAsync_Path(Rows: 100000)"
+        write(os.path.join(self.vm, "ra", "020-async-x.json"), doc(
+            "/w/bin/net11-ra-off", "/w/bin/net11-ra-on", "*Engine_ReadAsync_Path",
+            [bench(slow, scaled(1_000), scaled(1_100)), bench(small, scaled(1_000), scaled(1_010))]))
+        self.filters("async ra *Engine_ReadAsync_Path\ncontrol ra *Sylvan*\n")
+        text = "\n".join(round_report.runtime_async(self.load_vm()))
+        self.assertIn("**net11-ra-off -> net11-ra-on**: 3 cases; 2 no-change, 1 slower.", text)
+        self.assertIn("largest |on/off - 1| of 1 control cases = 2.0 %", text)
+        rows = table_rows(text, "| Slower with runtime async on | on/off [99.9 % CI] | verdict | beyond control noise |")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0][0], "EngineAsyncBenchmarks.Engine_ReadAsync_Path (Rows 10K)")
+        self.assertTrue(rows[0][1].startswith("1.100"))
+        self.assertEqual(rows[0][2:], ["slower", "yes"])
+
+    def test_slope_gives_ns_per_row_and_the_growth(self):
+        name = NS + "DelimitedParseBenchmarks.FileHelpers_ParseAndDiscard(Rows: %d)"
+        write(os.path.join(self.vm, "v410-net10", "001-read25-x.json"), doc(
+            "/w/bin/pkg-net10", "/w/bin/net10", "*DelimitedParseBenchmarks.FileHelpers_ParseAndDiscard",
+            [bench(name % 10_000, scaled(10_000), scaled(9_000)),           # 1,000,000 ns: 100 ns per row
+             bench(name % 100_000, scaled(150_000), scaled(120_000)),      # 15,000,000 ns: 150 ns per row
+             bench(name % 1_000_000, scaled(2_000_000), scaled(2_000_000))]))
+        self.filters("read25 v410-net10 *DelimitedParseBenchmarks.FileHelpers_ParseAndDiscard\n")
+        rows = {(r[0], r[1]): r for r in table_rows(
+            "\n".join(round_report.slope(self.load_vm())),
+            "| Benchmark | Build | 10K rows: ns per row | 100K rows: ns per row | 100K/10K "
+            "| 10K: Gen0 / Gen1 / Gen2; allocated | 100K: Gen0 / Gen1 / Gen2; allocated |")}
+        pkg = rows[("DelimitedParseBenchmarks.FileHelpers_ParseAndDiscard", "pkg-net10")]
+        self.assertEqual(pkg[2:5], ["100.0", "150.0", "1.500"])
+        net10 = rows[("DelimitedParseBenchmarks.FileHelpers_ParseAndDiscard", "net10")]
+        self.assertEqual(net10[2:5], ["90.0", "120.0", "1.333"])
+        self.assertEqual(len(rows), 2)                                     # the 1M row is not a slope point
+
+    def test_r6_against_package(self):
+        r6 = NS + "Prototypes.R6UpperBoundBenchmarks.%s(Rows: 100000)"
+        write(os.path.join(self.vm, "v410-net11", "040-prototype-x.json"), doc(
+            "/w/bin/pkg-net11", "/w/bin/net11-ra-on", "*Prototypes.R6UpperBoundBenchmarks*",
+            [bench(r6 % "R6_Current", scaled(10_000), scaled(10_000)),
+             bench(r6 % "R6_PrecomputedEnds", scaled(10_000), scaled(9_000))]))
+        write(os.path.join(self.vm, "free-gains", "003-quoted-x.json"), doc(
+            "/w/bin/pkg-net10", "/w/bin/pkg-net11", "*QuotedFieldsBenchmarks.FileHelpers_ParseAndDiscard",
+            [bench(QUOTED + "(Rows: 100000)", scaled(11_000), scaled(10_500))]))
+        self.filters("prototype v410-net11 *Prototypes.R6UpperBoundBenchmarks*\n"
+                     "quoted free-gains *QuotedFieldsBenchmarks.FileHelpers_ParseAndDiscard\n")
+        text = "\n".join(round_report.r6_against_package(self.load_vm()))
+        rows = table_rows(text, "| Pair | Rows | R6_Current 4.9.1 pkg | R6_Current 4.10 | 4.10/pkg [99.9 % CI] | verdict "
+                                "| R6_PrecomputedEnds 4.10 / R6_Current pkg [99.9 % CI] | quoted parse-and-discard, 4.9.1 pkg |")
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row[:4], ["pkg-net11 -> net11-ra-on", "Rows 100K", "1.000 ms", "1.000 ms"])
+        self.assertTrue(row[4].startswith("1.000"))
+        self.assertEqual(row[5], "no-change")
+        self.assertTrue(row[6].startswith("0.900") and row[6].endswith("faster"), row[6])
+        self.assertEqual(row[7], "1.050 ms")                               # the package on .NET 11, same work
+
+    def test_a_damaged_result_file_is_listed_not_fatal(self):
+        write(os.path.join(self.vm, "ra", "006-quoted-x.json"), doc(
+            "/w/bin/net11-ra-off", "/w/bin/net11-ra-on", "*QuotedFieldsBenchmarks.FileHelpers_ParseAndDiscard",
+            [bench(QUOTED + "(Rows: 10000)", scaled(1_000), scaled(1_000))]))
+        with open(os.path.join(self.vm, "ra", "007-async-x.json"), "w", encoding="utf-8") as f:
+            f.write('{"b4": true, "a": {"dir": "/w/bin/net11-ra-off"')     # cut off by a kill
+        markdown = round_report.build(self.round)
+        self.assertIn("### Damaged results", markdown)
+        rows = table_rows(markdown, "| Result file | Reason |")
+        self.assertEqual([r[0] for r in rows], ["`%s`" % os.path.join("ra", "007-async-x.json")])
+        self.assertEqual(len(table_rows(markdown, HEADER)), 1)             # the good file is still reported
 
 
 if __name__ == "__main__":

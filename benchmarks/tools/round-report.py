@@ -45,6 +45,11 @@ SCENARIO_HEADER = "| Scenario | 4.9.1 pkg | net10 | net11-ra-on | net11-ra-off |
 PAIR_HEADER = "| Scenario | %s | %s | %s [99.9 %% CI] | verdict |"
 PAIR_GC_HEADER = ("| Scenario | %s | %s | %s [99.9 %% CI] | verdict | Gen0 / Gen1 / Gen2; allocated, %s "
                   "| Gen0 / Gen1 / Gen2; allocated, %s |")
+CAPPED_GATE_NOTE = ("**Capped round: on %s a gate ratio is under its limit without the B4 verdict `faster` (%s). The cap "
+                    "(--max-iterations) can turn `faster` into `no-change`, never the reverse: rerun the gate lines "
+                    "uncapped on this VM under a second round name before the VMs are deleted "
+                    "(`round.sh <round-name>-gates <sha> benchmarks/tools/filters-gates.txt --vm <vm-name>`, about "
+                    "0.8 h) and read the gate from that run.**")
 G2_P5_NOTE = ("G2_SingleSpan still copies each record from the engine's record buffer into the result (it does not "
               "format straight into the PooledStringWriter chunk): it measures G2 without P5, so a result just under "
               "10 % understates what Phase 3 (G2, G3 and P5) can give.")
@@ -248,6 +253,7 @@ class Vm:
         self.filters = []          # (group, pairs, glob)
         self.not_run = []          # (pair, group, glob, reason)
         self.failed = []           # (pair, group, glob, log)
+        self.damaged = []          # (path relative to the VM folder, reason): result files that do not parse
         self.machine = ""
         self.aot = None            # a Vm with the ab.py --aot results of this VM (see load)
 
@@ -333,10 +339,16 @@ def load(round_dir):
             for filename in sorted(filenames):
                 if not filename.endswith(".json"):
                     continue
-                with open(os.path.join(dirpath, filename), encoding="utf-8") as f:
-                    document = json.load(f)
+                full = os.path.join(dirpath, filename)
+                try:
+                    with open(full, encoding="utf-8") as f:
+                        document = json.load(f)
+                except (OSError, ValueError) as e:
+                    # A file cut off by a kill: listed, never a crash (rereview-T12 Minor 2). --resume reruns it.
+                    vm.damaged.append((os.path.relpath(full, path), str(e).splitlines()[0][:120]))
+                    continue
                 if isinstance(document, dict) and "benchmarks" in document and "a" in document:
-                    vm.results.append(Result(os.path.join(dirpath, filename), document))
+                    vm.results.append(Result(full, document))
         vm.filters = read_filters(_read_text(os.path.join(path, "filters.txt")))
         vm.aot = Vm(name, path)
         vm.aot.results = [r for r in vm.results if r.aot]
@@ -351,7 +363,7 @@ def load(round_dir):
             if len(parts) == 4:
                 vm.failed.append(tuple(parts))
         vm.machine = _read_text(os.path.join(path, "machine.txt"))
-        if vm.results or vm.aot.results or vm.filters or vm.failed:
+        if vm.results or vm.aot.results or vm.filters or vm.failed or vm.damaged:
             vms.append(vm)
     return vms
 
@@ -785,6 +797,16 @@ def build(round_dir):
         s += ["### Gate G2", ""]
         g2_lines, g2 = gate_g2(vm)
         s += g2_lines + [""]
+        if "max iterations" in machine_facts(vm.machine)["mode"]:
+            under = []
+            for build, (pre, _) in sorted(r6.items()):
+                if pre is not None and pre["median_ratio"] <= R6_GATE + _EPSILON and pre["verdict"] != "faster":
+                    under.append("R6 on %s" % build)
+            for build, g in sorted(g2.items()):
+                if g["median_ratio"] <= G2_GATE + _EPSILON and g["verdict"] != "faster":
+                    under.append("G2 on %s" % build)
+            if under:
+                s += [CAPPED_GATE_NOTE % (vm.name, ", ".join(under)), ""]
         s += ["### Coding-pattern choices", ""]
         s += method_table(vm, PATTERN_CHOICES, ("net10", "net11-ra-on", "net11-ra-off"), item_label=True) or [
             "Not run on this VM."]
@@ -817,6 +839,12 @@ def build(round_dir):
             s += _table("| Pair | Group | Glob | Log |", [[p, g, "`%s`" % pattern, "`%s`" % log]
                                                          for p, g, pattern, log in vm.failed])
             s += ["", "`round.sh ... --resume` reruns these runs and keeps every finished one."]
+            s.append("")
+        if vm.damaged:
+            s += ["### Damaged results", ""]
+            s += _table("| Result file | Reason |", [["`%s`" % f, why] for f, why in vm.damaged])
+            s += ["", "These files do not parse (a run cut off by a kill); their cells are empty. "
+                  "`round.sh ... --resume` runs them again."]
             s.append("")
         sections += s
         for build in BUILDS_410:

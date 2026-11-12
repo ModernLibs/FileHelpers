@@ -44,6 +44,8 @@ public class WriteBenchmarks
         _engine = new FileHelperEngine<PackageAsset> { NewLineForWrite = "\r\n" };
         var records = new List<PackageAsset>(Rows);
         _engine.ReadFile(_sourceFile, records.Add);
+        // 4.10 captures the header with its line ending, 4.9.1 without; the write adds NewLineForWrite, so strip it here: both builds write the same header bytes.
+        _engine.HeaderText = _engine.HeaderText?.TrimEnd('\r', '\n');
         _records = records.ToArray();
         _outputPath = Path.Combine(dataDir, "output_write.csv");
         DataCheck.PackageAssets("FileHelpers read", DataCheck.DataLines(_sourceFile, hasHeader: true), _records.Length, i => PackageAssetColumns.Of(_records[i]));

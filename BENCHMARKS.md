@@ -133,7 +133,7 @@ Running in-process has costs, which every result has to live with:
 | `G2PrototypeBenchmarks` | Gate G2: `WriteString` of the 25-column records with the generated `Format` and with a single-span `Format` (see below) | - | 100K |
 | Component classes (namespace `...Benchmarks.Components`) | Tokenizers, the scan loop shape, converter call shapes, unquoting, string creation and one-record `Format` (see below) | - | fixed per class |
 
-The write benchmarks set `NewLineForWrite = "\r\n"` on every engine they write with, so 4.9.1 (which wrote `"\r\n"`) and 4.10 (which writes `Environment.NewLine`, `"\n"` on Linux) write identical bytes and allocate the same bytes per row.
+The write benchmarks set `NewLineForWrite = "\r\n"` and strip the line ending from the captured `HeaderText` (4.10 keeps it, 4.9.1 does not), so 4.9.1 and 4.10 write identical bytes. `SepComparisonBenchmarks` still compares that output with Sep output written with Sep's own line-ending setting, as in every earlier result.
 
 Competitor versions are pinned in `Directory.Packages.props`: FileHelpers 3.5.2, Sep 0.17.1,
 Sylvan.Data.Csv 1.4.4, CsvHelper 34.0.0, BenchmarkDotNet 0.15.8. The 4.8.0 and 4.8.1 results were

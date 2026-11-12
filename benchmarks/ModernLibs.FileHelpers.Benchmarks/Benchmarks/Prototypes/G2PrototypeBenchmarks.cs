@@ -35,7 +35,9 @@ public class G2PrototypeBenchmarks
         var reader = new FileHelperEngine<PackageAsset>();
         var records = new List<PackageAsset>();
         reader.ReadFile(path, records.Add);
-        return (records.ToArray(), reader.HeaderText);
+        // 4.10 captures the header with its line ending, 4.9.1 without; the write adds NewLineForWrite, so strip it:
+        // both builds write the same header bytes.
+        return (records.ToArray(), reader.HeaderText?.TrimEnd('\r', '\n'));
     }
 
     private string? Prepare()

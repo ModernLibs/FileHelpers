@@ -31,6 +31,8 @@ public class QuotedWriteBenchmarks
         _engine = new FileHelperEngine<QuotedRecord> { NewLineForWrite = "\r\n" };
         var records = new List<QuotedRecord>(Rows);
         _engine.ReadFile(file, records.Add);
+        // 4.10 captures the header with its line ending, 4.9.1 without; the write adds NewLineForWrite, so strip it here: both builds write the same header bytes.
+        _engine.HeaderText = _engine.HeaderText?.TrimEnd('\r', '\n');
         _records = records.ToArray();
         DataCheck.QuotedRandom("FileHelpers read", Rows, _records.Length, i => (_records[i].Id, _records[i].Description, _records[i].Notes, _records[i].Category));
     }

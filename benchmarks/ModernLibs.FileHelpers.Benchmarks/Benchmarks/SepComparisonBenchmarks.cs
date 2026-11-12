@@ -39,6 +39,8 @@ public class SepComparisonBenchmarks
         Prepare();
         var records = new List<PackageAsset>(Rows);
         _engine.ReadFile(_filePath, records.Add);
+        // 4.10 captures the header with its line ending, 4.9.1 without; the write adds NewLineForWrite, so strip it here: both builds write the same header bytes.
+        _engine.HeaderText = _engine.HeaderText?.TrimEnd('\r', '\n');
         _records = records.ToArray();
         DataCheck.PackageAssets("FileHelpers records", DataCheck.DataLines(_filePath, hasHeader: true), _records.Length, i => PackageAssetColumns.Of(_records[i]));
     }

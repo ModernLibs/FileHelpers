@@ -85,6 +85,7 @@ public class EngineAsyncBenchmarks
     {
         _engine = new FileHelperEngine<PackageAsset> { NewLineForWrite = "\r\n" };
         _records = _engine.ReadFile(DatasetGenerator.EnsurePackageAssets(ComponentData.DataDir(), Rows));
+        _engine.HeaderText = _engine.HeaderText?.TrimEnd('\r', '\n');
         DataCheck.Equal(Rows, _records.Length, nameof(Engine_WriteStreamAsync_Null) + " records");
 
         using var ms = new MemoryStream();
@@ -115,6 +116,7 @@ public class EngineAsyncBenchmarks
     {
         _engine = new FileHelperEngine<PackageAsset> { NewLineForWrite = "\r\n" };
         _records = _engine.ReadFile(DatasetGenerator.EnsurePackageAssets(ComponentData.DataDir(), Rows));
+        _engine.HeaderText = _engine.HeaderText?.TrimEnd('\r', '\n');
         DataCheck.Equal(Rows, _records.Length, nameof(Engine_WriteStreamAsync_Null_SourceThrows) + " records");
 
         // One failing call: the records before the fault reach the stream (preamble included); TotalRecords stays 0.

@@ -68,13 +68,12 @@ public sealed class RecycleRecordsTests
     public async Task RecycleRecords_AllocationDelta_NearZeroAfterWarmup()
     {
         // Use RecycleNumericRecord (int, int, decimal only — no string fields).
-        // ReadNext() always allocates a line string via TextReader.ReadLine() — that is
-        // unavoidable in the blocking-streaming path. RecycleRecords eliminates the extra
-        // RecycleNumericRecord object allocation on top of the line string.
+        // With RecycleRecords=false, ReadNext() allocates one record object per call (40 bytes measured);
+        // nothing else is allocated per call. With RecycleRecords=true the record is reused, so the
+        // per-call allocation must be 0.
         //
-        // We verify that RecycleRecords=true allocates < 64 bytes MORE per call than
-        // the irreducible minimum (the line string from ReadLine()). This means no new
-        // record object is allocated per call.
+        // Two asserts: recycled < baseline (recycling works at all), and recycled < 24 bytes per call
+        // (24 bytes is the size of the smallest object, so any per-call allocation fails).
         // Arrange: Build lines for warmup + several measured windows of N calls.
         // One window can hold a one-off ~8 KB cost that is not the code under test (an allocation-context
         // refill, or a GC started by a parallel test). A per-row allocation shows in every window, so the
@@ -115,10 +114,11 @@ public sealed class RecycleRecordsTests
             },
             windows) / N;
 
-        // Recycled path must allocate meaningfully less per call (at least 24 bytes less —
-        // the record object header overhead that RecycleRecords eliminates).
-        // Assert: Recycled allocation per call is less than baseline
+        // Assert: recycled allocation per call is less than baseline, and below one smallest object (24 bytes).
+        // The second assert is the absolute one: an object allocated per ReadNext (24 bytes or more) is
+        // not caught by the relative assert alone, because a 24-byte object is less than the 40-byte baseline.
         await Assert.That(recycledPerCall).IsLessThan(baselinePerCall);
+        await Assert.That(recycledPerCall).IsLessThan(24L);
     }
 
     /// <summary>RecycleRecords=true on a struct record type (PositionalOrder); ReadNext succeeds without exception.</summary>

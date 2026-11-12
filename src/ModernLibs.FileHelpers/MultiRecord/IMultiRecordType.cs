@@ -15,5 +15,11 @@ public interface IMultiRecordType
     bool CanFormat(object record);
 
     /// <summary>Formats one record instance without a trailing line terminator.</summary>
+    /// <remarks>
+    /// For a type made by <see cref="MultiRecordType.For{T}"/>, the line break before a
+    /// <see cref="FieldInNewLineAttribute"/> field is <c>"\r\n"</c> on every platform here. When
+    /// <see cref="MultiRecordEngine"/> writes the record it uses its <see cref="MultiRecordEngine.NewLineForWrite"/>
+    /// instead.
+    /// </remarks>
     string Format(object record);
 }

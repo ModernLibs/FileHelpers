@@ -39,9 +39,11 @@ public sealed class WriteFramingTests
             File.Delete(path);
         }
 
-        // Assert: only the record was appended
+        // Assert: only the record was appended; HeaderText/FooterText are "" afterwards, as 3.5.2 BeginAppendToFile
+        // leaves them (probed in T49: header=[] footer=[] after BeginAppendToFile and after Close)
         await Assert.That(content).IsEqualTo("HEAD\r\n1,a\r\nFOOT\r\n2,b\r\n");
         await Assert.That(engine.HeaderText).IsEqualTo(string.Empty);
+        await Assert.That(engine.FooterText).IsEqualTo(string.Empty);
     }
 
     [Test]

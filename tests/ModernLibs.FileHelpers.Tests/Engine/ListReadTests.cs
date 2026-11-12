@@ -128,8 +128,7 @@ public sealed class ListReadTests
         var engine = new FileHelperEngine<HeaderFooterListRecord>();
         var list = engine.ReadStringAsList(CsvHeaderFooter);
         await Assert.That(list.Count).IsEqualTo(3);
-        await Assert.That(engine.HeaderText).IsNotNull();
-        await Assert.That(engine.HeaderText!.TrimEnd('\r', '\n')).IsEqualTo("id,name");
+        await Assert.That(engine.HeaderText).IsEqualTo("id,name" + Environment.NewLine);
         await Assert.That(engine.FooterText).IsEqualTo("total" + Environment.NewLine);
     }
 

@@ -293,8 +293,10 @@ public sealed class NewLineForWriteDefaultTests
     // ---- null, and no hard-coded "\r\n" in the output --------------------------------------
 
     [Test]
-    [DisplayName("NewLineForWrite = null throws on every engine, as in FileHelpers 3.5.2")]
-    public async Task Null_Throws_OnEveryEngine()
+    [Arguments(null)]
+    [Arguments("")]
+    [DisplayName("NewLineForWrite = null or \"\" throws ArgumentException with the 3.5.2 message on every engine")]
+    public async Task NullOrEmpty_Throws_OnEveryEngine(string? value)
     {
         // Arrange
         var engine = new FileHelperEngine<NlRecord>();
@@ -302,11 +304,22 @@ public sealed class NewLineForWriteDefaultTests
         var multi = NewMultiRecordEngine();
         var masterDetail = NewMasterDetailEngine();
 
-        // Act + Assert: 3.5.2 throws ArgumentException from the setter; the value is kept
-        await Assert.That(() => engine.NewLineForWrite = null!).Throws<ArgumentException>();
-        await Assert.That(() => asyncEngine.NewLineForWrite = null!).Throws<ArgumentException>();
-        await Assert.That(() => multi.NewLineForWrite = null!).Throws<ArgumentException>();
-        await Assert.That(() => masterDetail.NewLineForWrite = null!).Throws<ArgumentException>();
+        // Act: 3.5.2 (probed) throws System.ArgumentException "NewLine string must not be null or empty" from the setter
+        Exception?[] errors =
+        [
+            Errors.Capture.Exception(() => engine.NewLineForWrite = value!),
+            Errors.Capture.Exception(() => asyncEngine.NewLineForWrite = value!),
+            Errors.Capture.Exception(() => multi.NewLineForWrite = value!),
+            Errors.Capture.Exception(() => masterDetail.NewLineForWrite = value!),
+        ];
+
+        // Assert: exact type and message; the previous value is kept
+        foreach (var error in errors)
+        {
+            await Assert.That(error?.GetType()).IsEqualTo(typeof(ArgumentException));
+            await Assert.That(error!.Message).IsEqualTo("NewLine string must not be null or empty");
+        }
+
         await Assert.That(engine.NewLineForWrite).IsEqualTo(NL);
         await Assert.That(asyncEngine.NewLineForWrite).IsEqualTo(NL);
         await Assert.That(multi.NewLineForWrite).IsEqualTo(NL);

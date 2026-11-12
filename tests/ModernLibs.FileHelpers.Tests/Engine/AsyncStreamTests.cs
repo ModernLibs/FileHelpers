@@ -388,10 +388,11 @@ public sealed class AsyncStreamTests
     }
 
     /// <summary>
-    /// Every record starts with a low and ends with a high surrogate and the terminator is empty, so a pair is formed
-    /// across each record boundary, also where a 16,384-character block ends. 1,000-character records: a block ends
-    /// after the 17th record, so 17 records leave an empty final block with the high surrogate still pending in the
-    /// encoder, and 34 records end exactly on a block end.
+    /// Every record starts with a low surrogate and the one-character terminator (<c>NewLineForWrite</c>, which must
+    /// not be empty since T49) is a high surrogate, so a pair is formed across each record boundary, also where a
+    /// 16,384-character block ends (blocks end after a terminator). 999-character records plus the terminator make
+    /// 1,000 characters per record: a block ends after the 17th record, so 17 records leave an empty final block with
+    /// the high surrogate still pending in the encoder, and 34 records end exactly on a block end.
     /// </summary>
     [Test]
     [Arguments("utf-8", 17)]
@@ -405,15 +406,18 @@ public sealed class AsyncStreamTests
     [Arguments("utf-32", 40)]
     public async Task WriteStreamAsync_Stream_Splits_A_Surrogate_Pair_At_A_Block_End_Like_WriteFile(string encodingName, int count)
     {
-        var engine = new FileHelperEngine<SurrogateTail>(EncodingNamed(encodingName)) { NewLineForWrite = string.Empty };
+        var engine = new FileHelperEngine<SurrogateTail>(EncodingNamed(encodingName)) { NewLineForWrite = "\uD83D" };
         var records = new List<SurrogateTail>();
         for (int i = 0; i < count; i++)
-            records.Add(new SurrogateTail { Text = "\uDE00" + new string('a', 998) + "\uD83D" });
+            records.Add(new SurrogateTail { Text = "\uDE00" + new string('a', 998) });
         byte[] expected = WriteFileBytes(engine, records);
 
         var stream = new MemoryStream();
         await engine.WriteStreamAsync(stream, records);
 
+        // The terminator and the next record really form pairs (one per record boundary).
+        string decoded = engine.Encoding.GetString(expected);
+        await Assert.That(decoded.Split("😀").Length - 1).IsEqualTo(count - 1);
         await Assert.That(stream.ToArray().SequenceEqual(expected)).IsTrue();
     }
 

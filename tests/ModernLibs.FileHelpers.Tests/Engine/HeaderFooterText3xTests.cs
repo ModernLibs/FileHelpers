@@ -220,6 +220,54 @@ public sealed class HeaderFooterText3xTests
     }
 
     [Test]
+    [DisplayName("A frame ending with Environment.NewLine gets no NewLineForWrite = \"|\" (the R42 rule, on every OS)")]
+    public async Task FrameEndingWithEnvironmentNewLine_GetsNoOtherTerminator()
+    {
+        // Arrange: "|" is never a suffix of Environment.NewLine, so only the R42 branch keeps the frames unchanged
+        var engine = new FileHelperEngine<NlRecord>
+        {
+            HeaderText = "H" + NL,
+            FooterText = "F" + NL,
+            NewLineForWrite = "|",
+        };
+
+        // Act
+        string written = engine.WriteString([new NlRecord { Id = 1, Name = "a" }]);
+
+        // Assert: 3.5.2 would write "H" + NL + "|1,a|F" + NL + "|"
+        await Assert.That(written).IsEqualTo($"H{NL}1,a|F{NL}");
+    }
+
+    [Test]
+    [DisplayName("FileHelperEngine ReadSync/ReadAsync left early: HeaderText is set, FooterText stays empty (3.5.2)")]
+    public async Task FileHelperEngine_StreamingReadLeftEarly_FooterIsEmpty()
+    {
+        // Arrange
+        const string Input = "h1\nh2\n1,a\n2,b\nf1\nf2\n";
+        var syncEngine = new FileHelperEngine<NlFramed>();
+        var asyncEngine = new FileHelperEngine<NlFramed>();
+
+        // Act: leave each loop after the first record
+        foreach (var record in syncEngine.ReadSync(Input))
+        {
+            _ = record;
+            break;
+        }
+
+        await foreach (var record in asyncEngine.ReadAsync(new StringReader(Input)))
+        {
+            _ = record;
+            break;
+        }
+
+        // Assert
+        await Assert.That(syncEngine.HeaderText).IsEqualTo(Header);
+        await Assert.That(syncEngine.FooterText).IsEqualTo(string.Empty);
+        await Assert.That(asyncEngine.HeaderText).IsEqualTo(Header);
+        await Assert.That(asyncEngine.FooterText).IsEqualTo(string.Empty);
+    }
+
+    [Test]
     [DisplayName("Write framing keeps the 3.x rule: NewLineForWrite is added unless the text already ends with it")]
     public async Task WriteFraming_AddsNewLineUnlessTerminated()
     {

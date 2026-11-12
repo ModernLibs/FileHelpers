@@ -366,9 +366,12 @@ var engine = new FileHelperEngine<Customer>(Encoding.GetEncoding(1252));
   platform.
 - From 4.8.0 to 4.9.1, `NewLineForWrite` defaulted to `"\r\n"` on every platform. From 4.10 on, the
   output on Linux and macOS uses `"\n"` unless you set `NewLineForWrite = "\r\n"`; Windows output is
-  unchanged.
-- Setting `NewLineForWrite` to `null` throws `ArgumentNullException`, an `ArgumentException` as in 3.x.
-  3.x also rejected `""`; 4.x accepts it and writes the records without line breaks.
+  unchanged. One exception on Linux and macOS: a `HeaderText`/`FooterText` captured on read keeps `"\n"`
+  after each line (see below), so a read-then-write with `NewLineForWrite = "\r\n"` gives mixed line
+  endings. Set the text yourself before the write, for example
+  `engine.HeaderText = engine.HeaderText.Replace(Environment.NewLine, "\r\n")`.
+- Setting `NewLineForWrite` to `null` or `""` throws `ArgumentException` with the message
+  `NewLine string must not be null or empty`, as in 3.x.
 - `HeaderText` and `FooterText` hold the `[IgnoreFirst]`/`[IgnoreLast]` lines as in 3.x: each line is
   followed by `Environment.NewLine`, the last one included, whatever the input's line endings and
   `NewLineForWrite` are. `[IgnoreFirst(2)]` on `h1\r\nh2\r\n...` gives `"h1\nh2\n"` on Linux and
@@ -380,6 +383,10 @@ var engine = new FileHelperEngine<Customer>(Encoding.GetEncoding(1252));
   already ends with it, as in 3.x, or with `Environment.NewLine`. So a header read from a file and
   written back never gains an empty line, also with `NewLineForWrite = "\r\n"` on Linux, where 3.x
   wrote one.
+- Input shorter than `[IgnoreFirst]` + `[IgnoreLast]` lines: 4.x fills `HeaderText` first and gives the
+  rest to `FooterText`, and empty input leaves both `""`. 3.x `FileHelperEngine` took the footer first
+  (`h1\nh2\n` with `[IgnoreFirst(2), IgnoreLast(2)]` gave an empty header and the two lines as footer), and
+  3.x gave a footer of one newline for empty input.
 
 ### 3.3 Empty fields and conversion errors
 

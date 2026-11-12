@@ -76,13 +76,17 @@ file.
 - **Newline, header text and footer text follow FileHelpers 3.x (3.5.2).**
   - `NewLineForWrite` defaults to `Environment.NewLine`. This is a behaviour change on Linux and macOS
     relative to 4.8-4.9.1: the engines now write `"\n"` there, where 4.8.0 to 4.9.1 wrote `"\r\n"` on
-    every platform. Windows output is unchanged. Set `NewLineForWrite = "\r\n"` to keep 4.9.1 output.
+    every platform. Windows output is unchanged. Set `NewLineForWrite = "\r\n"` to keep 4.9.1 output,
+    with one exception on Linux and macOS: a `HeaderText`/`FooterText` captured on read keeps `"\n"` after
+    each line, so writing it back gives mixed line endings. Set the text yourself before the write, for
+    example `engine.HeaderText = engine.HeaderText.Replace(Environment.NewLine, "\r\n")`.
   - The default applies to `FileHelperEngine<T>`, `FileHelperAsyncEngine<T>`, `MultiRecordEngine` and
     `MasterDetailEngine`. It covers every write path: `WriteString`, `WriteStream`, `WriteStreamAsync`,
     `WriteFile`, `AppendToFile`, `BeginWrite*`/`BeginAppendFile`, the header and footer, and the line
     break inside `[FieldInNewLine]` records.
-  - Setting `NewLineForWrite` to `null` throws `ArgumentNullException` (an `ArgumentException`, as 3.x
-    threw) on all four engines. 4.9.1 stored `null` and then wrote no line breaks or threw later.
+  - Setting `NewLineForWrite` to `null` or `""` throws `ArgumentException` with the 3.x message
+    `NewLine string must not be null or empty`, on all four engines. 4.9.1 stored the value and then
+    wrote no line breaks or threw later.
   - `HeaderText` and `FooterText` read from `[IgnoreFirst]`/`[IgnoreLast]` lines end every line with
     `Environment.NewLine`, the last one included, whatever `NewLineForWrite` is. 4.9.1 joined them with
     `NewLineForWrite` and added no final line break: `"h1\r\nh2"` is now `"h1\nh2\n"` on Linux and

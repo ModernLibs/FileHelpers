@@ -126,6 +126,9 @@ internal static class Compat49Matrix
             var records = engine.ReadString(input);
 
             // Write back with the header/footer in the form 4.9.1 read them (T49, Ruling R41), then restore them.
+            // This swap hides one real 4.10 difference: on Linux the captured header keeps "\n", so without it
+            // the written header would end with "\n" before CRLF records (pinned by
+            // HeaderFooterText3xTests.RoundTrip_OtherNewLine_NoEmptyLine).
             string? header = engine.HeaderText;
             string? footer = engine.FooterText;
             engine.HeaderText = As491(header);

@@ -27,12 +27,12 @@ public sealed class MasterDetailEngine<TMaster, TDetail>
     /// FileHelpers 3.x, like <see cref="FileHelperEngine{T}.NewLineForWrite"/>; set <c>"\r\n"</c> to keep the 4.8 to
     /// 4.9.1 output.
     /// </summary>
-    /// <exception cref="ArgumentNullException">Thrown when the value is <see langword="null"/> (3.x threw
-    /// <see cref="ArgumentException"/> too).</exception>
+    /// <exception cref="ArgumentException">Thrown when the value is <see langword="null"/> or empty, with the
+    /// FileHelpers 3.x message <c>NewLine string must not be null or empty</c>.</exception>
     public string NewLineForWrite
     {
         get;
-        set => field = value ?? throw new ArgumentNullException(nameof(value), "NewLine string must not be null.");
+        set => field = WriteFraming.CheckNewLine(value);
     } = Environment.NewLine;
 
     /// <summary>Creates a master/detail engine with an explicit line selector.</summary>

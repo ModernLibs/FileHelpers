@@ -123,14 +123,17 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     /// Line terminator written after the header, each record and the footer, and inside records with
     /// <see cref="FieldInNewLineAttribute"/> fields. Defaults to <see cref="Environment.NewLine"/> (<c>"\n"</c> on
     /// Linux and macOS, <c>"\r\n"</c> on Windows), as in FileHelpers 3.x; 4.8 to 4.9.1 wrote <c>"\r\n"</c> on every
-    /// platform, so set <c>"\r\n"</c> to keep that output. Reading does not use it.
+    /// platform, so set <c>"\r\n"</c> to keep that output. One exception on Linux and macOS: a
+    /// <see cref="HeaderText"/>/<see cref="FooterText"/> captured on read keeps <c>"\n"</c> after each line, so writing
+    /// it back with <c>"\r\n"</c> gives mixed line endings; set the text yourself before the write, for example
+    /// <c>engine.HeaderText = engine.HeaderText.Replace(Environment.NewLine, "\r\n")</c>. Reading does not use it.
     /// </summary>
-    /// <exception cref="ArgumentNullException">Thrown when the value is <see langword="null"/> (3.x threw
-    /// <see cref="ArgumentException"/> too).</exception>
+    /// <exception cref="ArgumentException">Thrown when the value is <see langword="null"/> or empty, with the
+    /// FileHelpers 3.x message <c>NewLine string must not be null or empty</c>.</exception>
     public string NewLineForWrite
     {
         get;
-        set => field = value ?? throw new ArgumentNullException(nameof(value), "NewLine string must not be null.");
+        set => field = WriteFraming.CheckNewLine(value);
     } = Environment.NewLine;
 
     /// <summary>

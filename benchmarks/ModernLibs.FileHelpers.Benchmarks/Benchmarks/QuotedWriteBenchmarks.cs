@@ -46,7 +46,9 @@ public class QuotedWriteBenchmarks
         // gives the same records: quoting on output is correct whatever its style.
         var written = WriteString();
         DataCheck.Equal(Rows + 1, DataCheck.TextLines(written).Length, "written line count");
-        var again = _engine.ReadString(written);
+        // A separate engine reads it back: reading with the write engine would capture the header line ending again
+        // (4.10 keeps it, 4.9.1 does not) and the measured writes would differ between the builds.
+        var again = new FileHelperEngine<QuotedRecord>().ReadString(written);
         DataCheck.QuotedRandom("FileHelpers written", Rows, again.Length, i => (again[i].Id, again[i].Description, again[i].Notes, again[i].Category));
     }
 

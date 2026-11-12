@@ -12,7 +12,9 @@ For every pair and filter line it runs ab.py once (one result file per pair and 
 build of a BenchmarkDotNet pair goes to not-run.txt. A failed ab.py run goes to failed.txt (pair, group, glob, log)
 and the round goes on; the last line is "ROUND COMPLETE <n> result files, <m> FAILED" and the exit code is 1 when
 m > 0 or n = 0. With --resume a pair and line whose result file exists already is kept and not run again, so a
-second call finishes a round after a failure. commands.txt and timing.txt are appended; not-run.txt and failed.txt
+second call finishes a round after a failure; a result file is kept only when it was made for the same glob, by the
+same two folders, from the same binaries (SHA-256 of the library DLL or the AOT executable), and round.sh first
+checks with --check-resume that the commit, the mode line and the filter file are those of the round's first call. commands.txt and timing.txt are appended; not-run.txt and failed.txt
 describe the last call.
 
 Python standard library only.
@@ -20,6 +22,7 @@ Python standard library only.
 
 import argparse
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -53,6 +56,8 @@ EXPECT = {
     "control-net11-ra-off": "tfm=net11.0 runtime-async=off",
 }
 AOT_GROUP = "aot"
+MIN_LAUNCHES_B4 = 7          # ab.py refuses fewer without --smoke (lead ruling R20)
+LIBRARY_DLL = "ModernLibs.FileHelpers.dll"
 GATE_GROUP = "prototype"
 # Arguments of the Native AOT harness (T47): a round reads 100,000 rows, 5 untimed and 20 timed reads per launch.
 AOT_ARGS = ["--rows", "100000", "--warmup", "5", "--iterations", "20"]
@@ -170,14 +175,82 @@ def complete_result(path):
     return isinstance(document, dict) and "benchmarks" in document and "a" in document
 
 
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def folder_hash(bin_dir, folder, harness):
+    """SHA-256 of what ab.py hashes for a folder: the library DLL, or the AOT executable; None when it is missing."""
+    path = os.path.join(bin_dir, folder, AOT_EXECUTABLE if harness == "aot" else LIBRARY_DLL)
+    return file_sha256(path) if os.path.isfile(path) else None
+
+
+def reusable_result(path, glob, a_dir, b_dir, hashes):
+    """(True, None) when the result file at path was made for this glob by these two folders from these binaries
+    (hashes: {'a': sha, 'b': sha}); otherwise (False, reason). Used by --resume (rereview-T12 Important 1)."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            document = json.load(f)
+    except (OSError, ValueError):
+        return False, "missing or damaged result file"
+    if not (isinstance(document, dict) and "benchmarks" in document and "a" in document and "b" in document):
+        return False, "not an ab.py result file"
+    if document.get("filter") != glob:
+        return False, "made for the glob %r, not %r" % (document.get("filter"), glob)
+    key = "executable_sha256" if document.get("harness") == "aot" else "library_sha256"
+    for side, folder in (("a", a_dir), ("b", b_dir)):
+        made_by = os.path.normpath(document[side].get("dir") or "")
+        if made_by != os.path.normpath(folder):
+            return False, "side %s was %s, not %s" % (side.upper(), made_by, folder)
+        if document[side].get(key) != hashes.get(side):
+            return False, "side %s was measured from another binary (%s %s, now %s)" % (
+                side.upper(), key, document[side].get(key), hashes.get(side))
+    return True, None
+
+
+def _first_block_value(machine_text, prefix):
+    for text in machine_text.splitlines():
+        if text.startswith("== "):
+            break                      # the first block ends where the machine records start
+        if text.startswith(prefix):
+            return text[len(prefix):].strip()
+    return None
+
+
+def check_resume(machine_text, commit, mode, filter_sha):
+    """Reasons why a --resume call does not continue the round recorded in machine.txt (empty: it does): another
+    commit, another mode line (launches, job, iteration cap, --dry), or another filter file (SHA-256)."""
+    reasons = []
+    first_commit = (_first_block_value(machine_text, "commit: ") or "").split(" ")[0]
+    if first_commit != commit:
+        reasons.append("measured at %s, not %s; results of two commits never mix" % (first_commit or "?", commit))
+    first_mode = _first_block_value(machine_text, "mode: ")
+    if first_mode != mode:
+        reasons.append("measured as '%s', this call is '%s'" % (first_mode, mode))
+    filter_line = _first_block_value(machine_text, "filter file: ") or ""
+    first_filter = filter_line.rsplit("sha256 ", 1)[-1].strip() if "sha256 " in filter_line else None
+    if first_filter != filter_sha:
+        reasons.append("measured with the filter file sha256 %s, this call has %s" % (first_filter, filter_sha))
+    return reasons
+
+
 def _utc():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def run_round(raw, bin_dir, src, lines, launches, dry, job, max_iterations, resume, lister, runner,
-              out=sys.stdout, clock=time.time, utc=_utc):
+              out=None, clock=time.time, utc=_utc, hasher=None):
     """Runs the plan. lister(folder, glob) -> bool tells whether a BenchmarkDotNet build has a method matching glob;
-    runner(cmd, log_path) -> exit code runs ab.py. Returns (results, failed)."""
+    runner(cmd, log_path) -> exit code runs ab.py; hasher(folder, harness) -> SHA-256 of the binary ab.py hashes
+    (default: folder_hash). Returns (results, failed)."""
+    out = out or sys.stdout
+    if hasher is None:
+        def hasher(folder, harness):
+            return folder_hash(bin_dir, folder, harness)
     for name in ("not-run.txt", "failed.txt"):
         open(os.path.join(raw, name), "w", encoding="utf-8").close()
     with open(os.path.join(raw, "commands.txt"), "a", encoding="utf-8") as f:
@@ -185,11 +258,15 @@ def run_round(raw, bin_dir, src, lines, launches, dry, job, max_iterations, resu
     results = failed = kept = 0
     for pair, a, b, harness, line in plan(lines):
         result = result_path(raw, pair, line)
-        if resume and complete_result(result):
-            kept += 1
-            results += 1
-            print("kept (resume): %s %s" % (pair, line.glob), file=out, flush=True)
-            continue
+        if resume and os.path.exists(result):
+            ok, why = reusable_result(result, line.glob, os.path.join(bin_dir, a), os.path.join(bin_dir, b),
+                                      {"a": hasher(a, harness), "b": hasher(b, harness)})
+            if ok:
+                kept += 1
+                results += 1
+                print("kept (resume): %s %s" % (pair, line.glob), file=out, flush=True)
+                continue
+            print("run again (resume): %s %s: %s" % (pair, line.glob, why), file=out, flush=True)
         if harness == "bdn":
             missing = [folder for folder in (a, b) if not lister(folder, line.glob)]
             if missing:
@@ -289,7 +366,10 @@ def check_aot_folder(folder, name, line, major, cwd=None, run=subprocess.run):
         variant = ""
     if variant.splitlines()[:1] != ["%s: %s" % (name, line)]:
         raise ValueError("variant.txt does not start with '%s: %s'" % (name, line))
-    proc = run([exe, "--info"], cwd=cwd, capture_output=True, text=True, check=False)
+    try:
+        proc = run([exe, "--info"], cwd=cwd, capture_output=True, text=True, check=False)
+    except OSError as e:
+        raise ValueError("cannot start %s: %s" % (exe, e)) from None
     startup = [text for text in (proc.stdout + proc.stderr).splitlines() if text.startswith("// ")]
 
     def value(prefix):
@@ -321,11 +401,16 @@ def check_aot(aot_dir, cwd=None, out=sys.stdout, err=sys.stderr, run=subprocess.
     return 0
 
 
-def main(argv):
+def main(argv, lister=None, runner=None):
     parser = argparse.ArgumentParser(description="The A/B runs of a benchmark round (called by round.sh).")
     parser.add_argument("--check-filters", help="only validate this filter file and exit")
     parser.add_argument("--check-aot", help="only check the five AOT folders under this folder (round.sh step 4), "
                         "print their variants.txt blocks and exit")
+    parser.add_argument("--check-resume", metavar="MACHINE_TXT", help="only check that a --resume call (--commit, "
+                        "--mode, --filter-sha) continues the round recorded in this machine.txt, and exit")
+    parser.add_argument("--commit")
+    parser.add_argument("--mode")
+    parser.add_argument("--filter-sha")
     parser.add_argument("--raw")
     parser.add_argument("--bin")
     parser.add_argument("--src")
@@ -340,6 +425,17 @@ def main(argv):
 
     if args.check_aot:
         return check_aot(args.check_aot, cwd=args.checks_cwd)
+    if args.check_resume:
+        try:
+            with open(args.check_resume, encoding="utf-8") as f:
+                machine_text = f.read()
+        except OSError as e:
+            print("error: --resume: %s" % e, file=sys.stderr)
+            return 1
+        reasons = check_resume(machine_text, args.commit, args.mode, args.filter_sha)
+        for reason in reasons:
+            print("error: --resume: %s" % reason, file=sys.stderr)
+        return 1 if reasons else 0
     path = args.check_filters or args.filters
     if not path:
         parser.error("--filters or --check-filters is required")
@@ -355,10 +451,14 @@ def main(argv):
     for name in ("raw", "bin", "src", "launches", "checks_cwd"):
         if getattr(args, name) is None:
             parser.error("--%s is required" % name.replace("_", "-"))
+    if not args.dry and args.launches < MIN_LAUNCHES_B4:
+        print("error: --launches %d is below %d, the B4 minimum; fewer launches only with --dry"
+              % (args.launches, MIN_LAUNCHES_B4), file=sys.stderr)
+        return 2
 
     results, failed = run_round(args.raw, args.bin, args.src, lines, args.launches, args.dry, args.job,
-                                args.max_iterations, args.resume, process_lister(args.bin, args.checks_cwd),
-                                process_runner)
+                                args.max_iterations, args.resume,
+                                lister or process_lister(args.bin, args.checks_cwd), runner or process_runner)
     if results == 0 and failed == 0:
         print("ROUND FAILED: no result files", file=sys.stderr)
         return 1

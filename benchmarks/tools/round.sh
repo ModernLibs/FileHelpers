@@ -80,6 +80,11 @@ else
         echo "error: --job Dry needs --dry (one cold iteration per launch is never a B4 result)" >&2
         exit 2
     fi
+    # ab.py refuses fewer than 7 launches without --smoke (R20); refuse here, before any build (rereview Minor 4).
+    if ! [[ "$launches" =~ ^[0-9]+$ ]] || [[ "$launches" -lt 7 ]]; then
+        echo "error: --launches $launches is below 7, the B4 minimum; fewer launches only with --dry" >&2
+        exit 2
+    fi
 fi
 [[ "$round" =~ ^[A-Za-z0-9._-]+$ && "$vm" =~ ^[A-Za-z0-9._-]+$ ]] || {
     echo "error: round and VM names may only contain letters, digits, '.', '_' and '-'" >&2; exit 2; }
@@ -114,6 +119,7 @@ if [[ -f "$filter_arg" ]]; then
     filter_from="file $filter_file"
 elif git -C "$repo" cat-file -e "$sha:$filter_arg" 2>/dev/null; then
     filter_file="$(mktemp)"
+    trap 'rm -f "$filter_file"' EXIT              # the temporary copy never outlives the script (rereview Minor 5)
     git -C "$repo" show "$sha:$filter_arg" > "$filter_file"
     filter_from="$filter_arg at $sha"
 else
@@ -142,18 +148,13 @@ if [[ $dry -eq 1 ]]; then
 else
     mode="round (B4: $launches launches per side, job ${job:-default}${max_iterations:+, max iterations $max_iterations})"
 fi
-# --resume continues the same measurement only: same commit, same launches, job and iteration cap as the first call.
+filter_sha="$(sha256sum "$filter_file" | cut -d ' ' -f 1)"
+# --resume continues the same measurement only: the commit, the mode line (launches, job, iteration cap, --dry) and
+# the filter file (SHA-256) of the first call (round_runs.py --check-resume, tested). Each kept result file is checked
+# again in round_runs.py against its glob, folders and binaries.
 if [[ $resume -eq 1 && -s "$raw/machine.txt" ]]; then
-    first_commit="$(sed -n 's/^commit: \([0-9a-f]*\).*/\1/p' "$raw/machine.txt" | head -n 1)"
-    first_mode="$(sed -n 's/^mode: //p' "$raw/machine.txt" | head -n 1)"
-    if [[ "$first_commit" != "$sha" ]]; then
-        echo "error: --resume: $raw was measured at $first_commit, not $sha; results of two commits never mix" >&2
-        exit 1
-    fi
-    if [[ "$first_mode" != "$mode" ]]; then
-        echo "error: --resume: $raw was measured as '$first_mode', this call is '$mode'" >&2
-        exit 1
-    fi
+    python3 -I "$repo/benchmarks/tools/round_runs.py" --check-resume "$raw/machine.txt" --commit "$sha" \
+        --mode "$mode" --filter-sha "$filter_sha" || exit 1
 fi
 mkdir -p "$raw" "$raw/checks"
 
@@ -170,7 +171,7 @@ step="machine record"
         echo "mode: $mode"
         echo "commit: $sha (requested as $commit_arg)"
         echo "repository: $repo (HEAD $repo_head; round.sh and round_runs.py are the commit's copies)"
-        echo "filter file: $filter_from, $filter_tie, sha256 $(sha256sum "$filter_file" | cut -d ' ' -f 1)"
+        echo "filter file: $filter_from, $filter_tie, sha256 $filter_sha"
         echo "launches: $launches"
         echo "job: ${job:-BenchmarkDotNet default}"
         echo "max iterations: ${max_iterations:-BenchmarkDotNet default}"

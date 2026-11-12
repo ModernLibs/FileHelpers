@@ -205,7 +205,9 @@ fastest correct unquote) and is informative; both ratios are reported.
 **Capped rounds (R6 and G2).** An iteration cap (`--max-iterations`) can turn a `faster` verdict into `no-change`,
 never the reverse. If a capped round shows a gate ratio under its limit (R6 0.94, G2 0.90) without the verdict
 `faster` on a VM, the two gate lines are rerun uncapped on that VM under a second round name before the VMs are deleted
-(`round.sh <round-name>-gates <sha> benchmarks/tools/filters-gates.txt --vm <vm-name>`, about 0.8 h per VM), and the
+(`round.sh <round-name>-gates <sha> benchmarks/tools/filters-gates.txt --vm <vm-name>`, about 1 to 6 h per VM: 2
+pairs, 8 cases, 14 launches, about 6 h when every case runs the 100 iterations of BenchmarkDotNet and about 1 h when
+they stop near 20), and the
 gate is read from that run. `round-report.py` prints a note under the G2 table when this applies.
 
 | Build | Rows | R6_Current | R6_PrecomputedEnds | ratio [99.9 % CI] | gate | R6_PrecomputedEnds_FastUnquote | ratio [99.9 % CI] | at 6 % |

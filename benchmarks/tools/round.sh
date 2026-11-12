@@ -152,7 +152,8 @@ filter_sha="$(sha256sum "$filter_file" | cut -d ' ' -f 1)"
 # --resume continues the same measurement only: the commit, the mode line (launches, job, iteration cap, --dry) and
 # the filter file (SHA-256) of the first call (round_runs.py --check-resume, tested). Each kept result file is checked
 # again in round_runs.py against its glob, folders and binaries.
-if [[ $resume -eq 1 && -s "$raw/machine.txt" ]]; then
+# A non-empty raw/ without the first call's machine.txt (missing or empty) is refused too: nothing to compare with.
+if [[ $resume -eq 1 && -e "$raw" && -n "$(ls -A "$raw" 2>/dev/null)" ]]; then
     python3 -I "$repo/benchmarks/tools/round_runs.py" --check-resume "$raw/machine.txt" --commit "$sha" \
         --mode "$mode" --filter-sha "$filter_sha" || exit 1
 fi

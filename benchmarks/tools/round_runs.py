@@ -430,7 +430,12 @@ def main(argv, lister=None, runner=None):
             with open(args.check_resume, encoding="utf-8") as f:
                 machine_text = f.read()
         except OSError as e:
-            print("error: --resume: %s" % e, file=sys.stderr)
+            print("error: --resume: %s; without the first call's machine.txt nothing can be compared" % e,
+                  file=sys.stderr)
+            return 1
+        if not machine_text.strip():
+            print("error: --resume: %s is empty; without the first call's record nothing can be compared"
+                  % args.check_resume, file=sys.stderr)
             return 1
         reasons = check_resume(machine_text, args.commit, args.mode, args.filter_sha)
         for reason in reasons:

@@ -49,7 +49,7 @@ CAPPED_GATE_NOTE = ("**Capped round: on %s a gate ratio is under its limit witho
                     "(--max-iterations) can turn `faster` into `no-change`, never the reverse: rerun the gate lines "
                     "uncapped on this VM under a second round name before the VMs are deleted "
                     "(`round.sh <round-name>-gates <sha> benchmarks/tools/filters-gates.txt --vm <vm-name>`, about "
-                    "0.8 h) and read the gate from that run.**")
+                    "1 to 6 h) and read the gate from that run.**")
 G2_P5_NOTE = ("G2_SingleSpan still copies each record from the engine's record buffer into the result (it does not "
               "format straight into the PooledStringWriter chunk): it measures G2 without P5, so a result just under "
               "10 % understates what Phase 3 (G2, G3 and P5) can give.")

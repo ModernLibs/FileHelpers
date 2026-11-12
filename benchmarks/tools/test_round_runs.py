@@ -284,6 +284,14 @@ class ResumeCheckTests(unittest.TestCase):
             self.assertEqual(round_runs.main(base + ["--filter-sha", "f1f1"]), 0)
             self.assertEqual(round_runs.main(base + ["--filter-sha", "e2e2"]), 1)
 
+    def test_a_missing_or_empty_machine_txt_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "machine.txt")
+            args = ["--check-resume", path, "--commit", "0123abcd", "--mode", MODE, "--filter-sha", "f1f1"]
+            self.assertEqual(round_runs.main(args), 1)                    # missing
+            open(path, "w", encoding="utf-8").close()
+            self.assertEqual(round_runs.main(args), 1)                    # empty
+
 
 class AotFolderCheckTests(unittest.TestCase):
     """round.sh step 4 for the Native AOT folders (round_runs.py --check-aot)."""

@@ -41,7 +41,7 @@ public class WriteBenchmarks
         Directory.CreateDirectory(dataDir);
         _sourceFile = DatasetGenerator.EnsurePackageAssets(dataDir, Rows);
 
-        _engine = new FileHelperEngine<PackageAsset>();
+        _engine = new FileHelperEngine<PackageAsset> { NewLineForWrite = "\r\n" };
         var records = new List<PackageAsset>(Rows);
         _engine.ReadFile(_sourceFile, records.Add);
         _records = records.ToArray();

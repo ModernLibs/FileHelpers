@@ -28,7 +28,7 @@ public class QuotedWriteBenchmarks
         Directory.CreateDirectory(dataDir);
         var file = DatasetGenerator.EnsureQuotedFieldsRandom(dataDir, Rows);
 
-        _engine = new FileHelperEngine<QuotedRecord>();
+        _engine = new FileHelperEngine<QuotedRecord> { NewLineForWrite = "\r\n" };
         var records = new List<QuotedRecord>(Rows);
         _engine.ReadFile(file, records.Add);
         _records = records.ToArray();

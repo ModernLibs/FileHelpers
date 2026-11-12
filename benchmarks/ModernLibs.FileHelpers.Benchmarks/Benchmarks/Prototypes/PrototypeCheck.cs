@@ -93,10 +93,11 @@ internal static class PrototypeCheck
         string path = DatasetGenerator.EnsurePackageAssets(dir, PackageRows);
         var (records, header) = G2PrototypeBenchmarks.Load(path);
 
-        var current = new FileHelperEngine<PackageAsset> { HeaderText = header };
+        var current = new FileHelperEngine<PackageAsset> { HeaderText = header, NewLineForWrite = "\r\n" };
         var format = new PackageAssetSpanFormat();
         var prototype = PrototypeEngine.Create<PackageAsset>(format);
         prototype.HeaderText = header;
+        prototype.NewLineForWrite = "\r\n";
 
         var expected = DataCheck.TextLines(current.WriteString(records));
         format.ResetCalls();

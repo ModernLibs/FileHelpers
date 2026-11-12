@@ -30,7 +30,7 @@ public class FixedWidthWriteBenchmarks
         Directory.CreateDirectory(dataDir);
         _file = DatasetGenerator.EnsureFixedWidth(dataDir, Rows);
 
-        _engine = new FileHelperEngine<FixedRecord>();
+        _engine = new FileHelperEngine<FixedRecord> { NewLineForWrite = "\r\n" };
         var records = new List<FixedRecord>(Rows);
         _engine.ReadFile(_file, records.Add);
         _records = records.ToArray();

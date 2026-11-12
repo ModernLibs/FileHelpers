@@ -52,7 +52,7 @@ public class EngineAsyncBenchmarks
     public void SetupReadAsync()
     {
         _path = DatasetGenerator.EnsurePackageAssets(ComponentData.DataDir(), Rows);
-        _engine = new FileHelperEngine<PackageAsset>();
+        _engine = new FileHelperEngine<PackageAsset> { NewLineForWrite = "\r\n" };
         DataCheck.Equal(DiscardChecksum.IdSum(Rows), Engine_ReadAsync_Path().GetAwaiter().GetResult(), nameof(Engine_ReadAsync_Path) + " checksum");
     }
 
@@ -60,7 +60,7 @@ public class EngineAsyncBenchmarks
     public void SetupReadFileAsync()
     {
         _path = DatasetGenerator.EnsurePackageAssets(ComponentData.DataDir(), Rows);
-        _engine = new FileHelperEngine<PackageAsset>();
+        _engine = new FileHelperEngine<PackageAsset> { NewLineForWrite = "\r\n" };
         DataCheck.Equal(DiscardChecksum.IdSum(Rows), Engine_ReadFileAsync_Callback().GetAwaiter().GetResult(), nameof(Engine_ReadFileAsync_Callback) + " checksum");
     }
 
@@ -68,7 +68,7 @@ public class EngineAsyncBenchmarks
     public void SetupExceptionEvery100()
     {
         _path = DatasetGenerator.EnsurePackageAssetsBadEvery100(ComponentData.DataDir(), Rows);
-        _engine = new FileHelperEngine<PackageAsset> { ErrorMode = ErrorMode.SaveAndContinue };
+        _engine = new FileHelperEngine<PackageAsset> { ErrorMode = ErrorMode.SaveAndContinue, NewLineForWrite = "\r\n" };
         DataCheck.Equal(Rows / DatasetGenerator.BadRowEvery, Engine_ReadAsync_Path_ExceptionEvery100().GetAwaiter().GetResult(), nameof(Engine_ReadAsync_Path_ExceptionEvery100) + " ErrorCount");
         DataCheck.Equal(Rows - (Rows / DatasetGenerator.BadRowEvery), _engine.TotalRecords, nameof(Engine_ReadAsync_Path_ExceptionEvery100) + " records read");
         var first = _engine.ErrorManager.Errors[0];
@@ -83,7 +83,7 @@ public class EngineAsyncBenchmarks
     [GlobalSetup(Target = nameof(Engine_WriteStreamAsync_Null))]
     public async Task SetupWriteStreamAsync()
     {
-        _engine = new FileHelperEngine<PackageAsset>();
+        _engine = new FileHelperEngine<PackageAsset> { NewLineForWrite = "\r\n" };
         _records = _engine.ReadFile(DatasetGenerator.EnsurePackageAssets(ComponentData.DataDir(), Rows));
         DataCheck.Equal(Rows, _records.Length, nameof(Engine_WriteStreamAsync_Null) + " records");
 
@@ -98,7 +98,7 @@ public class EngineAsyncBenchmarks
     public void SetupReadAsyncStream()
     {
         _bytes = File.ReadAllBytes(DatasetGenerator.EnsurePackageAssets(ComponentData.DataDir(), Rows));
-        _engine = new FileHelperEngine<PackageAsset>();
+        _engine = new FileHelperEngine<PackageAsset> { NewLineForWrite = "\r\n" };
         DataCheck.Equal(DiscardChecksum.IdSum(Rows), Engine_ReadAsync_Stream().GetAwaiter().GetResult(), nameof(Engine_ReadAsync_Stream) + " checksum");
     }
 
@@ -106,14 +106,14 @@ public class EngineAsyncBenchmarks
     public void SetupReadAsyncTextReader()
     {
         _bytes = File.ReadAllBytes(DatasetGenerator.EnsurePackageAssets(ComponentData.DataDir(), Rows));
-        _engine = new FileHelperEngine<PackageAsset>();
+        _engine = new FileHelperEngine<PackageAsset> { NewLineForWrite = "\r\n" };
         DataCheck.Equal(DiscardChecksum.IdSum(Rows), Engine_ReadAsync_TextReader().GetAwaiter().GetResult(), nameof(Engine_ReadAsync_TextReader) + " checksum");
     }
 
     [GlobalSetup(Target = nameof(Engine_WriteStreamAsync_Null_SourceThrows))]
     public async Task SetupWriteStreamAsyncSourceThrows()
     {
-        _engine = new FileHelperEngine<PackageAsset>();
+        _engine = new FileHelperEngine<PackageAsset> { NewLineForWrite = "\r\n" };
         _records = _engine.ReadFile(DatasetGenerator.EnsurePackageAssets(ComponentData.DataDir(), Rows));
         DataCheck.Equal(Rows, _records.Length, nameof(Engine_WriteStreamAsync_Null_SourceThrows) + " records");
 

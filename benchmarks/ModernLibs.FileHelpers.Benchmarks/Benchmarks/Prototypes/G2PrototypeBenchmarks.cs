@@ -50,7 +50,7 @@ public class G2PrototypeBenchmarks
     public void SetupCurrent()
     {
         string? header = Prepare();
-        _engine = new FileHelperEngine<PackageAsset> { HeaderText = header };
+        _engine = new FileHelperEngine<PackageAsset> { HeaderText = header, NewLineForWrite = "\r\n" };
         DataCheck.WrittenPackageAssets(nameof(G2_Current), DataCheck.DataLines(_sourceFile, hasHeader: false), G2_Current());
     }
 
@@ -61,6 +61,7 @@ public class G2PrototypeBenchmarks
         var prototype = new PackageAssetSpanFormat();
         _engine = PrototypeEngine.Create<PackageAsset>(prototype);
         _engine.HeaderText = header;
+        _engine.NewLineForWrite = "\r\n";
         DataCheck.WrittenPackageAssets(nameof(G2_SingleSpan), DataCheck.DataLines(_sourceFile, hasHeader: false), G2_SingleSpan());
         // Proof that the engine wrote through the prototype, not through the generated Format.
         DataCheck.Equal((long)Rows, prototype.FormatCalls, nameof(G2_SingleSpan) + " records formatted by the prototype");

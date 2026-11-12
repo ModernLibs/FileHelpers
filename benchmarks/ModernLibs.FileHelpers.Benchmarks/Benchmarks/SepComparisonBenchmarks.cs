@@ -26,7 +26,7 @@ public class SepComparisonBenchmarks
         var dataDir = Path.Combine(Path.GetDirectoryName(typeof(SepComparisonBenchmarks).Assembly.Location)!, "Data");
         Directory.CreateDirectory(dataDir);
         _filePath = DatasetGenerator.EnsurePackageAssets(dataDir, Rows);
-        _engine = new FileHelperEngine<PackageAsset>();
+        _engine = new FileHelperEngine<PackageAsset> { NewLineForWrite = "\r\n" };
         _recordParser = RecordParserReaders.PackageAssets();
     }
 

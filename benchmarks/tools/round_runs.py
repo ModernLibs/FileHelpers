@@ -1,0 +1,306 @@
+#!/usr/bin/env python3
+"""The A/B runs of a benchmark round (T12): round.sh calls this after the builds and the checks.
+
+Usage (round.sh passes everything; see round.sh for the folders):
+
+    python3 -I benchmarks/tools/round_runs.py --raw <raw/round/vm> --bin <work/bin> --src <clone> \
+        --filters <filters.txt> --launches N --checks-cwd <dir> [--dry] [--job NAME] [--max-iterations N] [--resume]
+    python3 -I benchmarks/tools/round_runs.py --check-filters <filters.txt>
+
+For every pair and filter line it runs ab.py once (one result file per pair and line). The two lines of group
+"prototype" (gates R6 and G2) run first, then every other line, pair by pair. A glob that selects nothing in one
+build of a BenchmarkDotNet pair goes to not-run.txt. A failed ab.py run goes to failed.txt (pair, group, glob, log)
+and the round goes on; the last line is "ROUND COMPLETE <n> result files, <m> FAILED" and the exit code is 1 when
+m > 0 or n = 0. With --resume a pair and line whose result file exists already is kept and not run again, so a
+second call finishes a round after a failure. commands.txt and timing.txt are appended; not-run.txt and failed.txt
+describe the last call.
+
+Python standard library only.
+"""
+
+import argparse
+import datetime
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+import time
+
+# pair, A folder, B folder, harness. Folders are relative to the round's bin folder.
+PAIRS = [
+    ("free-gains", "pkg-net10", "pkg-net11", "bdn"),
+    ("sdk-net10", "pkg-net10", "control-net10", "bdn"),
+    ("sdk-net11", "pkg-net11", "control-net11-ra-on", "bdn"),
+    ("ra-control", "control-net11-ra-off", "control-net11-ra-on", "bdn"),
+    ("v410-net10", "pkg-net10", "net10", "bdn"),
+    ("v410-net11", "pkg-net11", "net11-ra-on", "bdn"),
+    ("ra", "net11-ra-off", "net11-ra-on", "bdn"),
+    ("runtime-410", "net10", "net11-ra-on", "bdn"),
+    ("aot-v410-net10", "aot/pkg-net10", "aot/net10", "aot"),
+    ("aot-v410-net11", "aot/pkg-net11", "aot/net11-ra-on", "aot"),
+    ("aot-v410-net11-ra-off", "aot/pkg-net11", "aot/net11-ra-off", "aot"),
+    ("aot-ra", "aot/net11-ra-off", "aot/net11-ra-on", "aot"),
+]
+PAIR_NAMES = [p[0] for p in PAIRS]
+# The BenchmarkDotNet folders ab.py does not know by name, with the variant line their processes print.
+EXPECT = {
+    "pkg-net10": "tfm=net10.0 runtime-async=off",
+    "pkg-net11": "tfm=net10.0 runtime-async=off",
+    "control-net10": "tfm=net10.0 runtime-async=off",
+    "control-net11-ra-on": "tfm=net11.0 runtime-async=on",
+    "control-net11-ra-off": "tfm=net11.0 runtime-async=off",
+}
+AOT_GROUP = "aot"
+GATE_GROUP = "prototype"
+# Arguments of the Native AOT harness (T47): a round reads 100,000 rows, 5 untimed and 20 timed reads per launch.
+AOT_ARGS = ["--rows", "100000", "--warmup", "5", "--iterations", "20"]
+AOT_ARGS_DRY = ["--rows", "10000", "--warmup", "1", "--iterations", "3"]
+_METHOD_LINE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*\.[A-Za-z0-9_]+$")
+
+
+class FilterLine:
+    def __init__(self, lineno, group, pairs, glob):
+        self.lineno = lineno
+        self.group = group
+        self.groups = group.split(",")
+        self.pairs = pairs
+        self.glob = glob
+
+    @property
+    def harness(self):
+        return "aot" if AOT_GROUP in self.groups else "bdn"
+
+
+def read_filters(text):
+    """[FilterLine]; ValueError naming the line for a malformed one."""
+    lines = []
+    for lineno, raw in enumerate(text.splitlines(), start=1):
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        parts = stripped.split()
+        if len(parts) != 3:
+            raise ValueError("line %d: expected '<group> <pairs> <glob>'" % lineno)
+        group, pair_list, glob = parts
+        line = FilterLine(lineno, group, [], glob)
+        if AOT_GROUP in line.groups and len(line.groups) > 1:
+            raise ValueError("line %d: group aot cannot be combined with another group" % lineno)
+        if pair_list == "all":
+            pairs = [p for p, _, _, h in PAIRS if h == line.harness]
+        else:
+            pairs = pair_list.split(",")
+        for pair in pairs:
+            if pair not in PAIR_NAMES:
+                raise ValueError("line %d: unknown pair '%s'" % (lineno, pair))
+            harness = dict((p, h) for p, _, _, h in PAIRS)[pair]
+            if harness != line.harness:
+                raise ValueError("line %d: group '%s' cannot run in pair '%s' (group aot runs in the aot-* pairs only)"
+                                 % (lineno, group, pair))
+        line.pairs = pairs
+        lines.append(line)
+    if not lines:
+        raise ValueError("no filter line")
+    return lines
+
+
+def plan(lines):
+    """[(pair, a, b, harness, line)] in run order: the gate lines first, then pair by pair, line by line."""
+    def runs(selected):
+        out = []
+        for pair, a, b, harness in PAIRS:
+            for line in selected:
+                if pair in line.pairs:
+                    out.append((pair, a, b, harness, line))
+        return out
+    gates = [line for line in lines if GATE_GROUP in line.groups]
+    rest = [line for line in lines if GATE_GROUP not in line.groups]
+    return runs(gates) + runs(rest)
+
+
+def slug(glob):
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", glob).strip("_")
+
+
+def result_path(raw, pair, line):
+    return os.path.join(raw, pair, "%03d-%s-%s.json" % (line.lineno, line.group.replace(",", "+"), slug(line.glob)))
+
+
+def bdn_args(job, max_iterations):
+    args = []
+    if job:
+        args += ["--job", job]
+    if max_iterations:
+        args += ["--maxIterationCount", str(max_iterations)]
+    return args
+
+
+def command(src, bin_dir, pair, a, b, harness, line, out, launches, dry, job, max_iterations):
+    ab = os.path.join(src, "benchmarks", "tools", "ab.py")
+    cmd = ["python3", "-I", ab]
+    if harness == "aot":
+        # ab.py --aot knows the five AOT folder names (T47 fix round 1): no --expect-a/--expect-b.
+        cmd += ["--aot", "--a", os.path.join(bin_dir, a), "--b", os.path.join(bin_dir, b), "--launches", str(launches)]
+        if dry:
+            cmd.append("--smoke")
+        cmd += ["--filter", line.glob, "--out", out, "--"] + (AOT_ARGS_DRY if dry else AOT_ARGS)
+        return cmd
+    cmd += ["--a", os.path.join(bin_dir, a), "--b", os.path.join(bin_dir, b), "--launches", str(launches)]
+    if dry:
+        cmd.append("--smoke")
+    cmd += ["--filter", line.glob, "--out", out]
+    if a in EXPECT:
+        cmd += ["--expect-a", EXPECT[a]]
+    if b in EXPECT:
+        cmd += ["--expect-b", EXPECT[b]]
+    extra = bdn_args(job, max_iterations)
+    if extra:
+        cmd += ["--"] + extra
+    return cmd
+
+
+def complete_result(path):
+    """True when path is an ab.py result file (a run that finished)."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            document = json.load(f)
+    except (OSError, ValueError):
+        return False
+    return isinstance(document, dict) and "benchmarks" in document and "a" in document
+
+
+def _utc():
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def run_round(raw, bin_dir, src, lines, launches, dry, job, max_iterations, resume, lister, runner,
+              out=sys.stdout, clock=time.time, utc=_utc):
+    """Runs the plan. lister(folder, glob) -> bool tells whether a BenchmarkDotNet build has a method matching glob;
+    runner(cmd, log_path) -> exit code runs ab.py. Returns (results, failed)."""
+    for name in ("not-run.txt", "failed.txt"):
+        open(os.path.join(raw, name), "w", encoding="utf-8").close()
+    with open(os.path.join(raw, "commands.txt"), "a", encoding="utf-8") as f:
+        f.write("# %s %s\n" % ("resumed" if resume else "started", utc()))
+    results = failed = kept = 0
+    for pair, a, b, harness, line in plan(lines):
+        result = result_path(raw, pair, line)
+        if resume and complete_result(result):
+            kept += 1
+            results += 1
+            print("kept (resume): %s %s" % (pair, line.glob), file=out, flush=True)
+            continue
+        if harness == "bdn":
+            missing = [folder for folder in (a, b) if not lister(folder, line.glob)]
+            if missing:
+                with open(os.path.join(raw, "not-run.txt"), "a", encoding="utf-8") as f:
+                    f.write("%s\t%s\t%s\tno benchmark matches in %s\n" % (pair, line.group, line.glob,
+                                                                         " and ".join(missing)))
+                print("not run: %s %s (no benchmark matches in %s)" % (pair, line.glob, " and ".join(missing)),
+                      file=out, flush=True)
+                continue
+        os.makedirs(os.path.dirname(result), exist_ok=True)
+        cmd = command(src, bin_dir, pair, a, b, harness, line, result, launches, dry, job, max_iterations)
+        with open(os.path.join(raw, "commands.txt"), "a", encoding="utf-8") as f:
+            f.write(" ".join(shlex.quote(c) for c in cmd) + "\n")
+        log = result[:-len(".json")] + ".log"
+        print("== %s (%s -> %s): %s" % (pair, a, b, line.glob), file=out, flush=True)
+        started, t0 = utc(), clock()
+        code = runner(cmd, log)
+        with open(os.path.join(raw, "timing.txt"), "a", encoding="utf-8") as f:
+            f.write("%s\t%s\t%s\t%s\t%ds\t%s\n" % (pair, line.glob, started, utc(), round(clock() - t0),
+                                                   "ok" if code == 0 else "FAILED exit %d" % code))
+        if code != 0 or not complete_result(result):
+            failed += 1
+            with open(os.path.join(raw, "failed.txt"), "a", encoding="utf-8") as f:
+                f.write("%s\t%s\t%s\t%s\n" % (pair, line.group, line.glob, os.path.relpath(log, raw)))
+            print("FAILED: %s %s (exit %d, see %s)" % (pair, line.glob, code, log), file=out, flush=True)
+            _print_tail(log, out)
+            continue
+        results += 1
+        _print_table(log, out)
+    if kept:
+        print("resume: %d result files kept from an earlier call" % kept, file=out)
+    return results, failed
+
+
+def _print_table(log, out):
+    """ab.py's result table from its log (the lines that are not per-launch progress)."""
+    try:
+        with open(log, encoding="utf-8", errors="replace") as f:
+            for text in f:
+                if not text.startswith("[A]") and not text.startswith("[B]"):
+                    out.write(text)
+    except OSError:
+        pass
+    out.flush()
+
+
+def _print_tail(log, out, lines=5):
+    try:
+        with open(log, encoding="utf-8", errors="replace") as f:
+            for text in f.readlines()[-lines:]:
+                out.write("  " + text)
+    except OSError:
+        pass
+    out.flush()
+
+
+def process_lister(bin_dir, cwd):
+    def lister(folder, glob):
+        # The listing process exits 1 by design (it measured nothing, Program.cs): only its output counts.
+        proc = subprocess.run(["dotnet", os.path.join(bin_dir, folder, "ModernLibs.FileHelpers.Benchmarks.dll"),
+                               "--list", "flat", "--filter", glob], cwd=cwd, capture_output=True, text=True,
+                              check=False)
+        return any(_METHOD_LINE.match(text.strip()) for text in proc.stdout.splitlines())
+    return lister
+
+
+def process_runner(cmd, log):
+    with open(log, "w", encoding="utf-8") as f:
+        return subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT, check=False).returncode
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(description="The A/B runs of a benchmark round (called by round.sh).")
+    parser.add_argument("--check-filters", help="only validate this filter file and exit")
+    parser.add_argument("--raw")
+    parser.add_argument("--bin")
+    parser.add_argument("--src")
+    parser.add_argument("--filters")
+    parser.add_argument("--launches", type=int)
+    parser.add_argument("--checks-cwd")
+    parser.add_argument("--dry", action="store_true")
+    parser.add_argument("--job")
+    parser.add_argument("--max-iterations", type=int)
+    parser.add_argument("--resume", action="store_true")
+    args = parser.parse_args(argv)
+
+    path = args.check_filters or args.filters
+    if not path:
+        parser.error("--filters or --check-filters is required")
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = read_filters(f.read())
+    except (OSError, ValueError) as e:
+        print("error: filter file %s: %s" % (path, e), file=sys.stderr)
+        return 2
+    if args.check_filters:
+        print("filter file %s: %d lines, %d ab.py runs" % (path, len(lines), len(plan(lines))))
+        return 0
+    for name in ("raw", "bin", "src", "launches", "checks_cwd"):
+        if getattr(args, name) is None:
+            parser.error("--%s is required" % name.replace("_", "-"))
+
+    results, failed = run_round(args.raw, args.bin, args.src, lines, args.launches, args.dry, args.job,
+                                args.max_iterations, args.resume, process_lister(args.bin, args.checks_cwd),
+                                process_runner)
+    if results == 0 and failed == 0:
+        print("ROUND FAILED: no result files", file=sys.stderr)
+        return 1
+    print("ROUND COMPLETE %d result files, %d FAILED" % (results, failed))
+    return 1 if failed or results == 0 else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

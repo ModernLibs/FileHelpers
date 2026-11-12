@@ -1,23 +1,33 @@
 #!/usr/bin/env bash
-# round.sh <round-name> <commit> <filter-file> [--dry] [--launches N] [--job NAME] [--vm NAME] [--root DIR]
+# round.sh <round-name> <commit> <filter-file> [--dry] [--resume] [--launches N] [--job NAME] [--max-iterations N]
+#          [--vm NAME] [--root DIR]
 #
 # One benchmark round on one machine (T12, design 3.5 step 3): builds every configuration of <commit>, checks
-# them, and runs ab.py for each A/B pair and filter line. Run it once per VM, on an otherwise idle machine.
+# them, and runs ab.py for each A/B pair and filter line. Run it once per VM, on an otherwise idle machine, from a
+# checkout of <commit> (the script refuses to run when its own copy differs from the commit's).
 #
-#   <round-name>   name of the round, used in the result path (for example step0-2026-11-12)
-#   <commit>       commit of this repository to measure (a SHA, tag or branch; resolved here, recorded in full)
-#   <filter-file>  benchmark globs and the pairs that run them (benchmarks/tools/filters-step0.txt describes the
-#                  format); a relative path is looked up in the current directory, then in the clone
-#   --dry          local smoke run, never evidence (D1): ab.py --smoke, 5 launches, BenchmarkDotNet job Dry, and
-#                  the AOT harness with 10,000 rows, 1 warm-up read and 3 timed reads
-#   --launches N   launches per side (default 7, the B4 minimum of ab.py; --dry: 5)
-#   --job NAME     BenchmarkDotNet job (passed after --; default: BenchmarkDotNet's default job; --dry: Dry)
-#   --vm NAME      machine name in the result path (default: the host name)
-#   --root DIR     working root (default: $HOME/fh-round); results go to DIR/raw/<round-name>/<vm>/
+#   <round-name>       name of the round, used in the result path (for example step0-2026-11-12)
+#   <commit>           commit of this repository to measure (a SHA, tag or branch; resolved here, recorded in full)
+#   <filter-file>      benchmark globs and the pairs that run them (benchmarks/tools/filters-step0.txt describes the
+#                      format); a relative path is looked up in the current directory, then in the commit
+#   --dry              local smoke run, never evidence (D1): ab.py --smoke, 5 launches, BenchmarkDotNet job Dry, and
+#                      the AOT harness with 10,000 rows, 1 warm-up read and 3 timed reads
+#   --resume           continue a round under the same names: keeps work/ (clone and builds, if complete) and raw/,
+#                      reruns the checks, and skips every pair and line whose result file exists
+#   --launches N       launches per side (default 7, the B4 minimum of ab.py; --dry: 5)
+#   --job NAME         BenchmarkDotNet job (default: BenchmarkDotNet's default job; --dry: Dry). "Dry" needs --dry: one
+#                      cold iteration per launch is never a B4 result
+#   --max-iterations N BenchmarkDotNet --maxIterationCount N for every BenchmarkDotNet launch (default: none, i.e.
+#                      BenchmarkDotNet's own limit of 100; N must be above 15, BenchmarkDotNet's MinIterationCount);
+#                      recorded in machine.txt and in the report's mode cell
+#   --vm NAME          machine name in the result path (default: the host name)
+#   --root DIR         working root (default: $HOME/fh-round); results go to DIR/raw/<round-name>/<vm>/
 #
 # Steps:
-#   1. machine.txt: lscpu, uname -a, OS, memory, dotnet --info, the arguments of this run
-#   2. a clean clone of this repository at <commit> (the v4.9.1 tag must exist in it)
+#   0. checks of the arguments, before anything is written: the commit and the tag v4.9.1 exist, round.sh and
+#      round_runs.py are the commit's own, the filter file is valid
+#   1. machine.txt: lscpu, uname -a, OS, memory, dotnet --info, the native toolchain, the arguments of this run
+#   2. a clean clone of this repository at <commit>
 #   3. build-variants.sh (net10, net11-ra-on, net11-ra-off), build-baselines.sh (pkg-net10, pkg-net11,
 #      control-net10, control-net11-ra-on, control-net11-ra-off) and build-aot-variants.sh (the Native AOT harness
 #      of T47 in aot/net10, aot/net11-ra-on, aot/net11-ra-off, aot/pkg-net10, aot/pkg-net11; needs clang or gcc),
@@ -28,30 +38,34 @@
 #      --check-competitors and --check-prototypes must exit 0 (else "CHECK FAILED <check> <dir>"); every AOT
 #      folder's variant.txt and the start-up lines of its executable (--info) must match its name and say
 #      native-aot=yes (else "VARIANT MISMATCH <dir>")
-#   5. ab.py for every pair and filter line; a glob that selects nothing in one build of a pair is recorded in
-#      not-run.txt and skipped. Filter lines of group "aot" run in the aot-* pairs with ab.py --aot (the glob
-#      selects among the harness's scenarios); all other groups run in the BenchmarkDotNet pairs
-#   6. the last line is "ROUND COMPLETE <n> result files"
+#   5. round_runs.py: ab.py for every pair and filter line, the gate lines (group prototype) first. A glob that
+#      selects nothing in one build of a pair goes to not-run.txt; a failed ab.py run goes to failed.txt and the
+#      round goes on. Filter lines of group "aot" run in the aot-* pairs with ab.py --aot
+#   6. the last line is "ROUND COMPLETE <n> result files, <m> FAILED"; the exit code is 1 when m > 0, and
+#      round.sh ... --resume then reruns only what failed
 #
 # Everything goes under raw/<round-name>/<vm>/: machine.txt, variants.txt, filters.txt, commands.txt, timing.txt,
-# not-run.txt, build.log, checks/, and <pair>/<line>-<group>-<glob>.json with ab.py's <json>.runs/ folders.
-# benchmarks/tools/round-report.py raw/<round-name> builds the report tables from them.
+# not-run.txt, failed.txt, build.log, checks/, and <pair>/<line>-<group>-<glob>.json with ab.py's <json>.runs/
+# folders. benchmarks/tools/round-report.py raw/<round-name> builds the report tables from them.
 set -euo pipefail
 
 usage() {
-    echo "usage: $0 <round-name> <commit> <filter-file> [--dry] [--launches N] [--job NAME] [--vm NAME] [--root DIR]" >&2
+    echo "usage: $0 <round-name> <commit> <filter-file> [--dry] [--resume] [--launches N] [--job NAME]" \
+         "[--max-iterations N] [--vm NAME] [--root DIR]" >&2
     exit 2
 }
 
 [[ $# -ge 3 ]] || usage
 round="$1" commit_arg="$2" filter_arg="$3"
 shift 3
-dry=0 launches="" job="" vm="$(hostname -s)" root="$HOME/fh-round"
+dry=0 resume=0 launches="" job="" max_iterations="" vm="$(hostname -s)" root="$HOME/fh-round"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry) dry=1; shift ;;
+        --resume) resume=1; shift ;;
         --launches) [[ $# -ge 2 ]] || usage; launches="$2"; shift 2 ;;
         --job) [[ $# -ge 2 ]] || usage; job="$2"; shift 2 ;;
+        --max-iterations) [[ $# -ge 2 ]] || usage; max_iterations="$2"; shift 2 ;;
         --vm) [[ $# -ge 2 ]] || usage; vm="$2"; shift 2 ;;
         --root) [[ $# -ge 2 ]] || usage; root="$2"; shift 2 ;;
         *) usage ;;
@@ -62,9 +76,16 @@ if [[ $dry -eq 1 ]]; then
     job="${job:-Dry}"
 else
     launches="${launches:-7}"
+    if [[ "${job,,}" == "dry" ]]; then
+        echo "error: --job Dry needs --dry (one cold iteration per launch is never a B4 result)" >&2
+        exit 2
+    fi
 fi
 [[ "$round" =~ ^[A-Za-z0-9._-]+$ && "$vm" =~ ^[A-Za-z0-9._-]+$ ]] || {
     echo "error: round and VM names may only contain letters, digits, '.', '_' and '-'" >&2; exit 2; }
+# BenchmarkDotNet refuses a maxIterationCount that is not above its MinIterationCount (15 by default).
+[[ -z "$max_iterations" || ( "$max_iterations" =~ ^[1-9][0-9]*$ && "$max_iterations" -gt 15 ) ]] || {
+    echo "error: --max-iterations needs an integer above 15 (BenchmarkDotNet's MinIterationCount)" >&2; exit 2; }
 
 step="setup"
 trap 'echo "ROUND FAILED during: $step (exit $?)" >&2' ERR
@@ -77,79 +98,124 @@ work="$root/work/$round/$vm"
 src="$work/src"
 bin="$work/bin"
 
-if [[ -e "$raw" && -n "$(ls -A "$raw" 2>/dev/null)" ]]; then
-    echo "error: $raw is not empty; a round never overwrites results (use another round name or VM name)" >&2
+# --- 0. arguments, checked before anything is written (review-T12 Minors 1 and 3) ---------------------------
+step="check the arguments"
+sha="$(git -C "$repo" rev-parse --verify --quiet "$commit_arg^{commit}")" || {
+    echo "error: commit $commit_arg is not in $repo" >&2; exit 1; }
+git -C "$repo" rev-parse --verify --quiet "v4.9.1^{commit}" > /dev/null || {
+    echo "error: tag v4.9.1 is not in $repo (the control build needs it)" >&2; exit 1; }
+for tool in benchmarks/tools/round.sh benchmarks/tools/round_runs.py; do
+    git -C "$repo" show "$sha:$tool" 2>/dev/null | cmp -s - "$repo/$tool" || {
+        echo "error: $repo/$tool differs from the copy in $sha; run round.sh from a checkout of the measured commit" >&2
+        exit 1; }
+done
+if [[ -f "$filter_arg" ]]; then
+    filter_file="$(cd "$(dirname "$filter_arg")" && pwd)/$(basename "$filter_arg")"
+    filter_from="file $filter_file"
+elif git -C "$repo" cat-file -e "$sha:$filter_arg" 2>/dev/null; then
+    filter_file="$(mktemp)"
+    git -C "$repo" show "$sha:$filter_arg" > "$filter_file"
+    filter_from="$filter_arg at $sha"
+else
+    echo "error: filter file $filter_arg not found (current directory or commit $sha)" >&2
+    exit 1
+fi
+python3 -I "$repo/benchmarks/tools/round_runs.py" --check-filters "$filter_file"
+# Is the filter file the commit's own copy? Recorded, not enforced (a dry run uses a narrower filter).
+filter_rel="$(realpath --relative-to="$repo" "$filter_file" 2>/dev/null || echo "$filter_arg")"
+if [[ "$filter_from" == "$filter_arg at $sha" ]]; then
+    filter_tie="the copy in $sha"
+elif git -C "$repo" show "$sha:$filter_rel" 2>/dev/null | cmp -s - "$filter_file"; then
+    filter_tie="same as $filter_rel in $sha"
+else
+    filter_tie="NOT the copy in $sha (no file $filter_rel there, or it differs)"
+fi
+repo_head="$(git -C "$repo" rev-parse HEAD)"
+[[ -z "$(git -C "$repo" status --porcelain)" ]] || repo_head="$repo_head (uncommitted changes)"
+
+if [[ $resume -eq 0 && -e "$raw" && -n "$(ls -A "$raw" 2>/dev/null)" ]]; then
+    echo "error: $raw is not empty; a round never overwrites results (--resume continues it, or use another name)" >&2
     exit 1
 fi
 mkdir -p "$raw" "$raw/checks"
 
 # --- 1. machine record -------------------------------------------------------------------------------------
 step="machine record"
-sha="$(git -C "$repo" rev-parse --verify "$commit_arg^{commit}")"
+if [[ $dry -eq 1 ]]; then
+    mode="DRY RUN (ab.py --smoke, $launches launches, job $job${max_iterations:+, max iterations $max_iterations}): a smoke check of the script, not evidence (D1)"
+else
+    mode="round (B4: $launches launches per side, job ${job:-default}${max_iterations:+, max iterations $max_iterations})"
+fi
 {
-    echo "round: $round"
-    echo "vm: $vm"
-    echo "started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    if [[ $dry -eq 1 ]]; then
-        echo "mode: DRY RUN (ab.py --smoke, job $job): a smoke check of the script, not evidence (D1)"
+    if [[ $resume -eq 1 && -s "$raw/machine.txt" ]]; then
+        echo
+        echo "== resumed: $(date -u +%Y-%m-%dT%H:%M:%SZ) (mode: $mode)"
     else
-        echo "mode: round (B4: $launches launches per side)"
+        echo "round: $round"
+        echo "vm: $vm"
+        echo "started: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo "mode: $mode"
+        echo "commit: $sha (requested as $commit_arg)"
+        echo "repository: $repo (HEAD $repo_head; round.sh and round_runs.py are the commit's copies)"
+        echo "filter file: $filter_from, $filter_tie, sha256 $(sha256sum "$filter_file" | cut -d ' ' -f 1)"
+        echo "launches: $launches"
+        echo "job: ${job:-BenchmarkDotNet default}"
+        echo "max iterations: ${max_iterations:-BenchmarkDotNet default}"
+        echo
+        echo "== uname -a"; uname -a
+        echo; echo "== /etc/os-release"; cat /etc/os-release 2>/dev/null || echo "(none)"
+        echo; echo "== lscpu"; lscpu
+        echo; echo "== nproc"; nproc
+        echo; echo "== free -m"; free -m
+        echo; echo "== df -h $root"; df -h "$root"
+        echo; echo "== dotnet --info"; dotnet --info
+        echo; echo "== python3 --version"; python3 --version
+        echo; echo "== git --version"; git --version
+        echo; echo "== native toolchain (Native AOT publish)"; clang --version 2>/dev/null || gcc --version 2>/dev/null \
+            || echo "(no clang or gcc on PATH: the AOT publish will fail)"
     fi
-    echo "commit: $sha (requested as $commit_arg)"
-    echo "repository: $repo"
-    echo "launches: $launches"
-    echo "job: ${job:-BenchmarkDotNet default}"
-    echo
-    echo "== uname -a"; uname -a
-    echo; echo "== /etc/os-release"; cat /etc/os-release 2>/dev/null || echo "(none)"
-    echo; echo "== lscpu"; lscpu
-    echo; echo "== nproc"; nproc
-    echo; echo "== free -m"; free -m
-    echo; echo "== dotnet --info"; dotnet --info
-    echo; echo "== python3 --version"; python3 --version
-    echo; echo "== git --version"; git --version
-    echo; echo "== native toolchain (Native AOT publish)"; clang --version 2>/dev/null || gcc --version 2>/dev/null \
-        || echo "(no clang or gcc on PATH: the AOT publish will fail)"
-} > "$raw/machine.txt" 2>&1
+} >> "$raw/machine.txt" 2>&1
 echo "machine record: $raw/machine.txt"
+cp "$filter_file" "$raw/filters.txt"
 
 # --- 2. clean clone at <commit> ----------------------------------------------------------------------------
 step="clone $sha"
-rm -rf "$work"
-mkdir -p "$work"
-git clone --quiet --no-checkout "$repo" "$src"
-git -C "$src" checkout --quiet --detach "$sha"
-git -C "$src" rev-parse --verify --quiet "v4.9.1^{commit}" > /dev/null || {
-    echo "error: tag v4.9.1 is not in $repo (the control build needs it)" >&2; exit 1; }
-
-step="filter file"
-if [[ -f "$filter_arg" ]]; then
-    filter_file="$(cd "$(dirname "$filter_arg")" && pwd)/$(basename "$filter_arg")"
-elif [[ -f "$src/$filter_arg" ]]; then
-    filter_file="$src/$filter_arg"
+if [[ $resume -eq 1 && -d "$src/.git" && "$(git -C "$src" rev-parse HEAD 2>/dev/null)" == "$sha" \
+      && -z "$(git -C "$src" status --porcelain)" ]]; then
+    echo "resume: clone kept ($src)"
 else
-    echo "error: filter file $filter_arg not found (current directory or clone)" >&2
-    exit 1
+    rm -rf "$work"
+    mkdir -p "$work"
+    git clone --quiet --no-checkout "$repo" "$src"
+    git -C "$src" checkout --quiet --detach "$sha"
 fi
-cp "$filter_file" "$raw/filters.txt"
 
 # --- 3. builds, one at a time ------------------------------------------------------------------------------
-step="build-variants.sh"
-echo "building the 4.10 configurations (log: $raw/build.log)"
-"$src/benchmarks/tools/build-variants.sh" "$bin" >> "$raw/build.log" 2>&1
-step="build-baselines.sh"
-echo "building the 4.9.1 package and control folders (log: $raw/build.log)"
-"$src/benchmarks/tools/build-baselines.sh" "$bin" >> "$raw/build.log" 2>&1
-step="build-aot-variants.sh"
-echo "publishing the Native AOT harness folders (log: $raw/build.log)"
-"$src/benchmarks/tools/build-aot-variants.sh" "$bin/aot" >> "$raw/build.log" 2>&1
+built=1
+for name in net10 net11-ra-on net11-ra-off pkg-net10 pkg-net11 control-net10 control-net11-ra-on control-net11-ra-off \
+            aot/net10 aot/net11-ra-on aot/net11-ra-off aot/pkg-net10 aot/pkg-net11; do
+    [[ -f "$bin/$name/variant.txt" ]] || built=0
+done
+if [[ $resume -eq 1 && $built -eq 1 ]]; then
+    echo "resume: builds kept ($bin); the checks below run again"
+else
+    step="build-variants.sh"
+    echo "building the 4.10 configurations (log: $raw/build.log)"
+    "$src/benchmarks/tools/build-variants.sh" "$bin" >> "$raw/build.log" 2>&1
+    step="build-baselines.sh"
+    echo "building the 4.9.1 package and control folders (log: $raw/build.log)"
+    "$src/benchmarks/tools/build-baselines.sh" "$bin" >> "$raw/build.log" 2>&1
+    step="build-aot-variants.sh"
+    echo "publishing the Native AOT harness folders (log: $raw/build.log)"
+    "$src/benchmarks/tools/build-aot-variants.sh" "$bin/aot" >> "$raw/build.log" 2>&1
+fi
 # After every build, the AOT publishes included: no build may leave a change in the clone.
 if [[ -n "$(git -C "$src" status --porcelain)" ]]; then
     echo "error: the clone has uncommitted changes after the builds" >&2
     exit 1
 fi
 
-# --- 4. checks before any measurement ----------------------------------------------------------------------
+# --- 4. checks before any measurement (run again on --resume; they replace variants.txt and checks/) --------
 # folder | verify-variant line | .NET major version the process must run on
 folders=(
     "net10|tfm=net10.0 runtime-async=off|10"
@@ -161,11 +227,11 @@ folders=(
     "control-net11-ra-on|tfm=net11.0 runtime-async=on|11"
     "control-net11-ra-off|tfm=net11.0 runtime-async=off|11"
 )
-declare -A expect_line
 declare -A library_sha
 verify="$bin/.tools/verify-variant/verify-variant.dll"
 checks_cwd="$work/checks-cwd"
 mkdir -p "$checks_cwd"
+rm -f "$raw/checks/"*
 
 mismatch() {
     echo "VARIANT MISMATCH $1" >&2
@@ -177,7 +243,6 @@ mismatch() {
 for entry in "${folders[@]}"; do
     IFS='|' read -r name line major <<< "$entry"
     dir="$bin/$name"
-    expect_line[$name]="$line"
     step="check $name"
     [[ -f "$dir/ModernLibs.FileHelpers.Benchmarks.dll" ]] || mismatch "$dir" "no benchmark build in the folder"
     actual="$(dotnet "$verify" "$dir/ModernLibs.FileHelpers.dll")" || mismatch "$dir" "verify-variant failed"
@@ -186,7 +251,7 @@ for entry in "${folders[@]}"; do
         || mismatch "$dir" "variant.txt does not start with '$name: $line'"
     # Start-up lines of a process started from the folder (it lists nothing and exits 1: no benchmark matches).
     startup="$(cd "$checks_cwd" && dotnet "$dir/ModernLibs.FileHelpers.Benchmarks.dll" --list flat \
-        --filter 'T12.Round.NoSuchBenchmark' 2>&1 | grep '^// ' || true)"
+        --filter 'T12.Round.NoSuchBenchmark' 2>&1 | grep '^// ModernLibs\|^// Runtime' || true)"
     printed="$(sed -n 's#^// ModernLibs.FileHelpers variant: ##p' <<< "$startup")"
     assembly="$(sed -n 's#^// ModernLibs.FileHelpers assembly: ##p' <<< "$startup")"
     runtime="$(sed -n 's#^// Runtime: ##p' <<< "$startup")"
@@ -261,121 +326,15 @@ for entry in "${folders[@]}"; do
 done
 echo "checks passed: 8 folders, verify-variant, start-up lines, library hashes, --check-competitors, --check-prototypes; 5 AOT folders, variant.txt and --info"
 
-# --- 5. A/B runs ---------------------------------------------------------------------------------------------
-# pair | A folder | B folder | harness (order of the runs). The aot-* pairs run filter lines of group "aot" only,
-# the others every other group. There is no AOT control build (T47): the AOT 4.9.1 -> 4.10 ratios include the
-# compiler and SDK effect.
-pairs=(
-    "free-gains|pkg-net10|pkg-net11|bdn"
-    "sdk-net10|pkg-net10|control-net10|bdn"
-    "sdk-net11|pkg-net11|control-net11-ra-on|bdn"
-    "ra-control|control-net11-ra-off|control-net11-ra-on|bdn"
-    "v410-net10|pkg-net10|net10|bdn"
-    "v410-net11|pkg-net11|net11-ra-on|bdn"
-    "ra|net11-ra-off|net11-ra-on|bdn"
-    "runtime-410|net10|net11-ra-on|bdn"
-    "aot-v410-net10|aot/pkg-net10|aot/net10|aot"
-    "aot-v410-net11|aot/pkg-net11|aot/net11-ra-on|aot"
-    "aot-v410-net11-ra-off|aot/pkg-net11|aot/net11-ra-off|aot"
-    "aot-ra|aot/net11-ra-off|aot/net11-ra-on|aot"
-)
-known_pairs=" $(for p in "${pairs[@]}"; do printf '%s ' "${p%%|*}"; done)"
-
-# Filter lines: <line number> <group> <pairs> <glob>, validated before the first run.
-step="read filter file"
-mapfile -t filter_lines < <(awk '!/^[[:space:]]*(#|$)/ { print NR, $0 }' "$raw/filters.txt")
-[[ ${#filter_lines[@]} -gt 0 ]] || { echo "error: no filter line in $filter_arg" >&2; exit 1; }
-for fl in "${filter_lines[@]}"; do
-    read -r lineno group pair_list glob extra <<< "$fl"
-    if [[ -z "${glob:-}" || -n "${extra:-}" ]]; then
-        echo "error: $filter_arg line $lineno: expected '<group> <pairs> <glob>'" >&2; exit 1
-    fi
-    if [[ "$pair_list" != "all" ]]; then
-        IFS=',' read -ra listed <<< "$pair_list"
-        for p in "${listed[@]}"; do
-            [[ "$known_pairs" == *" $p "* ]] || { echo "error: $filter_arg line $lineno: unknown pair '$p'" >&2; exit 1; }
-            if [[ "$group" == "aot" && "$p" != aot-* ]] || [[ "$group" != "aot" && "$p" == aot-* ]]; then
-                echo "error: $filter_arg line $lineno: group '$group' cannot run in pair '$p' (group aot runs in the aot-* pairs only)" >&2
-                exit 1
-            fi
-        done
-    fi
-done
-
-ab_args=(--launches "$launches")
-[[ $dry -eq 1 ]] && ab_args+=(--smoke)
-bdn_args=()
-[[ -n "$job" ]] && bdn_args=(-- --job "$job")
-# Arguments of the AOT harness (T47): 100,000 rows, 5 untimed and 20 timed reads per launch; a dry run is shorter.
-aot_args=(--rows 100000 --warmup 5 --iterations 20)
-[[ $dry -eq 1 ]] && aot_args=(--rows 10000 --warmup 1 --iterations 3)
-
-lists_any() {
-    # True when the build in folder $1 has a benchmark method that matches glob $2. The listing process exits 1
-    # (it measured nothing, Program.cs), so its output is captured first: in a pipeline, pipefail would turn that
-    # exit code into "no match".
-    local listing
-    listing="$(cd "$checks_cwd" && dotnet "$bin/$1/ModernLibs.FileHelpers.Benchmarks.dll" --list flat \
-        --filter "$2" 2>/dev/null || true)"
-    grep -Eq '^[A-Za-z_][A-Za-z0-9_.]*\.[A-Za-z0-9_]+$' <<< "$listing"
-}
-
-results=0
-: > "$raw/not-run.txt"
-: > "$raw/commands.txt"
-: > "$raw/timing.txt"
-for pentry in "${pairs[@]}"; do
-    IFS='|' read -r pair a b harness <<< "$pentry"
-    for fl in "${filter_lines[@]}"; do
-        read -r lineno group pair_list glob <<< "$fl"
-        [[ "$pair_list" == "all" || ",$pair_list," == *",$pair,"* ]] || continue
-        # "all" names every pair of the line's own harness.
-        [[ ( "$harness" == aot && "$group" == aot ) || ( "$harness" == bdn && "$group" != aot ) ]] || continue
-        slug="$(printf '%s' "$glob" | sed 's/[^A-Za-z0-9_.-]/_/g; s/^_*//; s/_*$//')"
-        out="$raw/$pair/$(printf '%03d' "$lineno")-${group//,/+}-$slug.json"
-        step="$pair: $glob"
-        missing=""
-        if [[ "$harness" == bdn ]]; then
-            lists_any "$a" "$glob" || missing="$a"
-            lists_any "$b" "$glob" || missing="${missing:+$missing and }$b"
-        fi
-        if [[ -n "$missing" ]]; then
-            printf '%s\t%s\t%s\tno benchmark matches in %s\n' "$pair" "$group" "$glob" "$missing" >> "$raw/not-run.txt"
-            echo "not run: $pair $glob (no benchmark matches in $missing)"
-            continue
-        fi
-        mkdir -p "$raw/$pair"
-        if [[ "$harness" == aot ]]; then
-            # ab.py --aot knows all five AOT folder names (T47 fix round 1), so no --expect-a/--expect-b.
-            cmd=(python3 -I "$src/benchmarks/tools/ab.py" --aot --a "$bin/$a" --b "$bin/$b" "${ab_args[@]}"
-                 --filter "$glob" --out "$out" -- "${aot_args[@]}")
-        else
-            cmd=(python3 -I "$src/benchmarks/tools/ab.py" --a "$bin/$a" --b "$bin/$b" "${ab_args[@]}"
-                 --filter "$glob" --out "$out")
-            [[ "$a" == net10 || "$a" == net11-ra-on || "$a" == net11-ra-off ]] || cmd+=(--expect-a "${expect_line[$a]}")
-            [[ "$b" == net10 || "$b" == net11-ra-on || "$b" == net11-ra-off ]] || cmd+=(--expect-b "${expect_line[$b]}")
-            cmd+=("${bdn_args[@]}")
-        fi
-        printf '%q ' "${cmd[@]}" >> "$raw/commands.txt"
-        echo >> "$raw/commands.txt"
-        echo "== $pair ($a -> $b): $glob"
-        started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        t0="$(date +%s)"
-        "${cmd[@]}" > "${out%.json}.log" 2>&1 || {
-            echo "ROUND FAILED: ab.py exited non-zero for $pair $glob (see ${out%.json}.log)" >&2
-            tail -n 5 "${out%.json}.log" >&2
-            exit 1
-        }
-        printf '%s\t%s\t%s\t%s\t%ss\n' "$pair" "$glob" "$started" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            "$(( $(date +%s) - t0 ))" >> "$raw/timing.txt"
-        tail -n +1 "${out%.json}.log" | grep -v '^\[[AB]\] ' || true
-        results=$((results + 1))
-    done
-done
-
-echo "finished: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$raw/machine.txt"
-if [[ $results -eq 0 ]]; then
-    echo "ROUND FAILED: no result files" >&2
-    exit 1
-fi
-echo "ROUND COMPLETE $results result files"
+# --- 5. A/B runs (round_runs.py; review-T12 Important 1: a failed run is recorded and the round goes on) ------
+step="A/B runs"
+runs_args=(--raw "$raw" --bin "$bin" --src "$src" --filters "$raw/filters.txt" --launches "$launches"
+           --checks-cwd "$checks_cwd")
+[[ $dry -eq 1 ]] && runs_args+=(--dry)
+[[ $resume -eq 1 ]] && runs_args+=(--resume)
+[[ -n "$job" ]] && runs_args+=(--job "$job")
+[[ -n "$max_iterations" ]] && runs_args+=(--max-iterations "$max_iterations")
+code=0
+python3 -I "$src/benchmarks/tools/round_runs.py" "${runs_args[@]}" || code=$?
+echo "finished: $(date -u +%Y-%m-%dT%H:%M:%SZ) (exit $code)" >> "$raw/machine.txt"
+exit "$code"

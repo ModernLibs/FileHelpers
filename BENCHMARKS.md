@@ -385,7 +385,10 @@ checks that the commit and the tag exist, that the running `round.sh` and `round
 and that the filter file is valid. Then `round_runs.py` runs `ab.py` with 7 launches for every A/B pair and line of the
 filter file, the gate lines (group `prototype`) first. A failed `ab.py` run is written to `failed.txt` and the round
 goes on; the last line is `ROUND COMPLETE <n> result files, <m> FAILED` (exit code 1 when m > 0), and the same command
-with `--resume` keeps the finished result files and reruns the rest. Filter lines of group `aot` run the four AOT pairs
+with `--resume` keeps the finished result files and reruns the rest. `--resume` refuses another commit, another mode
+(launches, job, iteration cap, `--dry`) or another filter file than the first call's, and runs again every result file
+that was made for another glob, by other folders or from other binaries (SHA-256). `benchmarks/tools/filters-gates.txt`
+holds only the two gate lines, for an uncapped rerun of the gates after a capped round. Filter lines of group `aot` run the four AOT pairs
 with `ab.py --aot`. The filter file names the pairs each glob runs in (`benchmarks/tools/filters-step0.txt` describes
 the format and the pairs). `--max-iterations N` passes `--maxIterationCount N` to every BenchmarkDotNet launch (N above
 15, BenchmarkDotNet's `MinIterationCount`); `--job Dry` is refused without `--dry`. `--dry` is the local smoke run

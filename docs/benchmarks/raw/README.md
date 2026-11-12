@@ -33,7 +33,10 @@ raw/<round-name>/<vm>/
 (`"harness": "aot"`). The pairs and build folders are described in [step0-4.10.md](../step0-4.10.md).
 
 A round that ends with `ROUND COMPLETE <n> result files, <m> FAILED` and m > 0 is continued on the same VM with the
-same command plus `--resume`: it keeps the finished result files and reruns only the missing ones.
+same command plus `--resume`: it keeps the finished result files and reruns only the missing ones. It refuses another
+commit, mode or filter file than the first call recorded in `machine.txt`, and it runs again a result file that was made
+for another glob, by other folders or from other binaries. A result file cut off by a kill is listed by
+`round-report.py` under "Damaged results" and is run again by `--resume`.
 
 ## Building the report
 

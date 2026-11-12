@@ -202,6 +202,12 @@ measured inside one 4.10 build, on the x64 AVX2 reference VM and on one more VM.
 unquotes with today's emitted strip pass) and decides the gate. `R6_PrecomputedEnds_FastUnquote` is R6 with R3 (the
 fastest correct unquote) and is informative; both ratios are reported.
 
+**Capped rounds (R6 and G2).** An iteration cap (`--max-iterations`) can turn a `faster` verdict into `no-change`,
+never the reverse. If a capped round shows a gate ratio under its limit (R6 0.94, G2 0.90) without the verdict
+`faster` on a VM, the two gate lines are rerun uncapped on that VM under a second round name before the VMs are deleted
+(`round.sh <round-name>-gates <sha> benchmarks/tools/filters-gates.txt --vm <vm-name>`, about 0.8 h per VM), and the
+gate is read from that run. `round-report.py` prints a note under the G2 table when this applies.
+
 | Build | Rows | R6_Current | R6_PrecomputedEnds | ratio [99.9 % CI] | gate | R6_PrecomputedEnds_FastUnquote | ratio [99.9 % CI] | at 6 % |
 |---|---|---|---|---|---|---|---|---|
 
@@ -313,7 +319,12 @@ keeps every finished result. A final report has this table empty.
 On each VM (see [raw/README.md](raw/README.md) for the layout of the raw files):
 
 ```bash
-benchmarks/tools/round.sh <round-name> <sha> benchmarks/tools/filters-step0.txt --vm <vm-name> [--max-iterations N]
+# uncapped:
+benchmarks/tools/round.sh <round-name> <sha> benchmarks/tools/filters-step0.txt --vm <vm-name>
+# or capped at 20 iterations:
+benchmarks/tools/round.sh <round-name> <sha> benchmarks/tools/filters-step0.txt --vm <vm-name> --max-iterations 20
 # after "ROUND COMPLETE <n> result files, <m> FAILED" with m > 0: the same command with --resume
+# capped round, gate ratio under its limit without "faster" (see Gate R6): the gate lines uncapped, second round name
+benchmarks/tools/round.sh <round-name>-gates <sha> benchmarks/tools/filters-gates.txt --vm <vm-name>
 python3 -I benchmarks/tools/round-report.py ~/fh-round/raw/<round-name> > section.md
 ```

@@ -73,13 +73,15 @@ file.
 
 ### Changed
 
-- **Newline, header text and footer text follow FileHelpers 3.x (3.5.2).**
+- **Breaking:** Newline, header text and footer text follow FileHelpers 3.x (3.5.2).
   - `NewLineForWrite` defaults to `Environment.NewLine`. This is a behaviour change on Linux and macOS
     relative to 4.8-4.9.1: the engines now write `"\n"` there, where 4.8.0 to 4.9.1 wrote `"\r\n"` on
     every platform. Windows output is unchanged. Set `NewLineForWrite = "\r\n"` to keep 4.9.1 output,
     with one exception on Linux and macOS: a `HeaderText`/`FooterText` captured on read keeps `"\n"` after
     each line, so writing it back gives mixed line endings. Set the text yourself before the write, for
-    example `engine.HeaderText = engine.HeaderText.Replace(Environment.NewLine, "\r\n")`.
+    example `engine.HeaderText = engine.HeaderText.Replace(Environment.NewLine, "\r\n")`. The mirror
+    case exists on Windows: a `HeaderText`/`FooterText` captured on read keeps `"\r\n"`, so a read-then-write
+    with `NewLineForWrite = "\n"` gives mixed line endings; replace `Environment.NewLine` with `"\n"` the same way.
   - The default applies to `FileHelperEngine<T>`, `FileHelperAsyncEngine<T>`, `MultiRecordEngine` and
     `MasterDetailEngine`. It covers every write path: `WriteString`, `WriteStream`, `WriteStreamAsync`,
     `WriteFile`, `AppendToFile`, `BeginWrite*`/`BeginAppendFile`, the header and footer, and the line

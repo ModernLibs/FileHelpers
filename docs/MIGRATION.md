@@ -370,6 +370,9 @@ var engine = new FileHelperEngine<Customer>(Encoding.GetEncoding(1252));
   after each line (see below), so a read-then-write with `NewLineForWrite = "\r\n"` gives mixed line
   endings. Set the text yourself before the write, for example
   `engine.HeaderText = engine.HeaderText.Replace(Environment.NewLine, "\r\n")`.
+  The mirror case exists on Windows: a `HeaderText`/`FooterText` captured on read keeps `"\r\n"` after
+  each line, so a read-then-write with `NewLineForWrite = "\n"` gives mixed line endings. Replace
+  `Environment.NewLine` with `"\n"` the same way. (4.9.1 wrote `"h\n"` there; 3.5.2 behaves as 4.10 does.)
 - Setting `NewLineForWrite` to `null` or `""` throws `ArgumentException` with the message
   `NewLine string must not be null or empty`, as in 3.x.
 - `HeaderText` and `FooterText` hold the `[IgnoreFirst]`/`[IgnoreLast]` lines as in 3.x: each line is

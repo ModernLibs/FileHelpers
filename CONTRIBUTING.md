@@ -78,7 +78,7 @@ parallelism with `--concurrency`. Stryker runs in its own workflow (`mutation.ym
 once a week), not on every push. The `break` threshold in `stryker-config.json` is 80: it is the score
 of the first finished run (manual run 43173427050 of `QuoteBalanceScanner.cs` and `RecordReadCore.cs`, 86.58%) minus 5, rounded down
 to a multiple of 5. A run with a score under 80 fails the workflow (the Stryker step is not
-`continue-on-error`). `high` is 95 and `low` is 85, so `low` stays above `break`. The reports are uploaded
+`continue-on-error`). `high` and `low` are also 80 (Stryker needs `break` <= `low` <= `high`; they only colour the report). The reports are uploaded
 as the `mutation-report` artifact, with `mutation-report.json` next to the HTML.
 
 To start the workflow manually, run it from the Actions tab (Mutation Testing, Run workflow) or with

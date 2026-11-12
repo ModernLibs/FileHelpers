@@ -27,54 +27,58 @@
 # benchmark of a 4.10 API in a pair with a 4.9.1 build). Lines starting with # and blank lines are ignored.
 # The methods and their Rows are listed in BENCHMARKS.md ("What is measured").
 
+# Every scenario that a 4.9.1 build has runs in free-gains, so 4.9.1 has a number on both runtimes for each one
+# (design 3.1 exit rule).
+
 # 25-column delimited read (PackageAssets): parse-and-discard is the primary metric (B2), ReadFile the array read
 read25     free-gains,sdk-net10,sdk-net11,ra,v410-net10         *DelimitedParseBenchmarks.FileHelpers_ParseAndDiscard
-read25     ra,v410-net10                                        *OptimizedParseBenchmarks.ReadFile
+read25     free-gains,ra,v410-net10                             *OptimizedParseBenchmarks.ReadFile
 
 # Quoted reads
 quoted     free-gains,sdk-net10,sdk-net11,ra,v410-net10         *QuotedFieldsBenchmarks.FileHelpers_ParseAndDiscard
-quoted     ra,v410-net10                                        *QuotedFieldsBenchmarks.ReadAllRows_FileHelpers
-quoted     ra,v410-net10                                        *QuotedFieldsPeriodicBenchmarks.FileHelpers_ParseAndDiscard
-quoted     ra,v410-net10                                        *SparseQuoteBenchmarks.ReadFile_ParseAndDiscard
-quoted     ra,v410-net10                                        *MultilineBenchmarks.ReadFile_ParseAndDiscard
+quoted     free-gains,ra,v410-net10                             *QuotedFieldsBenchmarks.ReadAllRows_FileHelpers
+quoted     free-gains,ra,v410-net10                             *QuotedFieldsPeriodicBenchmarks.FileHelpers_ParseAndDiscard
+quoted     free-gains,ra,v410-net10                             *SparseQuoteBenchmarks.ReadFile_ParseAndDiscard
+quoted     free-gains,ra,v410-net10                             *MultilineBenchmarks.ReadFile_ParseAndDiscard
 
 # Other plain reads
-read-other ra,v410-net10                                        *LongLineBenchmarks.ReadFile_ParseAndDiscard
-read-other ra,v410-net10                                        *WideRecordBenchmarks.ReadFile_ParseAndDiscard
+read-other free-gains,ra,v410-net10                             *LongLineBenchmarks.ReadFile_ParseAndDiscard
+read-other free-gains,ra,v410-net10                             *WideRecordBenchmarks.ReadFile_ParseAndDiscard
 
 # Fixed-width reads
 fixed      free-gains,sdk-net10,sdk-net11,ra,v410-net10         *FixedWidthParseBenchmarks.FileHelpers_ParseAndDiscard
 fixed      free-gains,sdk-net10,sdk-net11,ra,v410-net10         *FixedWidthParseBenchmarks.ReadAllRows_Struct
-fixed      ra,v410-net10                                        *FixedWidthParseBenchmarks.ReadAllRows_Class
+fixed      free-gains,ra,v410-net10                             *FixedWidthParseBenchmarks.ReadAllRows_Class
 
 # Writes
 write      free-gains,sdk-net10,sdk-net11,ra,v410-net10         *WriteBenchmarks.WriteString_FileHelpers
-write      ra,v410-net10                                        *WriteBenchmarks.WriteFile_FileHelpers
+write      free-gains,ra,v410-net10                             *WriteBenchmarks.WriteFile_FileHelpers
 write      free-gains,sdk-net10,sdk-net11,ra,v410-net10         *QuotedWriteBenchmarks.WriteString
-write      ra,v410-net10                                        *QuotedWriteBenchmarks.WriteStream_Null
-write      ra,v410-net10                                        *FixedWidthWriteBenchmarks.WriteString
-write      ra,v410-net10                                        *FixedWidthWriteBenchmarks.WriteStream_Null
+write      free-gains,ra,v410-net10                             *QuotedWriteBenchmarks.WriteStream_Null
+write      free-gains,ra,v410-net10                             *FixedWidthWriteBenchmarks.WriteString
+write      free-gains,ra,v410-net10                             *FixedWidthWriteBenchmarks.WriteStream_Null
 
 # Async (runtime async changes only these method bodies)
 async      free-gains,sdk-net10,sdk-net11,ra,v410-net10,ra-control *EngineAsyncBenchmarks.Engine_ReadAsync_Path
-async      ra,ra-control,v410-net10                             *EngineAsyncBenchmarks.Engine_ReadFileAsync_Callback
-async      ra,ra-control,v410-net10                             *AsyncStreamingBenchmarks.ReadAsync_MultiRecord
-async      ra,ra-control,v410-net10                             *OptimizedParseBenchmarks.ReadFileAsync_Callback_ProcessAndDiscard
+async      free-gains,ra,ra-control,v410-net10                  *EngineAsyncBenchmarks.Engine_ReadFileAsync_Callback
+async      free-gains,ra,ra-control,v410-net10                  *AsyncStreamingBenchmarks.ReadAsync_MultiRecord
+async      free-gains,ra,ra-control,v410-net10                  *OptimizedParseBenchmarks.ReadFileAsync_Callback_ProcessAndDiscard
 # 4.10-only API (T43, T46): WriteStreamAsync, ReadAsync(Stream), ReadAsync(TextReader). The 4.9.1 builds leave these
 # methods out (FILEHELPERS_BASELINE), so they run only in the runtime-async pair ra (net11-ra-off -> net11-ra-on);
 # their 4.9.1 pkg and net10 cells stay empty. The fault-path write is in two report groups: async and exception.
 async      ra                                                   *EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null
 async      ra                                                   *EngineAsyncBenchmarks.Engine_ReadAsync_Stream
 async      ra                                                   *EngineAsyncBenchmarks.Engine_ReadAsync_TextReader
-async,exception ra                                              *EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null_SourceThrows
+async,exception ra                                                   *EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null_SourceThrows
 
 # Exception path: a conversion error in every 100th row, ErrorMode.SaveAndContinue
-exception  ra,ra-control,v410-net10                             *EngineAsyncBenchmarks.Engine_ReadAsync_Path_ExceptionEvery100
+exception  free-gains,ra,ra-control,v410-net10                  *EngineAsyncBenchmarks.Engine_ReadAsync_Path_ExceptionEvery100
 
 # Controls: code that is the same in every build, so their ratios show the noise of a pair.
+# Sylvan also runs in ra-control, so that pair has a control too.
 # CsvHelper is also the reference of the slope question (10K to 100K rows).
-control    free-gains,sdk-net10,sdk-net11,ra,v410-net10         *DelimitedParseBenchmarks.Sylvan_ParseAndDiscard
-control    ra,v410-net10                                        *DelimitedParseBenchmarks.CsvHelper_ParseAndDiscard
+control    free-gains,sdk-net10,sdk-net11,ra,v410-net10,ra-control *DelimitedParseBenchmarks.Sylvan_ParseAndDiscard
+control    free-gains,ra,v410-net10                             *DelimitedParseBenchmarks.CsvHelper_ParseAndDiscard
 control    free-gains,sdk-net10,sdk-net11,ra,v410-net10         *FixedWidthParseBenchmarks.SliceAllFields_SpanSlicer
 
 # Component benchmarks (B3, coding-pattern choices of design 2.5): the 4.10 build on both runtimes

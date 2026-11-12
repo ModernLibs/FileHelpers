@@ -137,15 +137,28 @@ if [[ $resume -eq 0 && -e "$raw" && -n "$(ls -A "$raw" 2>/dev/null)" ]]; then
     echo "error: $raw is not empty; a round never overwrites results (--resume continues it, or use another name)" >&2
     exit 1
 fi
-mkdir -p "$raw" "$raw/checks"
-
-# --- 1. machine record -------------------------------------------------------------------------------------
-step="machine record"
 if [[ $dry -eq 1 ]]; then
     mode="DRY RUN (ab.py --smoke, $launches launches, job $job${max_iterations:+, max iterations $max_iterations}): a smoke check of the script, not evidence (D1)"
 else
     mode="round (B4: $launches launches per side, job ${job:-default}${max_iterations:+, max iterations $max_iterations})"
 fi
+# --resume continues the same measurement only: same commit, same launches, job and iteration cap as the first call.
+if [[ $resume -eq 1 && -s "$raw/machine.txt" ]]; then
+    first_commit="$(sed -n 's/^commit: \([0-9a-f]*\).*/\1/p' "$raw/machine.txt" | head -n 1)"
+    first_mode="$(sed -n 's/^mode: //p' "$raw/machine.txt" | head -n 1)"
+    if [[ "$first_commit" != "$sha" ]]; then
+        echo "error: --resume: $raw was measured at $first_commit, not $sha; results of two commits never mix" >&2
+        exit 1
+    fi
+    if [[ "$first_mode" != "$mode" ]]; then
+        echo "error: --resume: $raw was measured as '$first_mode', this call is '$mode'" >&2
+        exit 1
+    fi
+fi
+mkdir -p "$raw" "$raw/checks"
+
+# --- 1. machine record -------------------------------------------------------------------------------------
+step="machine record"
 {
     if [[ $resume -eq 1 && -s "$raw/machine.txt" ]]; then
         echo

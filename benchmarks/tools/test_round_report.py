@@ -125,9 +125,68 @@ class BuildTests(unittest.TestCase):
 
     def test_free_gains_table_uses_the_package_pair(self):
         markdown = round_report.build(self.fixture.round)
-        rows = table_rows(markdown, round_report.PAIR_HEADER % ("4.9.1 on .NET 10", "4.9.1 on .NET 11", "11/10"))
+        a, b = "4.9.1 on .NET 10", "4.9.1 on .NET 11"
+        rows = table_rows(markdown, round_report.PAIR_GC_HEADER % (a, b, "11/10", a, b))
         self.assertEqual(len(rows), 2)
-        self.assertTrue(all(row[-1] == "faster" for row in rows))
+        self.assertTrue(all(row[4] == "faster" for row in rows))
+        self.assertTrue(all(row[5] == "-" and row[6] == "-" for row in rows))   # no .runs folders in this fixture
+
+    def test_gc_columns_come_from_the_benchmarkdotnet_reports(self):
+        # One launch per side of the free-gains result, with the memory block BenchmarkDotNet writes.
+        result = os.path.join(self.fixture.round, "vm1", "free-gains", "003-quoted-x.json")
+        for side, gen0, alloc in (("a", 140, 2_355_344), ("b", 120, 2_000_000)):
+            report = {"Benchmarks": [{
+                "FullName": QUOTED + "(Rows: 10000)",
+                "Memory": {"Gen0Collections": gen0, "Gen1Collections": 20, "Gen2Collections": 0,
+                           "TotalOperations": 1000, "BytesAllocatedPerOperation": alloc}}]}
+            write(os.path.join(result + ".runs", "001-%s-%s" % (side, QUOTED), "results", "x-report-full.json"),
+                  report)
+        markdown = round_report.build(self.fixture.round)
+        a, b = "4.9.1 on .NET 10", "4.9.1 on .NET 11"
+        rows = {row[0]: row for row in table_rows(markdown, round_report.PAIR_GC_HEADER % (a, b, "11/10", a, b))}
+        r10 = rows["QuotedFieldsBenchmarks.FileHelpers_ParseAndDiscard (Rows 10K)"]
+        self.assertEqual(r10[5], "140 / 20 / -; 2.246 MB")
+        self.assertEqual(r10[6], "120 / 20 / -; 1.907 MB")
+        gc_rows = table_rows(markdown, "| Scenario | Build | Gen0 | Gen1 | Gen2 | Allocated per operation |")
+        self.assertIn(["QuotedFieldsBenchmarks.FileHelpers_ParseAndDiscard (Rows 10K)", "pkg-net11", "120", "20", "-",
+                       "1.907 MB"], gc_rows)
+
+    def test_failed_runs_and_methods_of_one_build_are_listed(self):
+        vm = os.path.join(self.fixture.round, "vm1")
+        with open(os.path.join(vm, "failed.txt"), "w", encoding="utf-8") as f:
+            f.write("v410-net11\tprototype\t*Prototypes.R6UpperBoundBenchmarks*\tv410-net11/040-prototype-x.log\n")
+        path = os.path.join(vm, "ra", "003-quoted-x.json")
+        with open(path, encoding="utf-8") as f:
+            document = json.load(f)
+        document["only_in_b"] = [NS + "QuotedFieldsBenchmarks.NewMethod"]
+        write(path, document)
+        markdown = round_report.build(self.fixture.round)
+        self.assertIn("1 ab.py run(s) failed on this VM", markdown)
+        failed = table_rows(markdown, "| Pair | Group | Glob | Log |")
+        self.assertEqual(failed, [["v410-net11", "prototype", "`*Prototypes.R6UpperBoundBenchmarks*`",
+                                   "`v410-net11/040-prototype-x.log`"]])
+        not_run = table_rows(markdown, "| Pair | Group | Glob | Reason |")
+        self.assertEqual(len(not_run), 1)
+        self.assertIn("only in B (net11-ra-on): %sQuotedFieldsBenchmarks.NewMethod" % NS, not_run[0][3])
+
+
+class MachineTests(unittest.TestCase):
+    def test_machine_facts(self):
+        text = ("mode: round (B4: 7 launches per side, job default, max iterations 20)\n"
+                "commit: 0123456789abcdef (requested as HEAD)\n"
+                "== uname -a\nLinux vm 6.8.0-1017-azure #20 SMP x86_64 GNU/Linux\n"
+                'PRETTY_NAME="Ubuntu 24.04.1 LTS"\n'
+                "Architecture:            x86_64\nCPU(s):                  8\n"
+                "Model name:              AMD EPYC 7763 64-Core Processor\n"
+                "Flags:                   fpu sse avx2 avx512f\n"
+                ".NET SDK:\n Version:           11.0.100\n"
+                "  Microsoft.NETCore.App 10.0.15 [/x]\n  Microsoft.NETCore.App 11.0.0 [/x]\n")
+        f = round_report.machine_facts(text)
+        self.assertEqual((f["cpu"], f["arch"], f["cpus"], f["simd"]),
+                         ("AMD EPYC 7763 64-Core Processor", "x86_64", "8", "avx2, avx512f"))
+        self.assertEqual((f["os"], f["kernel"], f["sdk"], f["runtimes"]),
+                         ("Ubuntu 24.04.1 LTS", "6.8.0-1017-azure", "11.0.100", "10.0.15, 11.0.0"))
+        self.assertEqual(f["mode"], "round (B4: 7 launches per side, job default, max iterations 20)")
 
 
 class FormatTests(unittest.TestCase):
@@ -167,6 +226,50 @@ class GateAndGapTests(unittest.TestCase):
             rows.append(bench(name, scaled(1_000_000), scaled(1_000_000 * factor)))
         write(os.path.join(self.vm, pair, "040-prototype-r6.json"),
               doc("/w/bin/" + a, "/w/bin/" + b, "*Prototypes.R6UpperBoundBenchmarks*", rows, b4))
+
+    def g2(self, ratio, noisy=False):
+        rows = []
+        for rows_value in (10_000, 100_000):
+            base = scaled(1_000_000)
+            current = NS + "Prototypes.G2PrototypeBenchmarks.G2_Current(Rows: %d)" % rows_value
+            span = NS + "Prototypes.G2PrototypeBenchmarks.G2_SingleSpan(Rows: %d)" % rows_value
+            variant = [x * ratio for x in base]
+            if noisy:          # the same median ratio, but launches spread so wide that the interval includes 1.0
+                variant = [x * f for x, f in zip(variant, (0.5, 1.6, 0.6, 1.5, 0.7, 1.4, 1.0))]
+            rows.append(bench(current, base, base))
+            rows.append(bench(span, base, variant))
+        write(os.path.join(self.vm, "v410-net11", "041-prototype-g2.json"),
+              doc("/w/bin/pkg-net11", "/w/bin/net11-ra-on", "*Prototypes.G2PrototypeBenchmarks*", rows))
+
+    def gate_cell(self, markdown, header, build, rows_label):
+        for row in table_rows(markdown, header):
+            if row[0] == build and row[1] == rows_label:
+                return row[-1]
+        return None
+
+    G2_HEADER = "| Build | Rows | G2_Current | G2_SingleSpan | ratio [99.9 % CI] | gate (at least 10 % faster) |"
+
+    def test_g2_gate_meets_at_100k_only_and_prints_the_p5_note(self):
+        self.g2(0.88)
+        markdown = round_report.build(self.round)
+        self.assertEqual(self.gate_cell(markdown, self.G2_HEADER, "net11-ra-on", "Rows 100K"), "meets")
+        self.assertEqual(self.gate_cell(markdown, self.G2_HEADER, "net11-ra-on", "Rows 10K"), "(informative)")
+        self.assertIn(round_report.G2_P5_NOTE, markdown)
+
+    def test_g2_gate_misses_above_0_90(self):
+        self.g2(0.92)
+        markdown = round_report.build(self.round)
+        self.assertEqual(self.gate_cell(markdown, self.G2_HEADER, "net11-ra-on", "Rows 100K"), "misses")
+
+    def test_a_ratio_below_the_gate_without_a_faster_verdict_misses(self):
+        self.g2(0.85, noisy=True)
+        markdown = round_report.build(self.round)
+        self.assertEqual(self.gate_cell(markdown, self.G2_HEADER, "net11-ra-on", "Rows 100K"), "misses")
+        self.r6("v410-net11", "pkg-net11", "net11-ra-on", 0.90, 0.85)
+        r = round_report.compare_methods(round_report.load(self.round)[0], "net11-ra-on", "G2PrototypeBenchmarks",
+                                         "G2_Current", "G2_SingleSpan", {"Rows": "100000"})
+        self.assertLessEqual(r["median_ratio"], round_report.G2_GATE)
+        self.assertNotEqual(r["verdict"], "faster")
 
     def test_r6_gate_both_variants_meet(self):
         self.r6("v410-net11", "pkg-net11", "net11-ra-on", 0.90, 0.85)

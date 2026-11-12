@@ -75,8 +75,11 @@ The HTML report is written to `StrykerOutput/`. Stryker builds Release (`"config
 file). A full run takes a long time (the whole `mutate` list has 1326 mutants to test and did not finish
 in 2 hours on a hosted runner); to try a change, mutate only the files you touched and lower the
 parallelism with `--concurrency`. Stryker runs in its own workflow (`mutation.yml`, started manually and
-once a week), not on every push. That workflow is informational (`continue-on-error`) until a run has
-measured the score.
+once a week), not on every push. The `break` threshold in `stryker-config.json` is 80: it is the score
+of the first finished run (manual run 43173427050 of `QuoteBalanceScanner.cs` and `RecordReadCore.cs`, 86.58%) minus 5, rounded down
+to a multiple of 5. A run with a score under 80 fails the workflow (the Stryker step is not
+`continue-on-error`). `high` is 95 and `low` is 85, so `low` stays above `break`. The reports are uploaded
+as the `mutation-report` artifact, with `mutation-report.json` next to the HTML.
 
 To start the workflow manually, run it from the Actions tab (Mutation Testing, Run workflow) or with
 `gh workflow run mutation.yml --ref <branch> -f mutate='<glob>,<glob>'`. The `mutate` input is a
@@ -217,9 +220,8 @@ link to that section. Messages say what is wrong and how to fix it.
 - Generator changes need generator tests (diagnostics and generated output) as well as engine tests.
   Add new record shapes or emission paths to the corpus in `GeneratedCodeWarningTests`, which requires
   warning-free generated code.
-- Parsing changes should keep the allocation tests passing. The mutation score is informational until
-  the first full `mutation.yml` run has measured it; a follow-up then sets the `break` threshold in
-  `stryker-config.json` from that score, and parsing changes must keep the score above it.
+- Parsing changes should keep the allocation tests passing. Mutation runs fail under the `break`
+  threshold (80) in `stryker-config.json`; parsing changes must keep the score above it.
 
 ## Commits and pull requests
 

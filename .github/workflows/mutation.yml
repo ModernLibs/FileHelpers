@@ -2,9 +2,9 @@ name: Mutation Testing
 
 # Stryker.NET takes far longer than the rest of CI, so it runs on demand and once a week instead of on
 # every push. Stryker runs on the TUnit project through the Microsoft.Testing.Platform runner
-# ("test-runner": "mtp" in stryker-config.json, preview in Stryker 5.1). Informational until one full
-# workflow_dispatch run has shown the score, the timeout and Dubious counts, and the wall time; a
-# follow-up then removes continue-on-error and sets "break" in stryker-config.json from that score.
+# ("test-runner": "mtp" in stryker-config.json, preview in Stryker 5.1). The first finished run (workflow_dispatch
+# run 43173427050) scored 86.58%, so "break" in stryker-config.json
+# is 80, and a score under it makes Stryker exit non-zero, which fails the run.
 #
 # Scope: the full "mutate" list in stryker-config.json (1326 mutants to test, 4041 created) did not finish
 # in 120 minutes, so a run mutates only the files named by the `mutate` input (comma-separated Stryker
@@ -62,7 +62,6 @@ jobs:
         run: dotnet tool restore
 
       - name: Mutation Test (Stryker.NET)
-        continue-on-error: true
         # "configuration": "Release" in stryker-config.json makes Stryker build and test Release.
         # The "dots" reporter prints one character per finished mutant (. killed, T timeout, S survived,
         # E error); the perl filter ends a line, with a time stamp, after every 100 characters, so a

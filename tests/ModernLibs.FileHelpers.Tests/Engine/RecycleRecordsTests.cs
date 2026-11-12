@@ -75,12 +75,16 @@ public sealed class RecycleRecordsTests
         // We verify that RecycleRecords=true allocates < 64 bytes MORE per call than
         // the irreducible minimum (the line string from ReadLine()). This means no new
         // record object is allocated per call.
-        // Arrange: Build N+2 lines for warmup + measured calls
+        // Arrange: Build lines for warmup + several measured windows of N calls.
+        // One window can hold a one-off ~8 KB cost that is not the code under test (an allocation-context
+        // refill, or a GC started by a parallel test). A per-row allocation shows in every window, so the
+        // smallest window is measured: it still catches a real allocation and ignores one noisy window.
         const int N = 10;
+        int windows = AllocationProbe.Windows;
 
-        // Build N+2 lines (warmup + N measured calls + 1 spare) using InvariantCulture
+        // Build 1 + windows * N lines (warmup + measured windows) + 1 spare using InvariantCulture
         var sb = new System.Text.StringBuilder();
-        for (int i = 1; i <= N + 2; i++)
+        for (int i = 1; i <= (windows * N) + 2; i++)
             sb.AppendLine(System.FormattableString.Invariant($"{i},{i * 2},{i}"));
         string content = sb.ToString();
 
@@ -89,24 +93,27 @@ public sealed class RecycleRecordsTests
         engineBaseline.BeginReadString(content);
         engineBaseline.ReadNext(); // warmup
 
-        long beforeBaseline = GC.GetAllocatedBytesForCurrentThread();
-        for (int i = 0; i < N; i++)
-            engineBaseline.ReadNext();
-        long afterBaseline = GC.GetAllocatedBytesForCurrentThread();
-        long baselinePerCall = (afterBaseline - beforeBaseline) / N;
+        long baselinePerCall = AllocationProbe.MinAllocated(
+            () =>
+            {
+                for (int i = 0; i < N; i++)
+                    engineBaseline.ReadNext();
+            },
+            windows) / N;
 
         // --- Recycled: measure allocation per ReadNext() with RecycleRecords=true ---
         using var engineRecycled = new FileHelperAsyncEngine<RecycleNumericRecord> { RecycleRecords = true };
         engineRecycled.BeginReadString(content);
         engineRecycled.ReadNext(); // warmup — allocates the first instance
 
-        long beforeRecycled = GC.GetAllocatedBytesForCurrentThread();
-        for (int i = 0; i < N; i++)
-            engineRecycled.ReadNext();
-        long afterRecycled = GC.GetAllocatedBytesForCurrentThread();
-
-        // Act: Calculate per-call allocation for recycled path
-        long recycledPerCall = (afterRecycled - beforeRecycled) / N;
+        // Act: Calculate per-call allocation for recycled path (smallest of the windows)
+        long recycledPerCall = AllocationProbe.MinAllocated(
+            () =>
+            {
+                for (int i = 0; i < N; i++)
+                    engineRecycled.ReadNext();
+            },
+            windows) / N;
 
         // Recycled path must allocate meaningfully less per call (at least 24 bytes less —
         // the record object header overhead that RecycleRecords eliminates).

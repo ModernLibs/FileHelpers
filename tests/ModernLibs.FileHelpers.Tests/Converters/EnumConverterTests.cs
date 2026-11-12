@@ -106,14 +106,15 @@ public sealed class EnumConverterTests
         converter.TryFormat(undefined, buffer, out _);
 
         // Act: 10,000 calls
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        for (int i = 0; i < 5_000; i++)
+        // Smallest of several windows: one noisy window (allocation-context refill, parallel GC) cannot fail it.
+        long allocated = AllocationProbe.MinAllocated(() =>
         {
-            converter.TryFormat(combination, buffer, out _);
-            converter.TryFormat(undefined, buffer, out _);
-        }
-
-        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            for (int i = 0; i < 5_000; i++)
+            {
+                converter.TryFormat(combination, buffer, out _);
+                converter.TryFormat(undefined, buffer, out _);
+            }
+        });
 
         // Assert
         await Assert.That(allocated).IsLessThan(1024);

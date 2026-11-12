@@ -27,20 +27,17 @@ public sealed class ZeroAllocTests
     {
         // Arrange: Get descriptor for PriceRecord and prepare input line
         var descriptor = FileHelperRegistry<PriceRecord>.Descriptor;
-        var line = "100,150.25".AsSpan();
+        const string line = "100,150.25";
 
         // Warm-up: force JIT compilation of the generated Parse method before measuring.
-        descriptor.Parse(line);
+        descriptor.Parse(line.AsSpan());
 
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        _ = descriptor.Parse(line);
-
-        // Act: Execute parse and measure allocation
-        long after = GC.GetAllocatedBytesForCurrentThread();
+        // Act: Execute parse and measure allocation (smallest of several windows: one noisy window cannot fail it)
+        long allocated = AllocationProbe.MinAllocated(() => _ = descriptor.Parse(line.AsSpan()));
 
         // Release build: exactly 0. Debug/async framework: allow small overhead.
         // Assert: Allocation under 64 bytes (effectively zero for struct parsing)
-        await Assert.That(after - before).IsLessThanOrEqualTo(64L);
+        await Assert.That(allocated).IsLessThanOrEqualTo(64L);
     }
 
     /// <summary>

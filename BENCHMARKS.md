@@ -366,8 +366,8 @@ The benchmark project can measure another library than this repository's, with t
 | `-p:FileHelpersSourceRoot=<dir>` | the library and generator of another source tree, compiled with this repository's SDK |
 
 A build with either property defines `FILEHELPERS_BASELINE`, which leaves out the benchmarks of 4.10 APIs that 4.9.1
-does not have (the four `EngineAsyncBenchmarks` methods named above); `round.sh` reports them as "not run" in a pair
-with such a build.
+does not have (the four `EngineAsyncBenchmarks` methods named above). The Step 0 filter runs them only between 4.10
+builds; a filter line that names a pair with a 4.9.1 build gets a "not run" entry for them.
 
 `benchmarks/tools/build-baselines.sh <out-dir>` builds the 4.9.1 baselines next to the folders of
 `build-variants.sh`: `pkg-net10` and `pkg-net11` (the package, run on .NET 10 and .NET 11; the script checks that the
@@ -380,12 +380,16 @@ machine (the native toolchain included), clones this repository at the commit, b
 publishes the five folders of the Native AOT harness (`build-aot-variants.sh`, see "Native AOT timing harness"
 below) one after the other, checks each one (`verify-variant`, the start-up lines, distinct library DLLs,
 `--check-competitors`, `--check-prototypes`; for the AOT folders their `variant.txt` and `--info`) and stops with
-`VARIANT MISMATCH <dir>` or `CHECK FAILED <check> <dir>` before anything is measured. Then it runs `ab.py` with 7
-launches for every A/B pair and line of the filter file and ends with `ROUND COMPLETE <n> result files`. Filter lines of
-group `aot` run the four AOT pairs with `ab.py --aot`. The filter
-file names the pairs each glob runs in (`benchmarks/tools/filters-step0.txt` describes the format and the pairs).
-`--dry` is the local smoke run (`--smoke`, 5 launches, job Dry): `round.sh dry-local HEAD
-benchmarks/tools/filters-dry.txt --dry`. `benchmarks/tools/round-report.py <root>/raw/<round-name>` prints the report
+`VARIANT MISMATCH <dir>` or `CHECK FAILED <check> <dir>` before anything is measured. Before it writes anything it
+checks that the commit and the tag exist, that the running `round.sh` and `round_runs.py` are the commit's own copies,
+and that the filter file is valid. Then `round_runs.py` runs `ab.py` with 7 launches for every A/B pair and line of the
+filter file, the gate lines (group `prototype`) first. A failed `ab.py` run is written to `failed.txt` and the round
+goes on; the last line is `ROUND COMPLETE <n> result files, <m> FAILED` (exit code 1 when m > 0), and the same command
+with `--resume` keeps the finished result files and reruns the rest. Filter lines of group `aot` run the four AOT pairs
+with `ab.py --aot`. The filter file names the pairs each glob runs in (`benchmarks/tools/filters-step0.txt` describes
+the format and the pairs). `--max-iterations N` passes `--maxIterationCount N` to every BenchmarkDotNet launch (N above
+15, BenchmarkDotNet's `MinIterationCount`); `--job Dry` is refused without `--dry`. `--dry` is the local smoke run
+(`--smoke`, 5 launches, job Dry): `round.sh dry-local HEAD benchmarks/tools/filters-dry.txt --dry`. `benchmarks/tools/round-report.py <root>/raw/<round-name>` prints the report
 tables; [docs/benchmarks/step0-4.10.md](docs/benchmarks/step0-4.10.md) is the Step 0 report and
 [docs/benchmarks/raw/README.md](docs/benchmarks/raw/README.md) describes the raw files.
 

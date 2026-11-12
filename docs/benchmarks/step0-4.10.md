@@ -15,7 +15,9 @@ code), and decides gates R6 and G2 (design 3.1 to 3.5).
 | Commit measured | `<sha>` (`release/4.10.0`) |
 | Filter file | `benchmarks/tools/filters-step0.txt` at that commit |
 | Launches | 7 per side and benchmark method (the B4 minimum of `ab.py`), BenchmarkDotNet default job |
+| Iteration cap | `<none, or --max-iterations N (BenchmarkDotNet maxIterationCount), as the mode cell of the machine table shows>` |
 | Date | `<UTC start and end per VM>` |
+| Failed and resumed runs | `<none, or the runs listed in failed.txt and whether round.sh --resume finished them>` |
 
 Builds (each a folder of `round.sh`; the benchmark code is the same in all, only the library differs):
 
@@ -31,7 +33,9 @@ Builds (each a folder of `round.sh`; the benchmark code is the same in all, only
 | `net11-ra-off` | the 4.10 commit, `-p:FileHelpersRuntimeAsync=false` | `net11.0` | .NET 11 | off |
 
 The control source is the `v4.9.1` tag with `benchmarks/tools/control-v4.9.1.patch`: `global.json` names SDK 11 and the
-library targets `net10.0;net11.0` with the runtime-async switch of 4.10. No source file of the tag is changed. Before
+library targets `net10.0;net11.0` with the runtime-async switch of 4.10. No source file of the tag is changed, and the
+control keeps the tag's `LangVersion 14` (4.10 compiles with 15): the control measures the SDK 11 compiler on the 4.9.1
+source as it was written, not a language-version change. Before
 any measurement, `round.sh` checks every folder: `verify-variant` and the start-up lines of a process started from it
 match the folder's name, its library DLL differs from every other folder's (the two package folders hold the package's
 own DLL), and `--check-competitors` and `--check-prototypes` exit 0.
@@ -42,7 +46,7 @@ A/B pairs (`ab.py`, A and B launched alternately, one benchmark method per proce
 |---|---|---|---|
 | `free-gains` | `pkg-net10` | `pkg-net11` | Free gains of .NET 11 |
 | `sdk-net10` | `pkg-net10` | `control-net10` | Compiler and SDK effect on .NET 10 |
-| `sdk-net11` | `pkg-net11` | `control-net11-ra-on` | Compiler and SDK effect on .NET 11 (recompiled for `net11.0`) |
+| `sdk-net11` | `pkg-net11` | `control-net11-ra-on` | Compiler and SDK effect on .NET 11 (recompiled for `net11.0`); for async scenarios it includes runtime async, which `ra-control` separates |
 | `ra-control` | `control-net11-ra-off` | `control-net11-ra-on` | Runtime async on the 4.9.1 source |
 | `v410-net10` | `pkg-net10` | `net10` | 4.10 build against the package; R6 and G2 on `net10` |
 | `v410-net11` | `pkg-net11` | `net11-ra-on` | R6 and G2 on `net11-ra-on`, `R6_Current` against the package |
@@ -67,21 +71,31 @@ not B4 and is no result.
 
 ## Machines
 
-| VM | Role | Azure size | CPU | Architecture | Logical CPUs | SIMD flags | OS | Kernel | SDK | Runtimes |
-|---|---|---|---|---|---|---|---|---|---|---|
-| | x64 AVX2, reference | | | | | | | | | |
-| | x64 AVX-512 | | | | | | | | | |
-| | Arm64 | | | | | | | | | |
+The table `round-report.py` prints (paste it as it stands):
 
-The full records (`lscpu`, `uname -a`, `dotnet --info`) are in `raw/<round-name>/<vm>/machine.txt`.
+| VM | CPU | Architecture | Logical CPUs | SIMD flags | OS | Kernel | SDK | Runtimes | Commit | Mode |
+|---|---|---|---|---|---|---|---|---|---|---|
+
+Role and size of each VM (from the round request; the report builder does not know them):
+
+| VM | Role | Azure size |
+|---|---|---|
+| | x64 AVX2, reference | |
+| | x64 AVX-512 | |
+| | Arm64 | |
+
+The full records (`lscpu`, `uname -a`, `df -h`, `dotnet --info`, the native toolchain) are in
+`raw/<round-name>/<vm>/machine.txt`.
 
 ## Free gains of .NET 11
 
-4.9.1 package on .NET 10 against the same package on .NET 11 (pair `free-gains`). The baseline against which every
-4.10 claim on .NET 11 is read. One table per VM.
+4.9.1 package on .NET 10 against the same package on .NET 11 (pair `free-gains`), for every scenario a 4.9.1 build has
+(design 3.1: numbers for 4.9.1 on both runtimes). The baseline against which every 4.10 claim on .NET 11 is read. One
+table per VM. The last two columns are Gen0 / Gen1 / Gen2 (collections per 1,000 operations; `-` is zero) and the bytes
+allocated per operation on each runtime (design 3.1 B1).
 
-| Scenario | 4.9.1 on .NET 10 | 4.9.1 on .NET 11 | 11/10 [99.9 % CI] | verdict |
-|---|---|---|---|---|
+| Scenario | 4.9.1 on .NET 10 | 4.9.1 on .NET 11 | 11/10 [99.9 % CI] | verdict | Gen0 / Gen1 / Gen2; allocated, 4.9.1 on .NET 10 | Gen0 / Gen1 / Gen2; allocated, 4.9.1 on .NET 11 |
+|---|---|---|---|---|---|---|
 
 ## Compiler and SDK effect
 
@@ -213,9 +227,10 @@ not built.
 | Build | Rows | G2_Current | G2_SingleSpan | ratio [99.9 % CI] | gate (at least 10 % faster) |
 |---|---|---|---|---|---|
 
-**The prototype does not include P5.** `G2_SingleSpan` still copies each record from the engine's record buffer into
-the result (it does not format straight into the `PooledStringWriter` chunk), so it measures G2 without P5. A result
-just under 10 % understates what Phase 3 (G2, G3 and P5 together) can give; the decision should say so.
+**The prototype does not include P5.** `round-report.py` prints this note under the G2 table: `G2_SingleSpan` still
+copies each record from the engine's record buffer into the result (it does not format straight into the
+`PooledStringWriter` chunk), so it measures G2 without P5. A result just under 10 % understates what Phase 3 (G2, G3
+and P5 together) can give; the decision should say so. Only the 100K row is a gate row.
 
 Decision: `<meets or misses, with the ratios of the two VMs>`. If the gate fails, `RecordWriter` and
 `IRecordWriterDescriptor<T>` are not built, G3 and G4 use static helpers that take `IBufferWriter<char>`, and P5 is
@@ -260,16 +275,37 @@ whether it is slower than the largest control deviation of the same pair ("beyon
 Time per row at 10K and at 100K rows, per build, for every scenario measured at both sizes; CsvHelper
 (`DelimitedParseBenchmarks.CsvHelper_ParseAndDiscard`) is the reference whose growth is smaller (design 3.1).
 
-| Benchmark | Build | 10K rows: ns per row | 100K rows: ns per row | 100K/10K |
-|---|---|---|---|---|
+| Benchmark | Build | 10K rows: ns per row | 100K rows: ns per row | 100K/10K | 10K: Gen0 / Gen1 / Gen2; allocated | 100K: Gen0 / Gen1 / Gen2; allocated |
+|---|---|---|---|---|---|---|
+
+The last two columns (Gen0, Gen1, Gen2 per 1,000 operations and bytes allocated per row) compare `net10` with
+`net11-ra-on` and the 4.9.1 package (design 3.1 B1); a growth in Gen1 or Gen2 collections from 10K to 100K is the first
+thing to check for the slope.
 
 Explanation: `<to be written from the numbers; not a guess>`.
 
+## GC and allocation
+
+Gen0, Gen1 and Gen2 (collections per 1,000 operations) and bytes allocated per operation of every BenchmarkDotNet case
+and build (design 3.1 B1), from the BenchmarkDotNet reports in the `*.runs` folders; the median over the launches.
+
+| Scenario | Build | Gen0 | Gen1 | Gen2 | Allocated per operation |
+|---|---|---|---|---|---|
+
 ## Not run
 
-Globs of the filter file that selected nothing in one build of a pair (from `not-run.txt`).
+Globs of the filter file that selected nothing in one build of a pair (from `not-run.txt`), and methods that `ab.py`
+found in one build of a pair only (`only_in_a`, `only_in_b`).
 
 | Pair | Group | Glob | Reason |
+|---|---|---|---|
+
+## Failed
+
+`ab.py` runs that failed (from `failed.txt`); the round went on without them. `round.sh ... --resume` reruns them and
+keeps every finished result. A final report has this table empty.
+
+| Pair | Group | Glob | Log |
 |---|---|---|---|
 
 ## Reproducing
@@ -277,6 +313,7 @@ Globs of the filter file that selected nothing in one build of a pair (from `not
 On each VM (see [raw/README.md](raw/README.md) for the layout of the raw files):
 
 ```bash
-benchmarks/tools/round.sh <round-name> <sha> benchmarks/tools/filters-step0.txt --vm <vm-name>
+benchmarks/tools/round.sh <round-name> <sha> benchmarks/tools/filters-step0.txt --vm <vm-name> [--max-iterations N]
+# after "ROUND COMPLETE <n> result files, <m> FAILED" with m > 0: the same command with --resume
 python3 -I benchmarks/tools/round-report.py ~/fh-round/raw/<round-name> > section.md
 ```

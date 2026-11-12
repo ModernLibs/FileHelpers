@@ -78,8 +78,8 @@ public class EngineAsyncBenchmarks
 #if !FILEHELPERS_BASELINE
     // WriteStreamAsync, ReadAsync(Stream) and ReadAsync(TextReader) are new in 4.10: a build against the 4.9.1 package
     // or source (round.sh baselines, FILEHELPERS_BASELINE) has none of the benchmarks between here and #endif, nor
-    // Engine_WriteStreamAsync_Null and Engine_WriteStreamAsync_Null_SourceThrows below, and round.sh reports them as
-    // "not run" in a pair with such a build.
+    // Engine_WriteStreamAsync_Null and Engine_WriteStreamAsync_Null_SourceThrows below. The Step 0 filter runs them
+    // only between 4.10 builds; a filter line that named a pair with a 4.9.1 build would get a "not run" entry.
     [GlobalSetup(Target = nameof(Engine_WriteStreamAsync_Null))]
     public async Task SetupWriteStreamAsync()
     {

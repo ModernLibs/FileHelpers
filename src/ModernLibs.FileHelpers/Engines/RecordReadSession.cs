@@ -31,7 +31,6 @@ internal sealed class RecordReadSession<T> : IDisposable
     private readonly object _sender;
     private readonly IRecordReadHost<T>? _host;
     private readonly ErrorManager _errors;
-    private readonly string _newLine;
     private readonly int _maxRecords;
     private readonly int _lineOffset;
     private readonly bool _hasBeforeRead;
@@ -69,7 +68,6 @@ internal sealed class RecordReadSession<T> : IDisposable
     /// <param name="sender">Engine passed as event sender.</param>
     /// <param name="host">Engine hooks; <see langword="null"/> for headless parsing (parallel chunks, multi-record).</param>
     /// <param name="errors">Error sink honouring <see cref="ErrorManager.ErrorMode"/>.</param>
-    /// <param name="newLine">Separator used to join multi-line header/footer text.</param>
     /// <param name="maxRecords">Stop after this many records; <c>&lt;= 0</c> = no limit.</param>
     /// <param name="applyHeaderFooter"><see langword="false"/> for chunks of an input whose header/footer were already removed.</param>
     /// <param name="lineOffset">Added to physical line numbers (parallel chunks).</param>
@@ -78,7 +76,6 @@ internal sealed class RecordReadSession<T> : IDisposable
         object sender,
         IRecordReadHost<T>? host,
         ErrorManager errors,
-        string newLine,
         int maxRecords,
         bool applyHeaderFooter = true,
         int lineOffset = 0)
@@ -87,7 +84,6 @@ internal sealed class RecordReadSession<T> : IDisposable
         _sender = sender;
         _host = host;
         _errors = errors;
-        _newLine = newLine;
         _maxRecords = maxRecords;
         _lineOffset = lineOffset;
         _hasBeforeRead = host?.BeforeReadHandler is not null || RecordReadCore<T>.HasNotifyRead;
@@ -239,11 +235,9 @@ internal sealed class RecordReadSession<T> : IDisposable
 
     private void AppendHeader(ReadOnlySpan<char> line)
     {
-        if (_header is null)
-            _header = new StringBuilder(line.Length + 2);
-        else
-            _header.Append(_newLine);
-        _header.Append(line);
+        // As in 3.x: every captured line is followed by Environment.NewLine, the last one included.
+        _header ??= new StringBuilder(line.Length + 2);
+        _header.Append(line).Append(Environment.NewLine);
 
         if (--_headerRemaining == 0)
             _host?.OnHeaderText(_header.ToString());
@@ -251,11 +245,8 @@ internal sealed class RecordReadSession<T> : IDisposable
 
     private void AppendFooter(ReadOnlySpan<char> line)
     {
-        if (_footer is null)
-            _footer = new StringBuilder(line.Length + 2);
-        else
-            _footer.Append(_newLine);
-        _footer.Append(line);
+        _footer ??= new StringBuilder(line.Length + 2);
+        _footer.Append(line).Append(Environment.NewLine);
     }
 
     private void PublishFooter()
@@ -272,10 +263,8 @@ internal sealed class RecordReadSession<T> : IDisposable
         var footer = new StringBuilder();
         for (int i = 0; i < _ringCount; i++)
         {
-            if (i > 0)
-                footer.Append(_newLine);
             int slot = (_ringStart + i) % _footerLines;
-            footer.Append(_ringText![slot].AsSpan(0, _ringLength![slot]));
+            footer.Append(_ringText![slot].AsSpan(0, _ringLength![slot])).Append(Environment.NewLine);
         }
 
         _host?.OnFooterText(footer.ToString());

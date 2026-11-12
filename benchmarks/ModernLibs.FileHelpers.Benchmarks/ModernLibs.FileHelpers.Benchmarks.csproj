@@ -1,11 +1,25 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
     <OutputType>Exe</OutputType>
     <!--
       Warnings are errors here too (Directory.Build.props). The analyzer rules that do not fit
       benchmark code are relaxed, with reasons, in this project's .editorconfig.
     -->
+  </PropertyGroup>
+  <!--
+    Which ModernLibs.FileHelpers the suite measures (T12, Step 0 round). By default: this repository's library and
+    generator. Two baselines replace both, for benchmarks/tools/round.sh:
+      -p:FileHelpersPackageVersion=4.9.1   the published package (its lib/ and the generator it bundles)
+      -p:FileHelpersSourceRoot=<dir>       the library and generator of another source tree, for example the v4.9.1
+                                           tag compiled with this repository's SDK (the "control" build)
+    Program.cs prints which library a process loaded, so the start-up lines prove which one was measured.
+    A baseline build defines FILEHELPERS_BASELINE, which leaves out the benchmarks of APIs that 4.9.1 does not have.
+  -->
+  <PropertyGroup>
+    <DefineConstants Condition="'$(FileHelpersPackageVersion)' != '' or '$(FileHelpersSourceRoot)' != ''">$(DefineConstants);FILEHELPERS_BASELINE</DefineConstants>
+    <_FileHelpersSrc>../../src/</_FileHelpersSrc>
+    <_FileHelpersSrc Condition="'$(FileHelpersSourceRoot)' != ''">$([MSBuild]::EnsureTrailingSlash('$(FileHelpersSourceRoot)'))src/</_FileHelpersSrc>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" />
@@ -13,10 +27,27 @@
     <PackageReference Include="CsvHelper" />
     <PackageReference Include="FileHelpers" />
     <PackageReference Include="Sep" />
-    <ProjectReference Include="../../src/ModernLibs.FileHelpers/ModernLibs.FileHelpers.csproj" />
+    <PackageReference Include="FlameCsv" />
+    <PackageReference Include="RecordParser" />
+    <PackageReference Include="NReco.Csv" />
+    <PackageReference Include="TinyCsvParser" />
+    <PackageReference Include="Cursively" />
+    <PackageReference Include="LumenWorksCsvReader" />
+    <PackageReference Include="FlatFiles" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(FileHelpersPackageVersion)' == ''">
+    <ProjectReference Include="$(_FileHelpersSrc)ModernLibs.FileHelpers/ModernLibs.FileHelpers.csproj" />
     <!-- Generator reference so [DelimitedRecord]/[FixedLengthRecord] types in benchmarks get descriptors -->
-    <ProjectReference Include="../../src/ModernLibs.FileHelpers.Generator/ModernLibs.FileHelpers.Generator.csproj"
+    <ProjectReference Include="$(_FileHelpersSrc)ModernLibs.FileHelpers.Generator/ModernLibs.FileHelpers.Generator.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
   </ItemGroup>
+  <ItemGroup Condition="'$(FileHelpersPackageVersion)' != ''">
+    <!-- The package brings its own generator (analyzers/dotnet/cs). -->
+    <PackageReference Include="ModernLibs.FileHelpers" VersionOverride="$(FileHelpersPackageVersion)" />
+  </ItemGroup>
+  <Target Name="_FileHelpersCheckBaseline" BeforeTargets="CollectPackageReferences;ResolveProjectReferences"
+          Condition="'$(FileHelpersPackageVersion)' != '' and '$(FileHelpersSourceRoot)' != ''">
+    <Error Text="Set FileHelpersPackageVersion or FileHelpersSourceRoot, not both." />
+  </Target>
 </Project>

@@ -58,7 +58,7 @@ public sealed class FieldAlignDelimitedTests
     public async Task WriteString_DelimitedLeftAlignment_PadsField()
     {
         // Arrange: Create delimited engine with aligned fields
-        var engine = new FileHelperEngine<AlignedWithFixedLengthRecord>();
+        var engine = new FileHelperEngine<AlignedWithFixedLengthRecord> { NewLineForWrite = "\r\n" };
         var records = new[] { new AlignedWithFixedLengthRecord { Name = "ABC", Value = 123 } };
 
         // Act: Format record
@@ -75,7 +75,7 @@ public sealed class FieldAlignDelimitedTests
     {
         // Arrange: Create delimited engine with right-aligned field
         // Using a record with FixedLength and Right alignment
-        var engine = new FileHelperEngine<AlignedWithFixedLengthRecord>();
+        var engine = new FileHelperEngine<AlignedWithFixedLengthRecord> { NewLineForWrite = "\r\n" };
         var records = new[]
         {
             new AlignedWithFixedLengthRecord { Name = "XYZ", Value = 456 }
@@ -130,7 +130,7 @@ public sealed class FieldAlignDelimitedTests
     public async Task WriteString_MultipleAlignedFields_FormatsCorrectly()
     {
         // Arrange: Create engine with both fields having alignment
-        var engine = new FileHelperEngine<AlignedDelimitedRecord>();
+        var engine = new FileHelperEngine<AlignedDelimitedRecord> { NewLineForWrite = "\r\n" };
         var records = new[] { new AlignedDelimitedRecord { Name = "Name", Value = 99 } };
 
         // Act: Format record

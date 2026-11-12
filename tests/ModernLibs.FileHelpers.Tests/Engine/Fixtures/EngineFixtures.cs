@@ -320,3 +320,10 @@ internal sealed class SimpleWithIgnoreEmpty
     [FieldOrder(1)]
     public string Name = string.Empty;
 }
+
+/// <summary>A one-field record whose text is written as it is (no quoting), for the surrogate-pair test.</summary>
+[DelimitedRecord(",")]
+internal sealed class SurrogateTail
+{
+    [FieldOrder(1)] public string Text = string.Empty;
+}

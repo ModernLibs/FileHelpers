@@ -1,0 +1,301 @@
+#### 0 valid read
+record:Id=1|Name="a"|Amount=1.5|Flag=True
+record:Id=2|Name="b"|Amount=<null>|Flag=False
+record:Id=3|Name="c"|Amount=-0.25|Flag=True
+header:<null>
+footer:<null>
+line:3
+total:3
+recycled-record:Id=1|Name="a"|Amount=1.5|Flag=True
+recycled-record:Id=2|Name="b"|Amount=<null>|Flag=False
+recycled-record:Id=3|Name="c"|Amount=-0.25|Flag=True
+recycled-count:3
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:3
+recycled-total:3
+thrown-count:3
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:3
+thrown-total:3
+#### 0 valid round-trip
+written:1,a,1.5,True\r\n2,b,,False\r\n3,c,-0.25,True\r\n
+header:<null>
+footer:<null>
+line:3
+total:3
+written-extra:nulls:1,,,False\r\n
+written-extra:line-break-unquoted:2,a\nb,10000000000,True\r\n
+#### 1 short-row read
+record:Id=1|Name="a"|Amount=1.5|Flag=True
+record:Id=1|Name="a"|Amount=1.5|Flag=True
+record:Id=2|Name="b"|Amount=<null>|Flag=False
+record:Id=3|Name="c"|Amount=-0.25|Flag=True
+error:2:FileHelpersException:Line: 2. Expected 4 fields but found 2 in line: '4,d'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:4,d
+header:<null>
+footer:<null>
+line:5
+total:4
+recycled-record:Id=1|Name="a"|Amount=1.5|Flag=True
+recycled-record:Id=1|Name="a"|Amount=1.5|Flag=True
+recycled-record:Id=2|Name="b"|Amount=<null>|Flag=False
+recycled-record:Id=3|Name="c"|Amount=-0.25|Flag=True
+recycled-count:4
+recycled-error:2:FileHelpersException:Line: 2. Expected 4 fields but found 2 in line: '4,d'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:4,d
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:5
+recycled-total:4
+thrown-throw:FileHelpersException:Line: 2. Expected 4 fields but found 2 in line: '4,d'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 1 short-row round-trip
+written:1,a,1.5,True\r\n1,a,1.5,True\r\n2,b,,False\r\n3,c,-0.25,True\r\n
+error:2:FileHelpersException:Line: 2. Expected 4 fields but found 2 in line: '4,d'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:4,d
+header:<null>
+footer:<null>
+line:5
+total:4
+written-extra:nulls:1,,,False\r\n
+written-extra:line-break-unquoted:2,a\nb,10000000000,True\r\n
+#### 2 long-row read
+record:Id=1|Name="a"|Amount=1.5|Flag=True
+record:Id=1|Name="a"|Amount=1.5|Flag=True
+record:Id=2|Name="b"|Amount=<null>|Flag=False
+record:Id=3|Name="c"|Amount=-0.25|Flag=True
+error:2:BadUsageException:Line: 2. Expected 4 fields but found 5 in line: '5,e,1,true,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:5,e,1,true,x
+header:<null>
+footer:<null>
+line:5
+total:4
+recycled-record:Id=1|Name="a"|Amount=1.5|Flag=True
+recycled-record:Id=1|Name="a"|Amount=1.5|Flag=True
+recycled-record:Id=2|Name="b"|Amount=<null>|Flag=False
+recycled-record:Id=3|Name="c"|Amount=-0.25|Flag=True
+recycled-count:4
+recycled-error:2:BadUsageException:Line: 2. Expected 4 fields but found 5 in line: '5,e,1,true,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:5,e,1,true,x
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:5
+recycled-total:4
+thrown-throw:BadUsageException:Line: 2. Expected 4 fields but found 5 in line: '5,e,1,true,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 2 long-row round-trip
+written:1,a,1.5,True\r\n1,a,1.5,True\r\n2,b,,False\r\n3,c,-0.25,True\r\n
+error:2:BadUsageException:Line: 2. Expected 4 fields but found 5 in line: '5,e,1,true,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:5,e,1,true,x
+header:<null>
+footer:<null>
+line:5
+total:4
+written-extra:nulls:1,,,False\r\n
+written-extra:line-break-unquoted:2,a\nb,10000000000,True\r\n
+#### 3 bad-values read
+record:Id=1|Name="a"|Amount=1.5|Flag=True
+record:Id=1|Name="a"|Amount=1.5|Flag=True
+record:Id=2|Name="b"|Amount=<null>|Flag=False
+record:Id=3|Name="c"|Amount=-0.25|Flag=True
+error:2:ConvertException:Line: 2. Column: 7. Field: Flag. Error Converting 'maybe' to type: 'Boolean'. :6,f,1,maybe
+error:3:ConvertException:Line: 3. Column: 5. Field: Amount. Error Converting '1e' to type: 'Decimal'. :7,g,1e,true
+header:<null>
+footer:<null>
+line:6
+total:4
+recycled-record:Id=1|Name="a"|Amount=1.5|Flag=True
+recycled-record:Id=1|Name="a"|Amount=1.5|Flag=True
+recycled-record:Id=2|Name="b"|Amount=<null>|Flag=False
+recycled-record:Id=3|Name="c"|Amount=-0.25|Flag=True
+recycled-count:4
+recycled-error:2:ConvertException:Line: 2. Column: 7. Field: Flag. Error Converting 'maybe' to type: 'Boolean'. :6,f,1,maybe
+recycled-error:3:ConvertException:Line: 3. Column: 5. Field: Amount. Error Converting '1e' to type: 'Decimal'. :7,g,1e,true
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:6
+recycled-total:4
+thrown-throw:ConvertException:Line: 2. Column: 7. Field: Flag. Error Converting 'maybe' to type: 'Boolean'. 
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 3 bad-values round-trip
+written:1,a,1.5,True\r\n1,a,1.5,True\r\n2,b,,False\r\n3,c,-0.25,True\r\n
+error:2:ConvertException:Line: 2. Column: 7. Field: Flag. Error Converting 'maybe' to type: 'Boolean'. :6,f,1,maybe
+error:3:ConvertException:Line: 3. Column: 5. Field: Amount. Error Converting '1e' to type: 'Decimal'. :7,g,1e,true
+header:<null>
+footer:<null>
+line:6
+total:4
+written-extra:nulls:1,,,False\r\n
+written-extra:line-break-unquoted:2,a\nb,10000000000,True\r\n
+#### 4 unclosed-quote read
+record:Id=1|Name="a"|Amount=1.5|Flag=True
+record:Id=8|Name=""h"|Amount=1|Flag=True
+record:Id=1|Name="a"|Amount=1.5|Flag=True
+record:Id=2|Name="b"|Amount=<null>|Flag=False
+record:Id=3|Name="c"|Amount=-0.25|Flag=True
+header:<null>
+footer:<null>
+line:5
+total:5
+recycled-record:Id=1|Name="a"|Amount=1.5|Flag=True
+recycled-record:Id=8|Name=""h"|Amount=1|Flag=True
+recycled-record:Id=1|Name="a"|Amount=1.5|Flag=True
+recycled-record:Id=2|Name="b"|Amount=<null>|Flag=False
+recycled-record:Id=3|Name="c"|Amount=-0.25|Flag=True
+recycled-count:5
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:5
+recycled-total:5
+thrown-count:5
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:5
+thrown-total:5
+#### 4 unclosed-quote round-trip
+written:1,a,1.5,True\r\n8,"h,1,True\r\n1,a,1.5,True\r\n2,b,,False\r\n3,c,-0.25,True\r\n
+header:<null>
+footer:<null>
+line:5
+total:5
+written-extra:nulls:1,,,False\r\n
+written-extra:line-break-unquoted:2,a\nb,10000000000,True\r\n
+#### 5 empty-line read
+record:Id=1|Name="a"|Amount=1.5|Flag=True
+record:Id=1|Name="a"|Amount=1.5|Flag=True
+record:Id=2|Name="b"|Amount=<null>|Flag=False
+record:Id=3|Name="c"|Amount=-0.25|Flag=True
+error:2:FileHelpersException:Line: 2. Expected 4 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+header:<null>
+footer:<null>
+line:5
+total:4
+recycled-record:Id=1|Name="a"|Amount=1.5|Flag=True
+recycled-record:Id=1|Name="a"|Amount=1.5|Flag=True
+recycled-record:Id=2|Name="b"|Amount=<null>|Flag=False
+recycled-record:Id=3|Name="c"|Amount=-0.25|Flag=True
+recycled-count:4
+recycled-error:2:FileHelpersException:Line: 2. Expected 4 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:5
+recycled-total:4
+thrown-throw:FileHelpersException:Line: 2. Expected 4 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 5 empty-line round-trip
+written:1,a,1.5,True\r\n1,a,1.5,True\r\n2,b,,False\r\n3,c,-0.25,True\r\n
+error:2:FileHelpersException:Line: 2. Expected 4 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+header:<null>
+footer:<null>
+line:5
+total:4
+written-extra:nulls:1,,,False\r\n
+written-extra:line-break-unquoted:2,a\nb,10000000000,True\r\n
+#### 6 empty-input read
+header:<null>
+footer:<null>
+line:0
+total:0
+recycled-count:0
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:0
+recycled-total:0
+thrown-count:0
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:0
+thrown-total:0
+#### 6 empty-input round-trip
+written:
+header:<null>
+footer:<null>
+line:0
+total:0
+written-extra:nulls:1,,,False\r\n
+written-extra:line-break-unquoted:2,a\nb,10000000000,True\r\n
+#### 7 lf-no-final-line-end read
+record:Id=1|Name="a"|Amount=1.5|Flag=True
+record:Id=2|Name="b"|Amount=<null>|Flag=False
+record:Id=3|Name="c"|Amount=-0.25|Flag=True
+header:<null>
+footer:<null>
+line:3
+total:3
+recycled-record:Id=1|Name="a"|Amount=1.5|Flag=True
+recycled-record:Id=2|Name="b"|Amount=<null>|Flag=False
+recycled-record:Id=3|Name="c"|Amount=-0.25|Flag=True
+recycled-count:3
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:3
+recycled-total:3
+thrown-count:3
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:3
+thrown-total:3
+#### 7 lf-no-final-line-end round-trip
+written:1,a,1.5,True\r\n2,b,,False\r\n3,c,-0.25,True\r\n
+header:<null>
+footer:<null>
+line:3
+total:3
+written-extra:nulls:1,,,False\r\n
+written-extra:line-break-unquoted:2,a\nb,10000000000,True\r\n
+#### 8 all-together read
+record:Id=1|Name="a"|Amount=1.5|Flag=True
+record:Id=2|Name="b"|Amount=<null>|Flag=False
+record:Id=3|Name="c"|Amount=-0.25|Flag=True
+record:Id=8|Name=""h"|Amount=1|Flag=True
+record:Id=1|Name="a"|Amount=1.5|Flag=True
+error:4:FileHelpersException:Line: 4. Expected 4 fields but found 2 in line: '4,d'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:4,d
+error:5:BadUsageException:Line: 5. Expected 4 fields but found 5 in line: '5,e,1,true,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:5,e,1,true,x
+error:6:ConvertException:Line: 6. Column: 7. Field: Flag. Error Converting 'maybe' to type: 'Boolean'. :6,f,1,maybe
+error:7:ConvertException:Line: 7. Column: 5. Field: Amount. Error Converting '1e' to type: 'Decimal'. :7,g,1e,true
+error:8:FileHelpersException:Line: 8. Expected 4 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+header:<null>
+footer:<null>
+line:10
+total:5
+recycled-record:Id=1|Name="a"|Amount=1.5|Flag=True
+recycled-record:Id=2|Name="b"|Amount=<null>|Flag=False
+recycled-record:Id=3|Name="c"|Amount=-0.25|Flag=True
+recycled-record:Id=8|Name=""h"|Amount=1|Flag=True
+recycled-record:Id=1|Name="a"|Amount=1.5|Flag=True
+recycled-count:5
+recycled-error:4:FileHelpersException:Line: 4. Expected 4 fields but found 2 in line: '4,d'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:4,d
+recycled-error:5:BadUsageException:Line: 5. Expected 4 fields but found 5 in line: '5,e,1,true,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:5,e,1,true,x
+recycled-error:6:ConvertException:Line: 6. Column: 7. Field: Flag. Error Converting 'maybe' to type: 'Boolean'. :6,f,1,maybe
+recycled-error:7:ConvertException:Line: 7. Column: 5. Field: Amount. Error Converting '1e' to type: 'Decimal'. :7,g,1e,true
+recycled-error:8:FileHelpersException:Line: 8. Expected 4 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:10
+recycled-total:5
+thrown-throw:FileHelpersException:Line: 4. Expected 4 fields but found 2 in line: '4,d'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:3
+thrown-total:3
+#### 8 all-together round-trip
+written:1,a,1.5,True\r\n2,b,,False\r\n3,c,-0.25,True\r\n8,"h,1,True\r\n1,a,1.5,True\r\n
+error:4:FileHelpersException:Line: 4. Expected 4 fields but found 2 in line: '4,d'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:4,d
+error:5:BadUsageException:Line: 5. Expected 4 fields but found 5 in line: '5,e,1,true,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:5,e,1,true,x
+error:6:ConvertException:Line: 6. Column: 7. Field: Flag. Error Converting 'maybe' to type: 'Boolean'. :6,f,1,maybe
+error:7:ConvertException:Line: 7. Column: 5. Field: Amount. Error Converting '1e' to type: 'Decimal'. :7,g,1e,true
+error:8:FileHelpersException:Line: 8. Expected 4 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+header:<null>
+footer:<null>
+line:10
+total:5
+written-extra:nulls:1,,,False\r\n
+written-extra:line-break-unquoted:2,a\nb,10000000000,True\r\n

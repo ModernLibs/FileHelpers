@@ -23,7 +23,7 @@ public sealed class WriteFramingTests
         // Arrange: file written with a header/footer; engine still holds both texts
         string path = TempPath();
         await File.WriteAllTextAsync(path, "HEAD\r\n1,a\r\nFOOT\r\n");
-        using var engine = new FileHelperAsyncEngine<RcRecord> { HeaderText = "HEAD", FooterText = "FOOT" };
+        using var engine = new FileHelperAsyncEngine<RcRecord> { NewLineForWrite = "\r\n", HeaderText = "HEAD", FooterText = "FOOT" };
 
         // Act: append one record
         string content;
@@ -39,9 +39,11 @@ public sealed class WriteFramingTests
             File.Delete(path);
         }
 
-        // Assert: only the record was appended
+        // Assert: only the record was appended; HeaderText/FooterText are "" afterwards, as 3.5.2 BeginAppendToFile
+        // leaves them (probed in T49: header=[] footer=[] after BeginAppendToFile and after Close)
         await Assert.That(content).IsEqualTo("HEAD\r\n1,a\r\nFOOT\r\n2,b\r\n");
-        await Assert.That(engine.HeaderText).IsNull();
+        await Assert.That(engine.HeaderText).IsEqualTo(string.Empty);
+        await Assert.That(engine.FooterText).IsEqualTo(string.Empty);
     }
 
     [Test]
@@ -51,7 +53,7 @@ public sealed class WriteFramingTests
         // Arrange: existing file without a final line terminator
         string path = TempPath();
         await File.WriteAllTextAsync(path, "1,a");
-        var engine = new FileHelperEngine<RcRecord>();
+        var engine = new FileHelperEngine<RcRecord> { NewLineForWrite = "\r\n" };
 
         // Act: append through both overloads
         string content;
@@ -76,9 +78,9 @@ public sealed class WriteFramingTests
     public async Task HeaderFooter_EmptyAndNewlineTerminated()
     {
         // Arrange: one engine with empty texts, one with newline-terminated texts
-        var empty = new FileHelperEngine<RcRecord> { HeaderText = string.Empty, FooterText = string.Empty };
-        var terminated = new FileHelperEngine<RcRecord> { HeaderText = "H\r\n", FooterText = "F\r\n" };
-        using var streaming = new FileHelperAsyncEngine<RcRecord> { HeaderText = "H\r\n", FooterText = string.Empty };
+        var empty = new FileHelperEngine<RcRecord> { NewLineForWrite = "\r\n", HeaderText = string.Empty, FooterText = string.Empty };
+        var terminated = new FileHelperEngine<RcRecord> { NewLineForWrite = "\r\n", HeaderText = "H\r\n", FooterText = "F\r\n" };
+        using var streaming = new FileHelperAsyncEngine<RcRecord> { NewLineForWrite = "\r\n", HeaderText = "H\r\n", FooterText = string.Empty };
         RcRecord[] records = [new RcRecord { Id = 1, Name = "a" }];
 
         // Act: write with each
@@ -103,7 +105,7 @@ public sealed class WriteFramingTests
         await File.WriteAllTextAsync(path, "1,a");
         try
         {
-            using var engine = new FileHelperAsyncEngine<RcRecord>();
+            using var engine = new FileHelperAsyncEngine<RcRecord> { NewLineForWrite = "\r\n" };
 
             // Act
             engine.BeginAppendFile(path);
@@ -125,7 +127,7 @@ public sealed class WriteFramingTests
     {
         // Arrange: WriteFile with no records leaves just the UTF-8 BOM
         string path = TempPath();
-        var engine = new FileHelperEngine<RcRecord>();
+        var engine = new FileHelperEngine<RcRecord> { NewLineForWrite = "\r\n" };
         engine.WriteFile(path, []);
         try
         {

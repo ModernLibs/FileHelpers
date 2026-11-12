@@ -19,6 +19,124 @@ file.
 
 ## [Unreleased]
 
+### Added
+
+- **`[FieldTrim(..., TrimGivenChars = true)]` trims the given characters from the value on read.**
+  As in FileHelpers 3.x, the characters of `[FieldTrim(mode, chars...)]` are not trimmed from the value
+  by default: only white space is, and the characters are skipped only in front of the opening quote of a
+  `[FieldQuoted]` field. With the new opt-in property they are trimmed per `TrimMode` after quote removal,
+  for quoted and unquoted values: `[FieldTrim(TrimMode.Both, 'x', ' ', TrimGivenChars = true)]` reads
+  `xxCODExx ` and (with `[FieldQuoted]`) `"xx CODE xx"` as `CODE`. A quote character in the list is trimmed
+  after unquoting and no longer reported as `MLFH033`. Writing is unchanged. Without the property, reading
+  and the generated code are exactly as in 4.9.1. See the
+  [migration guide](docs/MIGRATION.md#trim-characters-and-trimgivenchars).
+  New members: `FieldTrimAttribute.TrimGivenChars`, `FieldDescriptor.TrimGivenChars`.
+- **`ReadStream(Stream)` and `ReadStream(Stream, int maxRecords)`** on `FileHelperEngine<T>` and, as
+  default interface members, on `IFileHelperEngine<T>`. They read from the stream's current position to
+  its end and decode with the engine's `Encoding`; a byte order mark takes precedence. The stream is
+  not disposed.
+- **`ReadAsync(Stream)` and `ReadAsync(TextReader)`** on `FileHelperEngine<T>` and
+  `FileHelperAsyncEngine<T>`, as `IAsyncEnumerable<T>` with a `CancellationToken`. They read with
+  asynchronous I/O only, give the records, errors, `HeaderText`, `FooterText` and `LineNumber` of the
+  synchronous reads, and never dispose the stream or reader, also when the loop ends early or is
+  cancelled. The stream is read from its current position with the engine's `Encoding`; a byte order
+  mark takes precedence. The input is read ahead in blocks, so after an early exit its position is
+  past the last record returned. The interfaces are unchanged.
+- **`WriteStreamAsync(TextWriter, records)` and `WriteStreamAsync(Stream, records)`** on
+  `FileHelperEngine<T>`, with a `CancellationToken`. They write the text of `WriteStream` (header,
+  footer and write events included) with asynchronous writes only; to a stream, the bytes `WriteFile`
+  writes, preamble included. Records are buffered and written when 16,384 characters or more are
+  buffered, and at the end, so each write receives whole records. To a stream, each block is encoded
+  and written with one `Stream.WriteAsync` call and the token is checked before each record and each
+  block: a cancellation leaves whole records in the stream, and nothing (not even the preamble) is
+  written when the token is cancelled before the call. A stream that writes part of a buffer before
+  it honours the cancellation is outside the engine's control. To a `TextWriter`, how the writer
+  passes a block on (a `StreamWriter` may split it) is up to the writer. If the records, an event or
+  the formatting throw, the records before it are written and the original exception is rethrown,
+  also when that last write fails. The writer or stream is not disposed.
+- **Six `Read*AsList` methods** on `FileHelperEngine<T>` and, as default interface members, on
+  `IFileHelperEngine<T>`. They read into a `List<T>` instead of an array, as 3.x `ReadFileAsList` and its
+  siblings did: `ReadFileAsList(string filePath)`, `ReadFileAsList(string filePath, int maxRecords)`,
+  `ReadStringAsList(string content)`, `ReadStringAsList(string content, int maxRecords)`,
+  `ReadStreamAsList(TextReader reader)` and `ReadStreamAsList(TextReader reader, int maxRecords)`.
+  Each returns `List<T>`.
+- **`GetFileHeader()`** on `FileHelperEngine<T>` and `FileHelperAsyncEngine<T>`. It builds the header
+  line that FileHelpers 3.x `GetFileHeader()` returns: the caption (`[FieldCaption]`, else the member
+  name) of every field joined with one separator (the delimiter of the first field for a delimited
+  record, a tab for a fixed-length record), without quoting or a line terminator. It does not read or
+  set `HeaderText`: assign the result yourself to write the header with the records.
+- **A `net11.0` asset, compiled with runtime async.** The package now contains `lib/net10.0` and
+  `lib/net11.0`. The `net11.0` assembly is compiled with the C# `runtime-async` feature, so its `async`
+  methods use the runtime's async support instead of compiler-generated state machines. The `net10.0`
+  asset is unchanged. To build the `net11.0` library without runtime async (for a patch build), pass
+  `-p:FileHelpersRuntimeAsync=false`; CI builds and tests that variant too.
+
+### Changed
+
+- **Breaking:** Newline, header text and footer text follow FileHelpers 3.x (3.5.2).
+  - `NewLineForWrite` defaults to `Environment.NewLine`. This is a behaviour change on Linux and macOS
+    relative to 4.8-4.9.1: the engines now write `"\n"` there, where 4.8.0 to 4.9.1 wrote `"\r\n"` on
+    every platform. Windows output is unchanged. Set `NewLineForWrite = "\r\n"` to keep 4.9.1 output,
+    with one exception on Linux and macOS: a `HeaderText`/`FooterText` captured on read keeps `"\n"` after
+    each line, so writing it back gives mixed line endings. Set the text yourself before the write, for
+    example `engine.HeaderText = engine.HeaderText.Replace(Environment.NewLine, "\r\n")`. The mirror
+    case exists on Windows: a `HeaderText`/`FooterText` captured on read keeps `"\r\n"`, so a read-then-write
+    with `NewLineForWrite = "\n"` gives mixed line endings; replace `Environment.NewLine` with `"\n"` the same way.
+  - The default applies to `FileHelperEngine<T>`, `FileHelperAsyncEngine<T>`, `MultiRecordEngine` and
+    `MasterDetailEngine`. It covers every write path: `WriteString`, `WriteStream`, `WriteStreamAsync`,
+    `WriteFile`, `AppendToFile`, `BeginWrite*`/`BeginAppendFile`, the header and footer, and the line
+    break inside `[FieldInNewLine]` records.
+  - Setting `NewLineForWrite` to `null` or `""` throws `ArgumentException` with the 3.x message
+    `NewLine string must not be null or empty`, on all four engines. 4.9.1 stored the value and then
+    wrote no line breaks or threw later.
+  - `HeaderText` and `FooterText` read from `[IgnoreFirst]`/`[IgnoreLast]` lines end every line with
+    `Environment.NewLine`, the last one included, whatever `NewLineForWrite` is. 4.9.1 joined them with
+    `NewLineForWrite` and added no final line break: `"h1\r\nh2"` is now `"h1\nh2\n"` on Linux and
+    `"h1\r\nh2\r\n"` on Windows.
+  - `HeaderText` and `FooterText` are `""` instead of `null` on a new engine, at the start of a read, and
+    when there is no header or footer (also after a streaming read that stops early).
+  - A header or footer that already ends with `Environment.NewLine` is written as is. A header read
+    from a file and written back gains no empty line.
+  - The members keep their `string?` type, so there is no API change. See the
+    [migration guide](docs/MIGRATION.md#32-line-endings-and-empty-headerfooter).
+- **`ReadStream(null)` and `ReadStream(null, n)` on `FileHelperEngine<T>` and `IFileHelperEngine<T>` are
+  now ambiguous** between the `TextReader` and the `Stream` overload and no longer compile. Cast the
+  argument: `ReadStream((TextReader)null!)`.
+- **`ReadAsync(null)`, `ReadAsync(default)` and the same with a `cancellationToken` on
+  `FileHelperEngine<T>` and `FileHelperAsyncEngine<T>` are now ambiguous** (CS0121) between the
+  `string`, `Stream` and `TextReader` overloads and no longer compile. Cast the argument:
+  `ReadAsync((string)null!)`. A method group without a target type, `var read = engine.ReadAsync;`,
+  no longer has a natural delegate type (CS8917): give the type, `Func<string, CancellationToken,
+  IAsyncEnumerable<T>> read = engine.ReadAsync;`. An XML doc `<see cref="...ReadAsync"/>` becomes an
+  ambiguous reference: name the overload, `ReadAsync(string, CancellationToken)`. Calls through
+  `IFileHelperEngine<T>` and `IFileHelperAsyncEngine<T>`, typed variables and named arguments are not
+  affected.
+- **The `Microsoft.SourceLink.GitHub` package reference is removed.** It failed the NuGet vulnerability
+  audit. The built-in Source Link of the .NET SDK still applies (`PublishRepositoryUrl`,
+  `EmbedUntrackedSources`, and `ContinuousIntegrationBuild` on GitHub Actions), so the symbol package
+  keeps its source information.
+- **A user extension method can be silently replaced by a new instance method.** If your code declares an
+  extension method with the same name and parameters as one of the new instance methods
+  (`ReadStream(this IFileHelperEngine<T>, Stream)`, `ReadFileAsList(...)`, `ReadStringAsList(...)`,
+  `ReadStreamAsList(...)`, `GetFileHeader()`), a call now binds to the instance method without a compiler
+  message and your extension method is no longer called. Check that the new method does what yours did,
+  or rename yours.
+- **New generator diagnostics can fail builds that treat warnings as errors.** The generator now reports
+  four layouts. The generated code does not change and every descriptor is still emitted:
+  - `MLFH030` (Warning): a `[FieldQuoted]` field is followed by a delimiter that starts with its quote
+    character.
+  - `MLFH031` (Warning): the record delimiter, or the `[FieldDelimiter]` of a field that is not the last,
+    contains a carriage return or a line feed.
+  - `MLFH032` (Info): a `[FieldTrim(mode, chars...)]` list contains a character of the delimiter that
+    follows the field.
+  - `MLFH033` (Warning): a `[FieldQuoted]` field has a `[FieldTrim]` list that contains its quote
+    character, with `TrimMode.Left` or `Both` and `QuoteMode.OptionalForRead` or `AlwaysQuoted`. Setting
+    `TrimGivenChars = true` on the field also avoids the warning.
+
+  A project with `TreatWarningsAsErrors` can fail on upgrade. Fix the layout, or suppress the IDs in the
+  project file: `<NoWarn>$(NoWarn);MLFH030;MLFH031;MLFH033</NoWarn>`. See
+  [docs/diagnostics.md](docs/diagnostics.md).
+
 ## [4.9.1] - 2026-11-11
 
 Runtime-only patch: the public API and the generated code are the same as in 4.9.0, so libraries

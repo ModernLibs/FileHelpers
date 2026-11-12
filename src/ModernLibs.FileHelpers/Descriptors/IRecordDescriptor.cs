@@ -42,6 +42,9 @@ public interface IRecordDescriptor<T>
     /// The generated implementation assumes that each <see cref="IBufferWriter{T}.GetSpan(int)"/> call
     /// returns a contiguous span of at least the requested size; writers that return shorter (segmented)
     /// spans are not supported.
+    /// The line break before a <see cref="FieldInNewLineAttribute"/> field is the engine's <c>NewLineForWrite</c>
+    /// only when an engine formats the record; into any other writer it is <c>"\r\n"</c> on every platform
+    /// (see <see cref="RecordFormatting.WriteFieldNewLine"/>).
     /// </remarks>
     /// <param name="record">The record to format.</param>
     /// <param name="writer">The destination writer.</param>

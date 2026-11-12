@@ -6,8 +6,15 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    # Weekly extended fuzzing run — Sunday at 00:00 UTC
+    # Weekly run, Sunday at 00:00 UTC: the same steps as a push, with the run number as the differential seed.
+    # The extended target runs only on a manual (workflow_dispatch) run.
     - cron: '0 0 * * 0'
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: 'Iterations of the extended fuzz target; also inputs per shape and pass of the differential target when above 20000 (about 33 s per 20000 per target on a dev box; the job stops at 60 minutes: keep it under about 300000)'
+        required: false
+        default: '10000'
 
 permissions:
   contents: read
@@ -20,7 +27,8 @@ jobs:
   fuzz:
     name: Fuzz Testing
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # A manual run may ask for many differential records (about 75 s per 200000 records per target on a dev box).
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 60 || 15 }}
 
     steps:
       - name: Checkout
@@ -29,7 +37,9 @@ jobs:
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
+          # global.json pins SDK 11; 10.0.x provides the net10.0 runtime for the test binary.
           global-json-file: global.json
+          dotnet-version: 10.0.x
 
       - name: Cache NuGet packages
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -55,23 +65,56 @@ jobs:
           shopt -s nullglob
           files=(tests/ModernLibs.FileHelpers.Fuzz.Tests/FuzzCorpus/*.txt)
           if [ ${#files[@]} -eq 0 ]; then echo "::error::Seed corpus is empty."; exit 1; fi
-          for target in delimited spanline fixedlength converters; do
-            echo "Running fuzz target: $target"
-            for file in "${files[@]}"; do
-              dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests/ -c Release --no-build -- "$target" < "$file"
+          for tfm in net10.0 net11.0; do
+            for target in delimited spanline fixedlength converters; do
+              echo "Running fuzz target: $target ($tfm)"
+              for file in "${files[@]}"; do
+                dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests/ -c Release --no-build -f "$tfm" -- "$target" < "$file"
+              done
             done
           done
 
-      # Category "Fuzz" of the TUnit suite (property-style random inputs). MTP exits with code 8 when
-      # no test matches the filter, which fails the job.
+      # Category "Fuzz" of the TUnit suite (property-style random inputs), on both targets. MTP exits
+      # with code 8 when no test matches the filter, which fails the job.
       - name: Run TUnit fuzz tests
-        run: >-
-          ./tests/ModernLibs.FileHelpers.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Tests
-          --disable-logo
-          --output Detailed
-          --treenode-filter "/*/*/*/*[Category=Fuzz]"
+        run: |
+          set -euo pipefail
+          for tfm in net10.0 net11.0; do
+            ./tests/ModernLibs.FileHelpers.Tests/bin/Release/$tfm/ModernLibs.FileHelpers.Tests \
+              --disable-logo \
+              --output Detailed \
+              --treenode-filter "/*/*/*/*[Category=Fuzz]"
+          done
 
-      # Weekly extended run — save corpus artifacts
+      # Differential fuzz: for each Compat49 record shape, the 4.9.1 descriptor and the current one read the same
+      # generated input in two passes (one generated record per input; valid rows around one row with one generated
+      # field); the target exits 1 with the input and both results at the first difference. 20000 inputs per shape
+      # and pass on every event; a manual run uses the iterations input when it is larger. Push, pull request and
+      # manual runs use the default seed (4910); the weekly run uses the run number as seed, which the log prints.
+      - name: Run differential fuzz target
+        env:
+          ITERATIONS: ${{ inputs.iterations }}
+          SEED: ${{ github.event_name == 'schedule' && github.run_number || '' }}
+        run: |
+          set -euo pipefail
+          records=20000
+          if [ "${ITERATIONS:-0}" -gt "$records" ]; then records="$ITERATIONS"; fi
+          for tfm in net10.0 net11.0; do
+            dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests/ -c Release --no-build -f "$tfm" -- differential "$records" ${SEED:+"$SEED"}
+          done
+
+      # Manual extended run; the iteration count comes from the workflow_dispatch input.
+      - name: Run extended fuzz target
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          ITERATIONS: ${{ inputs.iterations }}
+        run: |
+          set -euo pipefail
+          for tfm in net10.0 net11.0; do
+            dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests/ -c Release --no-build -f "$tfm" -- extended "$ITERATIONS"
+          done
+
+      # Weekly run only: save the corpus directory as an artifact
       - name: Save corpus artifacts (weekly)
         if: github.event_name == 'schedule'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -1,0 +1,67 @@
+// MA0004: ConfigureAwait not needed in benchmarks.
+#pragma warning disable MA0004
+// MA0051: Benchmark methods are intentionally concise.
+#pragma warning disable MA0051
+
+using BenchmarkDotNet.Attributes;
+using ModernLibs.FileHelpers.Benchmarks.Data;
+
+namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks;
+
+/// <summary>Writes the records of the seeded quoted-fields dataset: values that need quotes are quoted on output.</summary>
+[MemoryDiagnoser]
+public class QuotedWriteBenchmarks
+{
+    private QuotedRecord[] _records = null!;
+    private FileHelperEngine<QuotedRecord> _engine = null!;
+
+    [Params(10_000, 100_000)]
+    public int Rows { get; set; }
+
+    /// <summary>
+    /// Loads the records the writers write. The callback read collects them without the pooled record buffer
+    /// of the array read, so no such buffer stays in the process being measured.
+    /// </summary>
+    private void Prepare()
+    {
+        var dataDir = Path.Combine(Path.GetDirectoryName(typeof(QuotedWriteBenchmarks).Assembly.Location)!, "Data");
+        Directory.CreateDirectory(dataDir);
+        var file = DatasetGenerator.EnsureQuotedFieldsRandom(dataDir, Rows);
+
+        _engine = new FileHelperEngine<QuotedRecord> { NewLineForWrite = "\r\n" };
+        var records = new List<QuotedRecord>(Rows);
+        _engine.ReadFile(file, records.Add);
+        // 4.10 captures the header with its line ending, 4.9.1 without; the write adds NewLineForWrite, so strip it here: both builds write the same header bytes.
+        _engine.HeaderText = _engine.HeaderText?.TrimEnd('\r', '\n');
+        _records = records.ToArray();
+        DataCheck.QuotedRandom("FileHelpers read", Rows, _records.Length, i => (_records[i].Id, _records[i].Description, _records[i].Notes, _records[i].Category));
+    }
+
+    // Correctness guard: each setup runs only the guard of its own benchmark (see WriteBenchmarks).
+    [GlobalSetup(Target = nameof(WriteString))]
+    public void SetupWriteString()
+    {
+        Prepare();
+        // The written text has the header line (FileHelpers writes back the header it skipped) and, read again,
+        // gives the same records: quoting on output is correct whatever its style.
+        var written = WriteString();
+        DataCheck.Equal(Rows + 1, DataCheck.TextLines(written).Length, "written line count");
+        // A separate engine reads it back: reading with the write engine would capture the header line ending again
+        // (4.10 keeps it, 4.9.1 does not) and the measured writes would differ between the builds.
+        var again = new FileHelperEngine<QuotedRecord>().ReadString(written);
+        DataCheck.QuotedRandom("FileHelpers written", Rows, again.Length, i => (again[i].Id, again[i].Description, again[i].Notes, again[i].Category));
+    }
+
+    [GlobalSetup(Target = nameof(WriteStream_Null))]
+    public void SetupWriteStream()
+    {
+        Prepare();
+        WriteStream_Null();
+    }
+
+    [Benchmark(Baseline = true)]
+    public string WriteString() => _engine.WriteString(_records);
+
+    [Benchmark]
+    public void WriteStream_Null() => _engine.WriteStream(TextWriter.Null, _records);
+}

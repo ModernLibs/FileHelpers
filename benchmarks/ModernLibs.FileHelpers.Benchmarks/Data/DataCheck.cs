@@ -124,4 +124,111 @@ public static class DataCheck
                 Equal(fileLines[row], lines[row], $"{library} written line {row}");
         }
     }
+
+    /// <summary>
+    /// Checks rows parsed from the seeded quoted-fields dataset (<see cref="DatasetGenerator.EnsureQuotedFieldsRandom"/>):
+    /// the row count, that all ten patterns occur and the order is not the periodic one, and for every row
+    /// the Id, Description, Notes and Category.
+    /// </summary>
+    public static void QuotedRandom(string library, int expectedRows, int count, Func<int, (int Id, string? Description, string? Notes, string? Category)> get)
+    {
+        Equal(expectedRows, count, library + " row count");
+        var patterns = DatasetGenerator.QuotedRandomPatterns(expectedRows);
+        if (expectedRows >= 1000)
+        {
+            That(patterns.Distinct().Count() == DatasetGenerator.QuotedDescriptions.Length, "random quoted set: not all patterns occur");
+            That(Enumerable.Range(0, expectedRows).Any(i => patterns[i] != i % 10), "random quoted set: patterns are periodic");
+        }
+        var categories = "ABCDE";
+        for (int row = 0; row < count; row++)
+        {
+            var (id, description, notes, category) = get(row);
+            Equal(row, id, $"{library} row {row} Id");
+            Equal(DatasetGenerator.QuotedDescriptions[patterns[row]], description ?? "", $"{library} row {row} Description");
+            Equal(DatasetGenerator.QuotedNotes[patterns[row]], notes ?? "", $"{library} row {row} Notes");
+            Equal(categories[row % 5].ToString(), category ?? "", $"{library} row {row} Category");
+        }
+    }
+
+    /// <summary>
+    /// Checks rows parsed from the sparse-quotes dataset: the row count, that between 0.5 % and 1.5 % of the
+    /// lines contain a double quote, and for every row the Id, Description and Notes.
+    /// </summary>
+    public static void SparseQuotes(string library, string path, int expectedRows, int count, Func<int, (int Id, string? Description, string? Notes)> get)
+    {
+        Equal(expectedRows, count, library + " row count");
+        var lines = DataLines(path, hasHeader: true);
+        Equal(expectedRows, lines.Length, library + " file data lines");
+        long quoted = lines.Count(l => l.Contains('"'));
+        That(quoted * 1000 >= (long)expectedRows * 5 && quoted * 1000 <= (long)expectedRows * 15,
+            $"sparse quotes: {quoted} of {expectedRows} lines contain a quote, expected 0.5 % to 1.5 %");
+        for (int row = 0; row < count; row++)
+        {
+            var (id, description, notes) = get(row);
+            Equal(row, id, $"{library} row {row} Id");
+            Equal(DatasetGenerator.SparseDescription(row), description ?? "", $"{library} row {row} Description");
+            Equal(DatasetGenerator.SparseNote(row), notes ?? "", $"{library} row {row} Notes");
+        }
+    }
+
+    /// <summary>
+    /// Checks rows parsed from the long-lines dataset: the row count, that every data line has at least
+    /// <see cref="DatasetGenerator.LongLineMinLength"/> characters, and that every record, formatted back by
+    /// <paramref name="text"/>, gives the raw line.
+    /// </summary>
+    public static void LongLines(string library, string path, int expectedRows, int count, Func<int, string> text)
+    {
+        Equal(expectedRows, count, library + " row count");
+        var lines = DataLines(path, hasHeader: false);
+        Equal(expectedRows, lines.Length, library + " file data lines");
+        for (int row = 0; row < lines.Length; row++)
+        {
+            That(lines[row].Length >= DatasetGenerator.LongLineMinLength, $"long lines: line {row} has only {lines[row].Length} characters");
+            Equal(lines[row], text(row), $"{library} row {row}");
+        }
+    }
+
+    /// <summary>
+    /// Checks rows parsed from the multiline dataset: the row count, that the file has the expected number of
+    /// line breaks (one per record plus one in each multiline value), and for every row the Id and the text.
+    /// </summary>
+    public static void Multiline(string library, string path, int expectedRows, int count, Func<int, (int Id, string? Text)> get)
+    {
+        Equal(expectedRows, count, library + " row count");
+        long breaks = 0;
+        foreach (char c in File.ReadAllText(path))
+        {
+            if (c == '\n') breaks++;
+        }
+        Equal((long)expectedRows + DatasetGenerator.MultilineRowCount(expectedRows), breaks, "multiline file line breaks");
+        for (int row = 0; row < count; row++)
+        {
+            var (id, value) = get(row);
+            Equal(row, id, $"{library} row {row} Id");
+            Equal(DatasetGenerator.MultilineText(row), value ?? "", $"{library} row {row} Text");
+        }
+    }
+
+    /// <summary>
+    /// Checks rows parsed from the 150-column dataset: the row count, that each line has 150 fields (even
+    /// columns digits only, odd columns not), and that every record formatted back by <paramref name="text"/> gives the raw line.
+    /// </summary>
+    public static void Wide(string library, string path, int expectedRows, int count, Func<int, string> text)
+    {
+        Equal(expectedRows, count, library + " row count");
+        var lines = DataLines(path, hasHeader: false);
+        Equal(expectedRows, lines.Length, library + " file data lines");
+        for (int row = 0; row < lines.Length; row++)
+        {
+            var fields = lines[row].Split(',');
+            Equal(DatasetGenerator.WideColumns, fields.Length, $"wide row {row} field count");
+            for (int c = 0; c < fields.Length; c++)
+            {
+                // Even columns are int (digits only), odd columns are string (8 characters, never digits only).
+                bool digits = fields[c].All(char.IsAsciiDigit);
+                That(digits == (c % 2 == 0), $"wide row {row} column {c}: '{fields[c]}' has the wrong kind");
+            }
+            Equal(lines[row], text(row), $"{library} row {row}");
+        }
+    }
 }

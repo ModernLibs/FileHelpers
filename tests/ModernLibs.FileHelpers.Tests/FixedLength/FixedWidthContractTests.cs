@@ -136,7 +136,7 @@ public sealed class FixedWidthContractTests
     public async Task WriteString_OverflowDiscardEnd_TruncatesValue()
     {
         // Arrange: create a record whose value exceeds the fixed width.
-        var engine = new FileHelperEngine<OverflowDiscardRecord>();
+        var engine = new FileHelperEngine<OverflowDiscardRecord> { NewLineForWrite = "\r\n" };
         var records = new[] { new OverflowDiscardRecord { Code = "ABCDE" } };
 
         // Act: write the record.

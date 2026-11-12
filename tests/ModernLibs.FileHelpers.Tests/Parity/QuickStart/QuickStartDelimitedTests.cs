@@ -68,7 +68,7 @@ public sealed class QuickStartDelimitedTests
 
         // Assert: Header skipped, HeaderText captured, 2 records parsed
         await Assert.That(records.Length).IsEqualTo(2);
-        await Assert.That(engine.HeaderText).IsEqualTo("Name,Age,Country");
+        await Assert.That(engine.HeaderText).IsEqualTo("Name,Age,Country" + Environment.NewLine);
 
         await Assert.That(records[0].Name).IsEqualTo("John Doe");
         await Assert.That(records[0].Age).IsEqualTo(30);
@@ -148,7 +148,7 @@ public sealed class QuickStartDelimitedTests
         var output = engine.WriteString(records);
 
         // Assert: Output matches expected CSV format
-        var expected = "John Doe,30,USA\r\nJane Smith,25,Canada\r\nBob Wilson,35,UK\r\n";
+        var expected = $"John Doe,30,USA{Environment.NewLine}Jane Smith,25,Canada{Environment.NewLine}Bob Wilson,35,UK{Environment.NewLine}";
         await Assert.That(output).IsEqualTo(expected);
     }
 

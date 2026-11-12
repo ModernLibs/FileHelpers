@@ -29,6 +29,12 @@ internal sealed class RentedBufferWriter : IBufferWriter<char>, IDisposable
     /// <summary>Span of chars written since the last <see cref="Reset"/>.</summary>
     public ReadOnlySpan<char> WrittenSpan => _buffer.AsSpan(0, _written);
 
+    /// <summary><see cref="WrittenSpan"/> as memory, for an asynchronous write.</summary>
+    public ReadOnlyMemory<char> WrittenMemory => _buffer.AsMemory(0, _written);
+
+    /// <summary>Number of chars written since the last <see cref="Reset"/>.</summary>
+    public int WrittenCount => _written;
+
     /// <summary>Marks the buffer empty without returning it to the pool — reuse across records.</summary>
     public void Reset()
     {

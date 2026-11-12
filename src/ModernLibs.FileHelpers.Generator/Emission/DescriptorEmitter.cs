@@ -166,7 +166,7 @@ internal static class DescriptorEmitter
             string delimiterArg = field.Delimiter is not null ? Literal(field.Delimiter) : "null";
             string captionArg = field.Caption is not null ? Literal(field.Caption) : "null";
             string cultureNameArg = field.CultureName is not null ? Literal(field.CultureName) : "null";
-            sb.AppendLine($"            new(nameof({fqType}.{field.Identifier}), typeof({field.FullTypeName}), {field.Order}, {offset}, {width}, {delimiterArg}, {Bool(field.IsInNewLine)}, {captionArg}, {cultureNameArg}, {Bool(field.IsOptional)}, (global::ModernLibs.FileHelpers.TrimMode){field.TrimMode ?? 0}, {CharLiteral(field.IsQuoted ? field.QuoteChar : '\0')}, (global::ModernLibs.FileHelpers.MultilineMode){field.QuoteMultiline}, {(field.TrimMode is 1 or 2 or 3 && field.TrimChars is not null ? UnicodeLiteral(field.TrimChars) : "null")}),");
+            sb.AppendLine($"            new(nameof({fqType}.{field.Identifier}), typeof({field.FullTypeName}), {field.Order}, {offset}, {width}, {delimiterArg}, {Bool(field.IsInNewLine)}, {captionArg}, {cultureNameArg}, {Bool(field.IsOptional)}, (global::ModernLibs.FileHelpers.TrimMode){field.TrimMode ?? 0}, {CharLiteral(field.IsQuoted ? field.QuoteChar : '\0')}, (global::ModernLibs.FileHelpers.MultilineMode){field.QuoteMultiline}, {(field.TrimMode is 1 or 2 or 3 && field.TrimChars is not null ? UnicodeLiteral(field.TrimChars) : "null")}){(field.TrimGivenChars && field.TrimMode is 1 or 2 or 3 ? " { TrimGivenChars = true }" : "")},");
             if (isFixed && field.FixedLength > 0) runningOffset += field.FixedLength;
         }
 
@@ -866,7 +866,7 @@ internal static class DescriptorEmitter
             sb.AppendLine($"        bool __fq{i} = false;");
             sb.AppendLine($"        int __qsPos{i} = 0;");
             sb.AppendLine($"        int __qsLen{i} = {src}.Length;");
-            bool hasTrimChars = !string.IsNullOrEmpty(field.TrimChars);
+            bool hasTrimChars = !string.IsNullOrEmpty(QuoteSkipChars(field));
             if (trimStart && hasTrimChars)
             {
                 // 3.x: the [FieldTrim] chars before the opening quote are skipped only when the field trims its start.
@@ -947,8 +947,9 @@ internal static class DescriptorEmitter
         for (int i = 0; i < model.Fields.Length; i++)
         {
             var f = model.Fields[i];
-            if (!f.IsQuoted || f.TrimMode is not (1 or 2 or 3) || string.IsNullOrEmpty(f.TrimChars)) continue;
-            sb.AppendLine($"    private static readonly global::System.Buffers.SearchValues<char> __trim{i} = global::System.Buffers.SearchValues.Create({UnicodeLiteral(f.TrimChars!)});");
+            string? skip = QuoteSkipChars(f);
+            if (!f.IsQuoted || f.TrimMode is not (1 or 2 or 3) || string.IsNullOrEmpty(skip)) continue;
+            sb.AppendLine($"    private static readonly global::System.Buffers.SearchValues<char> __trim{i} = global::System.Buffers.SearchValues.Create({UnicodeLiteral(skip!)});");
             any = true;
         }
         if (any) sb.AppendLine();
@@ -1129,7 +1130,19 @@ internal static class DescriptorEmitter
         }
     }
 
-    /// <summary>[FieldTrim] — TrimMode 1=Both, 2=Left, 3=Right.</summary>
+    /// <summary>
+    /// The [FieldTrim] characters skipped around the quotes of a quoted delimited field. With TrimGivenChars the quote
+    /// character is left out: it is trimmed from the value after unquoting instead, so the quote is still recognised.
+    /// </summary>
+    private static string? QuoteSkipChars(FieldModel field) =>
+        field.TrimGivenChars && field.IsQuoted && field.TrimChars is not null
+            ? field.TrimChars.Replace(field.QuoteChar.ToString(), string.Empty)
+            : field.TrimChars;
+
+    /// <summary>
+    /// [FieldTrim] — TrimMode 1=Both, 2=Left, 3=Right. White space by default (3.x); the given characters with
+    /// TrimGivenChars, after quote removal (not in the fixed-length pre-pass for quoted fields).
+    /// </summary>
     private static void EmitFieldTrimPass(StringBuilder sb, EquatableArray<FieldModel> fields, bool quotedOnly = false)
     {
         for (int i = 0; i < fields.Length; i++)
@@ -1143,6 +1156,13 @@ internal static class DescriptorEmitter
                 _ => string.Empty,
             };
             if (method.Length == 0) continue;
+            if (fields[i].TrimGivenChars && !quotedOnly)
+            {
+                // An empty list trims nothing (MemoryExtensions would trim white space for an empty set).
+                if (!string.IsNullOrEmpty(fields[i].TrimChars))
+                    sb.AppendLine($"        __f{i} = {Memory}{method}(__f{i}, {UnicodeLiteral(fields[i].TrimChars!)}); // [FieldTrim] TrimGivenChars");
+                continue;
+            }
             sb.AppendLine($"        __f{i} = {Memory}{method}(__f{i}); // [FieldTrim]");
         }
     }

@@ -54,7 +54,7 @@ it was considered and rejected. Contributions are welcome: please open an issue 
 | Gap | Status | Notes |
 |---|---|---|
 | `[FieldArrayLength]` (array fields) | Open | Needs generator support for repeated delimited values and per-element fixed widths. |
-| Header line from `[FieldCaption]` (`GetFileHeader()`) | Open | `[FieldCaption]` is already read into the field metadata. |
+| Header line from `[FieldCaption]` (`GetFileHeader()`) | Done in 4.10 | Same text as 3.x; on the engine classes, not the interfaces. |
 | Culture parameter on `[DelimitedRecord]` / `[FixedLengthRecord]` | Open | Culture can be set per field with `CultureName`. |
 | `[IgnoreCommentedLines]` with a multi-character marker | Open | The marker is one `char`; `anyPlace` works as in 3.x. |
 | Non-string `[FieldConverter(typeof(X), args)]` arguments | Open | Arguments are passed to the converter constructor, but must be strings. |
@@ -65,7 +65,8 @@ it was considered and rejected. Contributions are welcome: please open an issue 
 
 | Gap | Status | Notes |
 |---|---|---|
-| `ReadFileAsList` / `ReadStringAsList` / `ReadStreamAsList` | Open | One-line wrappers around the array methods. |
+| `ReadFileAsList` / `ReadStringAsList` / `ReadStreamAsList` | Done in 4.10 | One-line wrappers around the array methods. |
+| Asynchronous reads and writes on a caller's stream (`ReadAsync(Stream)`, `ReadAsync(TextReader)`, `WriteStreamAsync(TextWriter / Stream, records)`) | Done in 4.10 | On the engine classes, not the interfaces. Asynchronous I/O only; the stream, reader or writer is not disposed. `ReadAsync` also on `FileHelperAsyncEngine<T>`. |
 | `WriteFile` / `WriteStream` / `WriteString` with `maxRecords` (all engines) | Open | `records.Take(n)` does the same. |
 | `[IgnoreFirst]` / `[IgnoreLast]` in `MultiRecordEngine` | Open | 3.x applies the options of the first record type. |
 | Record-by-record API on `MultiRecordEngine` (`BeginReadFile`, `ReadNext`, `WriteNext`, ...) | Open | `MultiRecordAsyncEngine.ReadAsync` covers streaming reads. |

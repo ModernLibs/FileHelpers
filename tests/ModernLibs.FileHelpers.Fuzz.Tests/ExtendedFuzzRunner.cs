@@ -38,6 +38,7 @@ public static class ExtendedFuzzRunner
         GenerateRandomBytesAsUtf8,
     ];
 
+    /// <returns>0 when every input passed, 1 when any failed (the count is printed, not returned: see <see cref="FuzzExit"/>).</returns>
     public static int Run(int maxIterations = 10000)
     {
         Console.WriteLine("Extended Fuzz Runner - Generating harder inputs");
@@ -78,7 +79,7 @@ public static class ExtendedFuzzRunner
         Console.WriteLine($"Passed: {_passed}");
         Console.WriteLine($"Failed: {_failed}");
 
-        return _failed;
+        return FuzzExit.FromFailureCount(_failed);
     }
 
     // Rules for the differential check of the planned quote scan: vectorised (single quote, one-char

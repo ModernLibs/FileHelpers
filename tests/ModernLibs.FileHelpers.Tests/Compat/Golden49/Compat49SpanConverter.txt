@@ -1,0 +1,318 @@
+#### 0 valid read
+record:Id=1|Price=12.5|Discount=0.5
+record:Id=2|Price=0.99|Discount=<null>
+record:Id=3|Price=-0.05|Discount=0
+header:<null>
+footer:<null>
+line:3
+total:3
+recycled-record:Id=1|Price=12.5|Discount=0.5
+recycled-record:Id=2|Price=0.99|Discount=<null>
+recycled-record:Id=3|Price=-0.05|Discount=0
+recycled-count:3
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:3
+recycled-total:3
+thrown-count:3
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:3
+thrown-total:3
+#### 0 valid round-trip
+written:1,1250,50\r\n2,99,\r\n3,-5,0\r\n
+header:<null>
+footer:<null>
+line:3
+total:3
+written-extra:converter-throws:throw:OverflowException:Value was either too large or too small for a Decimal.
+written-extra:null-nullable:2,1,\r\n
+written-extra:fraction:3,100,-50\r\n
+#### 1 short-row read
+record:Id=1|Price=12.5|Discount=0.5
+record:Id=1|Price=12.5|Discount=0.5
+record:Id=2|Price=0.99|Discount=<null>
+record:Id=3|Price=-0.05|Discount=0
+error:2:FileHelpersException:Line: 2. Expected 3 fields but found 2 in line: '4,100'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:4,100
+header:<null>
+footer:<null>
+line:5
+total:4
+recycled-record:Id=1|Price=12.5|Discount=0.5
+recycled-record:Id=1|Price=12.5|Discount=0.5
+recycled-record:Id=2|Price=0.99|Discount=<null>
+recycled-record:Id=3|Price=-0.05|Discount=0
+recycled-count:4
+recycled-error:2:FileHelpersException:Line: 2. Expected 3 fields but found 2 in line: '4,100'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:4,100
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:5
+recycled-total:4
+thrown-throw:FileHelpersException:Line: 2. Expected 3 fields but found 2 in line: '4,100'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 1 short-row round-trip
+written:1,1250,50\r\n1,1250,50\r\n2,99,\r\n3,-5,0\r\n
+error:2:FileHelpersException:Line: 2. Expected 3 fields but found 2 in line: '4,100'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:4,100
+header:<null>
+footer:<null>
+line:5
+total:4
+written-extra:converter-throws:throw:OverflowException:Value was either too large or too small for a Decimal.
+written-extra:null-nullable:2,1,\r\n
+written-extra:fraction:3,100,-50\r\n
+#### 2 long-row read
+record:Id=1|Price=12.5|Discount=0.5
+record:Id=1|Price=12.5|Discount=0.5
+record:Id=2|Price=0.99|Discount=<null>
+record:Id=3|Price=-0.05|Discount=0
+error:2:BadUsageException:Line: 2. Expected 3 fields but found 4 in line: '5,1,2,3'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:5,1,2,3
+header:<null>
+footer:<null>
+line:5
+total:4
+recycled-record:Id=1|Price=12.5|Discount=0.5
+recycled-record:Id=1|Price=12.5|Discount=0.5
+recycled-record:Id=2|Price=0.99|Discount=<null>
+recycled-record:Id=3|Price=-0.05|Discount=0
+recycled-count:4
+recycled-error:2:BadUsageException:Line: 2. Expected 3 fields but found 4 in line: '5,1,2,3'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:5,1,2,3
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:5
+recycled-total:4
+thrown-throw:BadUsageException:Line: 2. Expected 3 fields but found 4 in line: '5,1,2,3'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 2 long-row round-trip
+written:1,1250,50\r\n1,1250,50\r\n2,99,\r\n3,-5,0\r\n
+error:2:BadUsageException:Line: 2. Expected 3 fields but found 4 in line: '5,1,2,3'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:5,1,2,3
+header:<null>
+footer:<null>
+line:5
+total:4
+written-extra:converter-throws:throw:OverflowException:Value was either too large or too small for a Decimal.
+written-extra:null-nullable:2,1,\r\n
+written-extra:fraction:3,100,-50\r\n
+#### 3 bad-values read
+record:Id=1|Price=12.5|Discount=0.5
+record:Id=1|Price=12.5|Discount=0.5
+record:Id=2|Price=0.99|Discount=<null>
+record:Id=3|Price=-0.05|Discount=0
+error:2:ConvertException:Line: 2. Column: 3. Field: Price. Error Converting 'abc' to type: 'Decimal'. :6,abc,1
+error:3:ConvertException:Line: 3. Column: 3. Field: Price. Error Converting '!x' to type: 'Decimal'. Your custom converter: Compat49CentsConverter throws an InvalidOperationException with the message: Cents must not start with '!'.:7,!x,1
+error:4:ConvertException:Line: 4. Column: 3. Field: Price. Error Converting '' to type: 'Decimal'. :8,,1
+header:<null>
+footer:<null>
+line:7
+total:4
+recycled-record:Id=1|Price=12.5|Discount=0.5
+recycled-record:Id=1|Price=12.5|Discount=0.5
+recycled-record:Id=2|Price=0.99|Discount=<null>
+recycled-record:Id=3|Price=-0.05|Discount=0
+recycled-count:4
+recycled-error:2:ConvertException:Line: 2. Column: 3. Field: Price. Error Converting 'abc' to type: 'Decimal'. :6,abc,1
+recycled-error:3:ConvertException:Line: 3. Column: 3. Field: Price. Error Converting '!x' to type: 'Decimal'. Your custom converter: Compat49CentsConverter throws an InvalidOperationException with the message: Cents must not start with '!'.:7,!x,1
+recycled-error:4:ConvertException:Line: 4. Column: 3. Field: Price. Error Converting '' to type: 'Decimal'. :8,,1
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:7
+recycled-total:4
+thrown-throw:ConvertException:Line: 2. Column: 3. Field: Price. Error Converting 'abc' to type: 'Decimal'. 
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 3 bad-values round-trip
+written:1,1250,50\r\n1,1250,50\r\n2,99,\r\n3,-5,0\r\n
+error:2:ConvertException:Line: 2. Column: 3. Field: Price. Error Converting 'abc' to type: 'Decimal'. :6,abc,1
+error:3:ConvertException:Line: 3. Column: 3. Field: Price. Error Converting '!x' to type: 'Decimal'. Your custom converter: Compat49CentsConverter throws an InvalidOperationException with the message: Cents must not start with '!'.:7,!x,1
+error:4:ConvertException:Line: 4. Column: 3. Field: Price. Error Converting '' to type: 'Decimal'. :8,,1
+header:<null>
+footer:<null>
+line:7
+total:4
+written-extra:converter-throws:throw:OverflowException:Value was either too large or too small for a Decimal.
+written-extra:null-nullable:2,1,\r\n
+written-extra:fraction:3,100,-50\r\n
+#### 4 unclosed-quote read
+record:Id=1|Price=12.5|Discount=0.5
+record:Id=1|Price=12.5|Discount=0.5
+record:Id=2|Price=0.99|Discount=<null>
+record:Id=3|Price=-0.05|Discount=0
+error:2:ConvertException:Line: 2. Column: 3. Field: Price. Error Converting '"1' to type: 'Decimal'. :9,"1,1
+header:<null>
+footer:<null>
+line:5
+total:4
+recycled-record:Id=1|Price=12.5|Discount=0.5
+recycled-record:Id=1|Price=12.5|Discount=0.5
+recycled-record:Id=2|Price=0.99|Discount=<null>
+recycled-record:Id=3|Price=-0.05|Discount=0
+recycled-count:4
+recycled-error:2:ConvertException:Line: 2. Column: 3. Field: Price. Error Converting '"1' to type: 'Decimal'. :9,"1,1
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:5
+recycled-total:4
+thrown-throw:ConvertException:Line: 2. Column: 3. Field: Price. Error Converting '"1' to type: 'Decimal'. 
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 4 unclosed-quote round-trip
+written:1,1250,50\r\n1,1250,50\r\n2,99,\r\n3,-5,0\r\n
+error:2:ConvertException:Line: 2. Column: 3. Field: Price. Error Converting '"1' to type: 'Decimal'. :9,"1,1
+header:<null>
+footer:<null>
+line:5
+total:4
+written-extra:converter-throws:throw:OverflowException:Value was either too large or too small for a Decimal.
+written-extra:null-nullable:2,1,\r\n
+written-extra:fraction:3,100,-50\r\n
+#### 5 empty-line read
+record:Id=1|Price=12.5|Discount=0.5
+record:Id=1|Price=12.5|Discount=0.5
+record:Id=2|Price=0.99|Discount=<null>
+record:Id=3|Price=-0.05|Discount=0
+error:2:FileHelpersException:Line: 2. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+header:<null>
+footer:<null>
+line:5
+total:4
+recycled-record:Id=1|Price=12.5|Discount=0.5
+recycled-record:Id=1|Price=12.5|Discount=0.5
+recycled-record:Id=2|Price=0.99|Discount=<null>
+recycled-record:Id=3|Price=-0.05|Discount=0
+recycled-count:4
+recycled-error:2:FileHelpersException:Line: 2. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:5
+recycled-total:4
+thrown-throw:FileHelpersException:Line: 2. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 5 empty-line round-trip
+written:1,1250,50\r\n1,1250,50\r\n2,99,\r\n3,-5,0\r\n
+error:2:FileHelpersException:Line: 2. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+header:<null>
+footer:<null>
+line:5
+total:4
+written-extra:converter-throws:throw:OverflowException:Value was either too large or too small for a Decimal.
+written-extra:null-nullable:2,1,\r\n
+written-extra:fraction:3,100,-50\r\n
+#### 6 empty-input read
+header:<null>
+footer:<null>
+line:0
+total:0
+recycled-count:0
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:0
+recycled-total:0
+thrown-count:0
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:0
+thrown-total:0
+#### 6 empty-input round-trip
+written:
+header:<null>
+footer:<null>
+line:0
+total:0
+written-extra:converter-throws:throw:OverflowException:Value was either too large or too small for a Decimal.
+written-extra:null-nullable:2,1,\r\n
+written-extra:fraction:3,100,-50\r\n
+#### 7 lf-no-final-line-end read
+record:Id=1|Price=12.5|Discount=0.5
+record:Id=2|Price=0.99|Discount=<null>
+record:Id=3|Price=-0.05|Discount=0
+header:<null>
+footer:<null>
+line:3
+total:3
+recycled-record:Id=1|Price=12.5|Discount=0.5
+recycled-record:Id=2|Price=0.99|Discount=<null>
+recycled-record:Id=3|Price=-0.05|Discount=0
+recycled-count:3
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:3
+recycled-total:3
+thrown-count:3
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:3
+thrown-total:3
+#### 7 lf-no-final-line-end round-trip
+written:1,1250,50\r\n2,99,\r\n3,-5,0\r\n
+header:<null>
+footer:<null>
+line:3
+total:3
+written-extra:converter-throws:throw:OverflowException:Value was either too large or too small for a Decimal.
+written-extra:null-nullable:2,1,\r\n
+written-extra:fraction:3,100,-50\r\n
+#### 8 all-together read
+record:Id=1|Price=12.5|Discount=0.5
+record:Id=2|Price=0.99|Discount=<null>
+record:Id=3|Price=-0.05|Discount=0
+record:Id=1|Price=12.5|Discount=0.5
+error:4:FileHelpersException:Line: 4. Expected 3 fields but found 2 in line: '4,100'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:4,100
+error:5:BadUsageException:Line: 5. Expected 3 fields but found 4 in line: '5,1,2,3'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:5,1,2,3
+error:6:ConvertException:Line: 6. Column: 3. Field: Price. Error Converting 'abc' to type: 'Decimal'. :6,abc,1
+error:7:ConvertException:Line: 7. Column: 3. Field: Price. Error Converting '!x' to type: 'Decimal'. Your custom converter: Compat49CentsConverter throws an InvalidOperationException with the message: Cents must not start with '!'.:7,!x,1
+error:8:ConvertException:Line: 8. Column: 3. Field: Price. Error Converting '' to type: 'Decimal'. :8,,1
+error:9:FileHelpersException:Line: 9. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+error:10:ConvertException:Line: 10. Column: 3. Field: Price. Error Converting '"1' to type: 'Decimal'. :9,"1,1
+header:<null>
+footer:<null>
+line:11
+total:4
+recycled-record:Id=1|Price=12.5|Discount=0.5
+recycled-record:Id=2|Price=0.99|Discount=<null>
+recycled-record:Id=3|Price=-0.05|Discount=0
+recycled-record:Id=1|Price=12.5|Discount=0.5
+recycled-count:4
+recycled-error:4:FileHelpersException:Line: 4. Expected 3 fields but found 2 in line: '4,100'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:4,100
+recycled-error:5:BadUsageException:Line: 5. Expected 3 fields but found 4 in line: '5,1,2,3'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:5,1,2,3
+recycled-error:6:ConvertException:Line: 6. Column: 3. Field: Price. Error Converting 'abc' to type: 'Decimal'. :6,abc,1
+recycled-error:7:ConvertException:Line: 7. Column: 3. Field: Price. Error Converting '!x' to type: 'Decimal'. Your custom converter: Compat49CentsConverter throws an InvalidOperationException with the message: Cents must not start with '!'.:7,!x,1
+recycled-error:8:ConvertException:Line: 8. Column: 3. Field: Price. Error Converting '' to type: 'Decimal'. :8,,1
+recycled-error:9:FileHelpersException:Line: 9. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+recycled-error:10:ConvertException:Line: 10. Column: 3. Field: Price. Error Converting '"1' to type: 'Decimal'. :9,"1,1
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:11
+recycled-total:4
+thrown-throw:FileHelpersException:Line: 4. Expected 3 fields but found 2 in line: '4,100'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:3
+thrown-total:3
+#### 8 all-together round-trip
+written:1,1250,50\r\n2,99,\r\n3,-5,0\r\n1,1250,50\r\n
+error:4:FileHelpersException:Line: 4. Expected 3 fields but found 2 in line: '4,100'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:4,100
+error:5:BadUsageException:Line: 5. Expected 3 fields but found 4 in line: '5,1,2,3'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:5,1,2,3
+error:6:ConvertException:Line: 6. Column: 3. Field: Price. Error Converting 'abc' to type: 'Decimal'. :6,abc,1
+error:7:ConvertException:Line: 7. Column: 3. Field: Price. Error Converting '!x' to type: 'Decimal'. Your custom converter: Compat49CentsConverter throws an InvalidOperationException with the message: Cents must not start with '!'.:7,!x,1
+error:8:ConvertException:Line: 8. Column: 3. Field: Price. Error Converting '' to type: 'Decimal'. :8,,1
+error:9:FileHelpersException:Line: 9. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+error:10:ConvertException:Line: 10. Column: 3. Field: Price. Error Converting '"1' to type: 'Decimal'. :9,"1,1
+header:<null>
+footer:<null>
+line:11
+total:4
+written-extra:converter-throws:throw:OverflowException:Value was either too large or too small for a Decimal.
+written-extra:null-nullable:2,1,\r\n
+written-extra:fraction:3,100,-50\r\n

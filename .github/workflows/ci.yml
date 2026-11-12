@@ -15,31 +15,56 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
 
 jobs:
-  build-and-test:
-    name: Build and Test
-    # Linux only for now.
-    runs-on: ubuntu-latest
+  test:
+    name: test (${{ matrix.os }}, ${{ matrix.variant }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            variant: default
+          - os: windows-latest
+            variant: default
+          - os: ubuntu-24.04-arm
+            variant: default
+          # SIMD knobs: run the same binaries with a narrower instruction set.
+          - os: ubuntu-latest
+            variant: avx2-off
+          - os: ubuntu-latest
+            variant: hw-off
+    defaults:
+      run:
+        shell: bash
 
     steps:
       # Supply chain: every action is pinned to a full commit SHA (tags are mutable); the trailing
       # comment names the release the SHA belongs to.
+      # windows-latest checks out with core.autocrlf=true (CRLF); the repo is LF (.editorconfig) and
+      # tests hold raw string literals, so turn the conversion off before the checkout.
+      - name: Disable CRLF conversion
+        run: git config --global core.autocrlf false
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # global.json pins SDK 11 (latestPatch roll-forward); 10.0.x provides the net10.0 runtime for
+      # the test binaries. Unverified until the first CI run: if only one of the two is installed,
+      # split this into two setup-dotnet steps.
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          # global.json pins the SDK (latestPatch roll-forward)
           global-json-file: global.json
+          dotnet-version: 10.0.x
 
-      # Cache NuGet packages — keyed on Directory.Packages.props + all .csproj files
+      # Cache NuGet packages - keyed on Directory.Packages.props + all .csproj files
       - name: Cache NuGet packages
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-nuget-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
           restore-keys: |
-            ${{ runner.os }}-nuget-
+            ${{ runner.os }}-${{ runner.arch }}-nuget-
 
       - name: Restore
         run: dotnet restore
@@ -53,20 +78,179 @@ jobs:
           dotnet build samples/MigrationSamples --configuration Release
           dotnet build tests/ModernLibs.FileHelpers.Fuzz.Tests --configuration Release
 
-      # SDK 10 + Microsoft.Testing.Platform: run the test binaries directly. MTP exits with code 8
-      # when no test ran, which fails the job.
-      - name: Test (TUnit)
-        run: ./tests/ModernLibs.FileHelpers.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Tests
-
-      # The xUnit v3 runner exits 0 when no test ran, so require a non-zero total.
-      - name: Test (xUnit mutation)
+      # The knobs apply to the test and sample steps only, not to the build.
+      - name: Apply SIMD knob
         run: |
-          set -o pipefail
-          ./tests/ModernLibs.FileHelpers.Mutation.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Mutation.Tests | tee mutation-tests.log
-          grep -Eq 'Total: [1-9][0-9]*' mutation-tests.log || { echo "::error::No mutation tests ran."; exit 1; }
+          case "${{ matrix.variant }}" in
+            avx2-off) echo "DOTNET_EnableAVX2=0" >> "$GITHUB_ENV" ;;
+            hw-off) echo "DOTNET_EnableHWIntrinsic=0" >> "$GITHUB_ENV" ;;
+          esac
 
-      # The migration sample runs end to end (exit code 0).
+      # Microsoft.Testing.Platform: run the test binaries directly. MTP exits with code 8 when no
+      # test ran, which fails the job.
+      - name: Test (TUnit)
+        run: |
+          set -euo pipefail
+          EXE=""; if [ "$RUNNER_OS" = "Windows" ]; then EXE=".exe"; fi
+          for tfm in net10.0 net11.0; do
+            echo "::group::TUnit $tfm"
+            "./tests/ModernLibs.FileHelpers.Tests/bin/Release/$tfm/ModernLibs.FileHelpers.Tests$EXE"
+            echo "::endgroup::"
+          done
+
+      # The migration sample runs end to end (exit code 0) on both targets.
       - name: Run migration sample
-        run: dotnet run --project samples/MigrationSamples --configuration Release --no-build
+        run: |
+          set -euo pipefail
+          for tfm in net10.0 net11.0; do
+            dotnet run --project samples/MigrationSamples --configuration Release --no-build -f "$tfm"
+          done
 
-      # Stryker.NET runs in mutation.yml (manual and weekly), not on every push.
+  # Escape-hatch build: runtime async off for net11.0 (-p:FileHelpersRuntimeAsync=false).
+  runtime-async-off:
+    name: runtime-async-off
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # global.json pins SDK 11 (latestPatch roll-forward); 10.0.x provides the net10.0 runtime for
+      # the test binaries. Unverified until the first CI run: if only one of the two is installed,
+      # split this into two setup-dotnet steps.
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+          dotnet-version: 10.0.x
+
+      # Cache NuGet packages - keyed on Directory.Packages.props + all .csproj files
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-${{ runner.arch }}-nuget-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-nuget-
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build (runtime async off)
+        run: dotnet build --no-restore --configuration Release -p:FileHelpersRuntimeAsync=false
+
+      - name: Test (TUnit, net11.0)
+        env:
+          FH_EXPECT_RUNTIME_ASYNC: '0'
+        run: ./tests/ModernLibs.FileHelpers.Tests/bin/Release/net11.0/ModernLibs.FileHelpers.Tests
+
+      - name: Test (TUnit, Category=Fuzz, net11.0)
+        env:
+          FH_EXPECT_RUNTIME_ASYNC: '0'
+        run: >-
+          ./tests/ModernLibs.FileHelpers.Tests/bin/Release/net11.0/ModernLibs.FileHelpers.Tests
+          --disable-logo
+          --treenode-filter "/*/*/*/*[Category=Fuzz]"
+
+  # A net10.0 library with generated descriptors, run by a net11.0 app that gets lib/net11.0 of the package.
+  consumer-smoke:
+    name: consumer-smoke
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # global.json pins SDK 11 (latestPatch roll-forward); 10.0.x provides the net10.0 runtime.
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+          dotnet-version: 10.0.x
+
+      # Packs the library (package validation against the 4.9.1 baseline runs in the pack), then restores
+      # and runs the smoke projects against that package from a private folder.
+      - name: Consumer smoke test
+        run: tests/ConsumerSmoke/run.sh "$RUNNER_TEMP/fh-smoke" 4.10.0-smoke
+
+  # Unit tests of the benchmark tooling (benchmarks/tools/test_*.py, standard library only). ubuntu-latest ships python3.
+  benchmark-tools:
+    name: benchmark-tools
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Test (unittest)
+        run: python3 -I -m unittest discover -s benchmarks/tools -p "test_*.py"
+
+  # Native AOT: publish the smoke app for each target (ILC warnings are trim/AOT incompatibilities in the
+  # library or the generated descriptors) and run the native binary.
+  aot-smoke:
+    name: aot-smoke (${{ matrix.tfm }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tfm: [net10.0, net11.0]
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # global.json pins SDK 11 (latestPatch roll-forward); 10.0.x provides the net10.0 runtime.
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+          dotnet-version: 10.0.x
+
+      # ILC needs clang and zlib headers; ubuntu-latest has them, install only if clang is missing.
+      - name: Native toolchain
+        run: |
+          command -v clang >/dev/null || { sudo apt-get update && sudo apt-get install -y clang zlib1g-dev; }
+
+      # The log stays in the job output. Trim, AOT and single-file diagnostics (ILxxxx) arrive as errors because
+      # TreatWarningsAsErrors is on, so the publish itself fails first; the grep is a guard in case a warning is
+      # ever let through (WarningsNotAsErrors).
+      - name: Publish (Native AOT)
+        run: |
+          set -euo pipefail
+          dotnet publish tests/ModernLibs.FileHelpers.Aot.Tests -c Release -f "${{ matrix.tfm }}" -r linux-x64 -o "out/${{ matrix.tfm }}" 2>&1 | tee publish.log
+          if grep -Eq "(warning|error) IL" publish.log; then
+            echo "::error::Native AOT publish reported IL warnings (${{ matrix.tfm }})."
+            exit 1
+          fi
+
+      - name: Run native binary
+        run: |
+          set -euo pipefail
+          "./out/${{ matrix.tfm }}/ModernLibs.FileHelpers.Aot.Tests" | tee aot-run.log
+          grep -Eq 'AOT smoke: 9 checks passed' aot-run.log
+
+      # The Native AOT timing harness of the Step 0 round (T47, BENCHMARKS.md): publishes the 4.9.1 package build
+      # and this build for the leg's runtime (the script stops on any ILxxxx diagnostic and checks the compiled-in
+      # library), then one short interleaved run. ab.py first compares the data checksum of both builds and refuses
+      # to time when it differs. Numbers from a CI runner mean nothing (D1): --smoke, 1,000 rows, 3 iterations.
+      # --allow-dirty because the steps above write out/ and logs into the checkout.
+      - name: AOT timing harness (publish and short run)
+        run: |
+          set -euo pipefail
+          if [[ "${{ matrix.tfm }}" == net10.0 ]]; then pair=(pkg-net10 net10); else pair=(pkg-net11 net11-ra-on); fi
+          bench="$RUNNER_TEMP/aot-bench"
+          benchmarks/tools/build-aot-variants.sh "$bench" "${pair[@]}"
+          python3 -I benchmarks/tools/ab.py --aot --a "$bench/${pair[0]}" --b "$bench/${pair[1]}" \
+            --expect-a 'tfm=net10.0 runtime-async=off' --smoke --allow-dirty --launches 5 \
+            --out "$RUNNER_TEMP/aot-bench.json" -- --rows 1000 --warmup 1 --iterations 3
+          # The real program's refusal path: a checksum no build reads must stop it before timing, with exit 3.
+          code=0; "$bench/${pair[1]}/ModernLibs.FileHelpers.Benchmarks.Aot" --rows 1000 --expect-checksum 0x1 || code=$?
+          [[ $code -eq 3 ]] || { echo "::error::AOT harness: expected exit 3 for a wrong checksum, got $code"; exit 1; }
+
+  # Stryker.NET runs in mutation.yml (manual and weekly), not on every push.

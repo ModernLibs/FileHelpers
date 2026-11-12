@@ -49,8 +49,8 @@ public sealed class ReadCoreEngineTests
         // Assert: records, header/footer, error line and position
         await Assert.That(count).IsEqualTo(2);
         await Assert.That(string.Join(",", ids)).IsEqualTo("1,4");
-        await Assert.That(engine.HeaderText).IsEqualTo("HEADER");
-        await Assert.That(engine.FooterText).IsEqualTo("TOTAL 2\r\nEND");
+        await Assert.That(engine.HeaderText).IsEqualTo("HEADER" + Environment.NewLine);
+        await Assert.That(engine.FooterText).IsEqualTo($"TOTAL 2{Environment.NewLine}END{Environment.NewLine}");
         await Assert.That(engine.TotalRecords).IsEqualTo(2);
         await Assert.That(engine.LineNumber).IsEqualTo(6);
         await Assert.That(engine.ErrorManager.ErrorCount).IsEqualTo(1);
@@ -103,8 +103,8 @@ public sealed class ReadCoreEngineTests
 
         // Assert: no parse attempt on footer, footer text verbatim
         await Assert.That(string.Join(",", ids)).IsEqualTo("1,2");
-        await Assert.That(engine.FooterText).IsEqualTo("TOTAL: 2\r\nEND");
-        await Assert.That(engine.HeaderText).IsEqualTo("HEADER");
+        await Assert.That(engine.FooterText).IsEqualTo($"TOTAL: 2{Environment.NewLine}END{Environment.NewLine}");
+        await Assert.That(engine.HeaderText).IsEqualTo("HEADER" + Environment.NewLine);
     }
 
     [Test]
@@ -133,9 +133,9 @@ public sealed class ReadCoreEngineTests
 
         // Assert: footer captured verbatim, never parsed
         await Assert.That(string.Join(",", asyncValues)).IsEqualTo("10,20");
-        await Assert.That(asyncEngine.FooterText).IsEqualTo("-- end of file --");
+        await Assert.That(asyncEngine.FooterText).IsEqualTo("-- end of file --" + Environment.NewLine);
         await Assert.That(string.Join(",", callbackValues)).IsEqualTo("10,20");
-        await Assert.That(callbackEngine.FooterText).IsEqualTo("-- end of file --");
+        await Assert.That(callbackEngine.FooterText).IsEqualTo("-- end of file --" + Environment.NewLine);
     }
 
     // ---- E5: SaveAndContinue never ends enumeration early -----------------------------------
@@ -305,7 +305,7 @@ public sealed class ReadCoreEngineTests
         // Assert: only the second read's state remains
         await Assert.That(engine.ErrorManager.ErrorCount).IsEqualTo(1);
         await Assert.That(engine.ErrorManager.Errors[0].LineNumber).IsEqualTo(2);
-        await Assert.That(engine.HeaderText).IsEqualTo("H2");
+        await Assert.That(engine.HeaderText).IsEqualTo("H2" + Environment.NewLine);
         await Assert.That(engine.TotalRecords).IsEqualTo(1);
     }
 

@@ -1,9 +1,9 @@
 {
   "stryker-config": {
     "project": "src/ModernLibs.FileHelpers/ModernLibs.FileHelpers.csproj",
-    "test-projects": [
-      "tests/ModernLibs.FileHelpers.Mutation.Tests/ModernLibs.FileHelpers.Mutation.Tests.csproj"
-    ],
+    "target-framework": "net10.0",
+    "test-runner": "mtp",
+    "configuration": "Release",
     "mutate": [
       "**/Engines/RecordReadCore.cs",
       "**/Engines/RecordReadSession.cs",
@@ -20,13 +20,13 @@
     "reporters": [
       "progress",
       "dots",
-      "html"
+      "html",
+      "json"
     ],
     "thresholds": {
       "high": 80,
-      "low": 60,
-      "break": 50
-    },
-    "language-version": "latest"
+      "low": 80,
+      "break": 80
+    }
   }
 }

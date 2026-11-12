@@ -103,7 +103,7 @@ public sealed class FieldInNewLineTests
     public async Task FixedWidth_WriteString_OneLinePerInNewLineField()
     {
         // Arrange: Create records (field widths: Code=4, Name=6, Value=5)
-        var engine = new FileHelperEngine<MultiNewLineFixedRecord>();
+        var engine = new FileHelperEngine<MultiNewLineFixedRecord> { NewLineForWrite = "\r\n" };
         var records = new[]
         {
             new MultiNewLineFixedRecord { Code = "ABC", Name = "Test", Value = "100" },
@@ -142,7 +142,7 @@ public sealed class FieldInNewLineTests
     public async Task Delimited_WriteString_OneLinePerInNewLineField()
     {
         // Arrange: Create delimited multi-line records
-        var engine = new FileHelperEngine<MultiNewLineDelimitedRecord>();
+        var engine = new FileHelperEngine<MultiNewLineDelimitedRecord> { NewLineForWrite = "\r\n" };
         var records = new[]
         {
             new MultiNewLineDelimitedRecord { Id = 42, Description = "Test", Notes = "Notes here" },

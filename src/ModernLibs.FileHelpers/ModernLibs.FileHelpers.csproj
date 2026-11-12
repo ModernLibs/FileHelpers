@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PublishAot>true</PublishAot>
     <IsTrimmable>true</IsTrimmable>
@@ -10,22 +10,35 @@
     <Authors>ModernLibs Contributors</Authors>
     <Copyright>Copyright © ModernLibs Contributors 2026</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageTags>FileHelpers;CSV;TSV;Delimited;FixedLength;FixedWidth;FlatFile;Parser;AOT;NativeAOT;Trimming;SourceGenerator;net10</PackageTags>
+    <PackageTags>FileHelpers;CSV;TSV;Delimited;FixedLength;FixedWidth;FlatFile;Parser;AOT;NativeAOT;Trimming;SourceGenerator;net10;net11</PackageTags>
     <RepositoryUrl>https://github.com/ModernLibs/FileHelpers</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageProjectUrl>https://github.com/ModernLibs/FileHelpers</PackageProjectUrl>
-    <PackageDescription>Modern, AOT-ready rewrite of FileHelpers 3.x for .NET 10. Reads and writes delimited (CSV, TSV, ...) and fixed-length files. Record descriptors are created at compile time by a bundled source generator, so there is no runtime reflection and the library is trimming- and Native AOT-compatible. Reading record structs causes no per-record allocations by the engine (string field values still allocate their text). FileHelpers 3.x-style API (record attributes, engines, error modes); the migration guide lists the differences.</PackageDescription>
+    <PackageDescription>Modern, AOT-ready rewrite of FileHelpers 3.x for .NET 10 and .NET 11. Reads and writes delimited (CSV, TSV, ...) and fixed-length files. Record descriptors are created at compile time by a bundled source generator, so there is no runtime reflection and the library is trimming- and Native AOT-compatible. Reading record structs causes no per-record allocations by the engine (string field values still allocate their text). FileHelpers 3.x-style API (record attributes, engines, error modes); the migration guide lists the differences.</PackageDescription>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageIcon>icon.png</PackageIcon>
     <PackageReleaseNotes>Performance release: file reads that stream instead of loading the file, faster dates and WriteString, same API as 4.8.1. Changes: https://github.com/ModernLibs/FileHelpers/blob/main/CHANGELOG.md - Migrating from FileHelpers 3.x: https://github.com/ModernLibs/FileHelpers/blob/main/docs/MIGRATION.md</PackageReleaseNotes>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <!-- RS0026: several async overloads each take an optional CancellationToken (idiomatic .NET shape). -->
     <NoWarn>$(NoWarn);RS0026</NoWarn>
+    <EnablePackageValidation>true</EnablePackageValidation>
+    <PackageValidationBaselineVersion>4.9.1</PackageValidationBaselineVersion>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
   </PropertyGroup>
+  <PropertyGroup>
+    <!-- Runtime async (D4/D6): net11.0 only; -p:FileHelpersRuntimeAsync=false builds the escape-hatch variant. -->
+    <FileHelpersRuntimeAsync Condition="'$(FileHelpersRuntimeAsync)' == ''">true</FileHelpersRuntimeAsync>
+    <Features Condition="'$(TargetFramework)' == 'net11.0' and '$(FileHelpersRuntimeAsync)' == 'true'">$(Features);runtime-async=on</Features>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Features is not part of MSBuild's up-to-date check for CoreCompile; hashing it into the compile-inputs
+         cache (Microsoft.Common.CurrentVersion.targets, _GenerateCompileDependencyCache) makes a switch of
+         FileHelpersRuntimeAsync recompile without a clean or no-incremental build. -->
+    <CoreCompileCache Include="$(Features)" />
+  </ItemGroup>
   <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
@@ -36,14 +49,12 @@
       ReferenceOutputAssembly="false" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="all" />
     <!-- Every public API change must be recorded in PublicAPI.Unshipped.txt (RS0016/RS0017). -->
     <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" PrivateAssets="all" />
   </ItemGroup>
   <ItemGroup>
     <!-- Parsing infrastructure is internal; test, fuzz and benchmark projects exercise it directly. -->
     <InternalsVisibleTo Include="ModernLibs.FileHelpers.Tests" />
-    <InternalsVisibleTo Include="ModernLibs.FileHelpers.Mutation.Tests" />
     <InternalsVisibleTo Include="ModernLibs.FileHelpers.Fuzz.Tests" />
     <InternalsVisibleTo Include="ModernLibs.FileHelpers.Benchmarks" />
   </ItemGroup>

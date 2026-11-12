@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
     <OutputType>Exe</OutputType>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
     <NoWarn>$(NoWarn);NU1900;CS0219</NoWarn>
@@ -23,6 +23,14 @@
     <ProjectReference Include="../../src/ModernLibs.FileHelpers.Generator/ModernLibs.FileHelpers.Generator.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Golden canonical texts of the 4.9.1 descriptors, read by Compat49Tests (see Compat/Generated49/README.md). -->
+    <EmbeddedResource Include="Compat/Golden49/*.txt" LogicalName="Golden49/%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The exit code mapping of the fuzz runner (FuzzExitTests); it lives in the Fuzz project, an executable. -->
+    <Compile Include="../ModernLibs.FileHelpers.Fuzz.Tests/FuzzExit.cs" Link="Fuzz/FuzzExit.cs" />
   </ItemGroup>
 
 </Project>

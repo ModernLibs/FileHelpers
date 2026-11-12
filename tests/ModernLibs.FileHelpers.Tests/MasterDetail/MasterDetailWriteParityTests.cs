@@ -16,6 +16,7 @@ public sealed class MasterDetailWriteParityTests
     {
         // Arrange: build deterministic grouped records for all write wrappers.
         var engine = MasterDetailIoFixtures.CreateEngine();
+        engine.NewLineForWrite = "\r\n"; // the payload and the multi-line values use "\r\n"
         var groups = MasterDetailIoFixtures.CreateGroups();
         var expected = MasterDetailIoFixtures.CreateExpectedWritePayload("\r\n");
         var tempFile = Path.GetTempFileName();

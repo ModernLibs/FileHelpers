@@ -16,6 +16,7 @@ public class SepComparisonBenchmarks
     private string _filePath = "";
     private FileHelperEngine<PackageAsset> _engine = null!;
     private PackageAsset[] _records = null!;
+    private RecordParser.Parsers.IVariableLengthReader<PackageAssetRow> _recordParser = null!;
 
     [Params(10_000, 100_000, 1_000_000)]
     public int Rows { get; set; }
@@ -25,7 +26,8 @@ public class SepComparisonBenchmarks
         var dataDir = Path.Combine(Path.GetDirectoryName(typeof(SepComparisonBenchmarks).Assembly.Location)!, "Data");
         Directory.CreateDirectory(dataDir);
         _filePath = DatasetGenerator.EnsurePackageAssets(dataDir, Rows);
-        _engine = new FileHelperEngine<PackageAsset>();
+        _engine = new FileHelperEngine<PackageAsset> { NewLineForWrite = "\r\n" };
+        _recordParser = RecordParserReaders.PackageAssets();
     }
 
     /// <summary>
@@ -37,6 +39,8 @@ public class SepComparisonBenchmarks
         Prepare();
         var records = new List<PackageAsset>(Rows);
         _engine.ReadFile(_filePath, records.Add);
+        // 4.10 captures the header with its line ending, 4.9.1 without; the write adds NewLineForWrite, so strip it here: both builds write the same header bytes.
+        _engine.HeaderText = _engine.HeaderText?.TrimEnd('\r', '\n');
         _records = records.ToArray();
         DataCheck.PackageAssets("FileHelpers records", DataCheck.DataLines(_filePath, hasHeader: true), _records.Length, i => PackageAssetColumns.Of(_records[i]));
     }
@@ -74,6 +78,66 @@ public class SepComparisonBenchmarks
         PrepareRecords();
         DataCheck.WrittenPackageAssets("Sep", DataCheck.DataLines(_filePath, hasHeader: false), WriteString_Sep());
     }
+
+    [GlobalSetup(Target = nameof(FileHelpers_ParseAndDiscard))]
+    public void SetupDiscardFileHelpers()
+    {
+        Prepare();
+        DataCheck.Equal(DiscardChecksum.IdSum(Rows), FileHelpers_ParseAndDiscard(), "FileHelpers parse-and-discard checksum");
+    }
+
+    [GlobalSetup(Target = nameof(Sep_ParseAndDiscard))]
+    public void SetupDiscardSep()
+    {
+        Prepare();
+        DataCheck.Equal(DiscardChecksum.IdSum(Rows), Sep_ParseAndDiscard(), "Sep parse-and-discard checksum");
+    }
+
+    [GlobalSetup(Target = nameof(ReadAllRows_FlameCsv))]
+    public void SetupReadFlameCsv()
+    {
+        Prepare();
+        var rows = ReadAllRows_FlameCsv();
+        DataCheck.PackageAssets("FlameCsv", DataCheck.DataLines(_filePath, hasHeader: true), rows.Count, i => PackageAssetColumns.Of(rows[i]));
+    }
+
+    [GlobalSetup(Target = nameof(ReadAllRows_RecordParser))]
+    public void SetupReadRecordParser()
+    {
+        Prepare();
+        RecordParserOptions.AssertSerial(fixedWidth: false);
+        var rows = ReadAllRows_RecordParser();
+        DataCheck.PackageAssets("RecordParser", DataCheck.DataLines(_filePath, hasHeader: true), rows.Count, i => PackageAssetColumns.Of(rows[i]));
+    }
+
+    [GlobalSetup(Target = nameof(FlameCsv_ParseAndDiscard))]
+    public void SetupDiscardFlameCsv()
+    {
+        Prepare();
+        DataCheck.Equal(DiscardChecksum.IdSum(Rows), FlameCsv_ParseAndDiscard(), "FlameCsv parse-and-discard checksum");
+    }
+
+    [GlobalSetup(Target = nameof(RecordParser_ParseAndDiscard))]
+    public void SetupDiscardRecordParser()
+    {
+        Prepare();
+        RecordParserOptions.AssertSerial(fixedWidth: false);
+        DataCheck.Equal(DiscardChecksum.IdSum(Rows), RecordParser_ParseAndDiscard(), "RecordParser parse-and-discard checksum");
+    }
+
+    // Tier A competitors (T11): FlameCsv reads UTF-8 bytes, RecordParser runs on one thread (see BENCHMARKS.md).
+
+    [Benchmark]
+    public IReadOnlyList<PackageAssetRow> ReadAllRows_FlameCsv() => CompetitorRuns.FlamePackageAssets(_filePath, Rows);
+
+    [Benchmark]
+    public IReadOnlyList<PackageAssetRow> ReadAllRows_RecordParser() => CompetitorRuns.RecordParserPackageAssets(_recordParser, _filePath, Rows);
+
+    [Benchmark]
+    public long FlameCsv_ParseAndDiscard() => CompetitorRuns.FlamePackageAssetsDiscard(_filePath);
+
+    [Benchmark]
+    public long RecordParser_ParseAndDiscard() => CompetitorRuns.RecordParserPackageAssetsDiscard(_recordParser, _filePath);
 
     [Benchmark(Baseline = true)]
     public PackageAsset[] ReadAllRows_FileHelpers() => _engine.ReadFile(_filePath);
@@ -116,6 +180,26 @@ public class SepComparisonBenchmarks
             });
         }
         return results;
+    }
+
+    // Parse-and-discard (design B2): every record parsed completely, none kept (see DiscardChecksum).
+
+    [Benchmark]
+    public long FileHelpers_ParseAndDiscard()
+    {
+        long checksum = 0;
+        _engine.ReadFile(_filePath, r => checksum += r.Id);
+        return checksum;
+    }
+
+    [Benchmark]
+    public long Sep_ParseAndDiscard()
+    {
+        long checksum = 0;
+        using var reader = Sep.New(',').Reader().FromFile(_filePath);
+        foreach (var row in reader)
+            checksum += PackageAssetColumns.FromSep(row).Id;
+        return checksum;
     }
 
     [Benchmark]

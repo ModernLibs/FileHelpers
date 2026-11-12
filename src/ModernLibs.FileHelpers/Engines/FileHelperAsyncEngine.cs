@@ -90,27 +90,53 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
 
     /// <summary>
     /// Header lines captured from the leading <see cref="IgnoreFirstAttribute"/> lines during
-    /// <c>BeginRead*</c>. Setting this property emits it as the first line in <c>BeginWrite*</c>.
+    /// <c>BeginRead*</c>, as in FileHelpers 3.x: each line followed by <see cref="Environment.NewLine"/>, the last
+    /// one included; empty (<c>""</c>) after construction and when there is no header.
+    /// Setting this property emits it as the first line in <c>BeginWrite*</c>.
     /// </summary>
-    public string? HeaderText { get; set; }
+    public string? HeaderText { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Builds the header line FileHelpers 3.x <c>GetFileHeader()</c> returns: the caption (<c>[FieldCaption]</c>,
+    /// else the member name) of every field joined with one separator, without quoting or a line terminator.
+    /// The separator is the delimiter of the first field for a delimited record, a tab for a fixed-length record.
+    /// Does not read or set <see cref="HeaderText"/>; assign it yourself to write the header with the records.
+    /// </summary>
+    public string GetFileHeader() => FileHeaderBuilder.Build(_descriptor);
 
     /// <summary>
     /// Footer lines captured from the trailing <see cref="IgnoreLastAttribute"/> lines once the end of the
-    /// input is reached. Setting this property emits it as the last line on <see cref="Close"/>.
+    /// input is reached, as in FileHelpers 3.x: each line followed by <see cref="Environment.NewLine"/>, the last
+    /// one included; empty (<c>""</c>) after construction, when there is no footer and before the end is reached.
+    /// Setting this property emits it as the last line on <see cref="Close"/>.
     /// </summary>
-    public string? FooterText { get; set; }
-
-    /// <summary>Line terminator written after each record. Defaults to <c>"\r\n"</c>.</summary>
-    public string NewLineForWrite { get; set; } = "\r\n";
+    public string? FooterText { get; set; } = string.Empty;
 
     /// <summary>
-    /// Encoding used by <see cref="BeginReadFile"/>, <see cref="ReadAsync"/> and <see cref="BeginWriteFile"/>.
+    /// Line terminator written after the header, each record and the footer, and inside records with
+    /// <see cref="FieldInNewLineAttribute"/> fields. Defaults to <see cref="Environment.NewLine"/> (<c>"\n"</c> on
+    /// Linux and macOS, <c>"\r\n"</c> on Windows), as in FileHelpers 3.x; 4.8 to 4.9.1 wrote <c>"\r\n"</c> on every
+    /// platform, so set <c>"\r\n"</c> to keep that output. One exception on Linux and macOS: a
+    /// <see cref="HeaderText"/>/<see cref="FooterText"/> captured on read keeps <c>"\n"</c> after each line, so writing
+    /// it back with <c>"\r\n"</c> gives mixed line endings; set the text yourself before the write, for example
+    /// <c>engine.HeaderText = engine.HeaderText.Replace(Environment.NewLine, "\r\n")</c>. Reading does not use it.
+    /// </summary>
+    /// <exception cref="ArgumentException">Thrown when the value is <see langword="null"/> or empty, with the
+    /// FileHelpers 3.x message <c>NewLine string must not be null or empty</c>.</exception>
+    public string NewLineForWrite
+    {
+        get;
+        set => field = WriteFraming.CheckNewLine(value);
+    } = Environment.NewLine;
+
+    /// <summary>
+    /// Encoding used by <see cref="BeginReadFile"/>, <c>ReadAsync</c> and <see cref="BeginWriteFile"/>.
     /// Defaults to <see cref="Encoding.UTF8"/>. A byte order mark in a file being read wins over it.
     /// </summary>
     public Encoding Encoding { get; set; } = Encoding.UTF8;
 
     /// <summary>
-    /// When <see langword="true"/>, <see cref="ReadNext()"/>, <c>foreach</c> and <see cref="ReadAsync"/> reuse a
+    /// When <see langword="true"/>, <see cref="ReadNext()"/>, <c>foreach</c> and <c>ReadAsync</c> reuse a
     /// single <typeparamref name="T"/> instance (zero-alloc for class types). Array-returning reads
     /// (<see cref="ReadNext(int)"/>, <see cref="ReadRemaining"/>) are never affected. Requires
     /// <c>IRecyclableDescriptor&lt;T&gt;</c>; no effect for struct types.
@@ -165,7 +191,7 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     /// and disposes it on <see cref="Close"/>/<see cref="Dispose"/>.
     /// </summary>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="filePath"/> is null.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when a read session is already open, a <see cref="ReadAsync"/> enumeration is running, or a write session is open.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when a read session is already open, a <c>ReadAsync</c> enumeration is running, or a write session is open.</exception>
     public void BeginReadFile(string filePath)
     {
         ArgumentNullException.ThrowIfNull(filePath);
@@ -180,7 +206,7 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     /// the reader on <see cref="Close"/>/<see cref="Dispose"/> — the caller owns it.
     /// </summary>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="reader"/> is null.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when a read session is already open, a <see cref="ReadAsync"/> enumeration is running, or a write session is open.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when a read session is already open, a <c>ReadAsync</c> enumeration is running, or a write session is open.</exception>
     public void BeginReadStream(TextReader reader)
     {
         ArgumentNullException.ThrowIfNull(reader);
@@ -195,7 +221,7 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     /// The engine owns the underlying reader.
     /// </summary>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="content"/> is null.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when a read session is already open, a <see cref="ReadAsync"/> enumeration is running, or a write session is open.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when a read session is already open, a <c>ReadAsync</c> enumeration is running, or a write session is open.</exception>
     public void BeginReadString(string content)
     {
         ArgumentNullException.ThrowIfNull(content);
@@ -302,72 +328,167 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     /// </summary>
     /// <param name="filePath">Path to the file to read. Must not be null.</param>
     /// <param name="cancellationToken">
-    /// Cancellation token. The <c>[EnumeratorCancellation]</c> attribute ensures callers using
-    /// <c>.WithCancellation(ct)</c> have their token correctly merged with this parameter.
+    /// Cancellation token. Callers using <c>.WithCancellation(ct)</c> have their token correctly merged with this
+    /// parameter.
     /// </param>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="filePath"/> is null.</exception>
     /// <exception cref="InvalidOperationException">
-    /// Thrown when a <c>BeginRead*</c> or <c>BeginWrite*</c> session is open, or another <see cref="ReadAsync"/>
+    /// Thrown when a <c>BeginRead*</c> or <c>BeginWrite*</c> session is open, or another <c>ReadAsync</c>
     /// enumeration is running on this engine: they share <see cref="LineNumber"/>, <see cref="TotalRecords"/>,
     /// <see cref="HeaderText"/>/<see cref="FooterText"/> and <see cref="ErrorManager"/>. Use a separate engine
     /// instance for concurrent reads.
     /// </exception>
-    public async IAsyncEnumerable<T> ReadAsync(
-        string filePath,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    public IAsyncEnumerable<T> ReadAsync(string filePath, CancellationToken cancellationToken = default) =>
+        ReadPipelineAsync(filePath, stream: null, fromFile: true, cancellationToken);
+
+    /// <summary>
+    /// Streams records from <paramref name="stream"/>, from its current position, with asynchronous reads only (via
+    /// <see cref="PipelineLineReader"/>), decoding with <see cref="Encoding"/> (a byte order mark wins); the same
+    /// record semantics as the synchronous reads. <paramref name="stream"/> is NOT disposed, also when the
+    /// enumeration ends early, fails or is cancelled. The stream is read ahead in blocks: after an early exit or a
+    /// cancellation its position is past the last record returned.
+    /// </summary>
+    /// <param name="stream">The stream to read; the caller owns it.</param>
+    /// <param name="cancellationToken">Token to cancel the async enumeration.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="stream"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when a <c>BeginRead*</c> or <c>BeginWrite*</c> session is open, or another <c>ReadAsync</c>
+    /// enumeration is running on this engine (see <see cref="ReadAsync(string, CancellationToken)"/>).
+    /// </exception>
+    public IAsyncEnumerable<T> ReadAsync(Stream stream, CancellationToken cancellationToken = default) =>
+        ReadPipelineAsync(filePath: null, stream, fromFile: false, cancellationToken);
+
+    /// <summary>
+    /// Streams records from <paramref name="reader"/> with
+    /// <see cref="TextReader.ReadAsync(Memory{char}, CancellationToken)"/>; the same record semantics as the
+    /// synchronous reads. <paramref name="reader"/> is NOT disposed — the caller owns its lifetime. The reader is
+    /// read ahead in blocks: after an early exit or a cancellation its position is past the last record returned.
+    /// </summary>
+    /// <param name="reader">The text reader to read; the caller owns it.</param>
+    /// <param name="cancellationToken">Token to cancel the async enumeration.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="reader"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when a <c>BeginRead*</c> or <c>BeginWrite*</c> session is open, or another <c>ReadAsync</c>
+    /// enumeration is running on this engine (see <see cref="ReadAsync(string, CancellationToken)"/>).
+    /// </exception>
+    public IAsyncEnumerable<T> ReadAsync(TextReader reader, CancellationToken cancellationToken = default) =>
+        ReadTextAsync(reader, cancellationToken);
+
+    /// <summary>Checks the session guards of <c>ReadAsync</c> and marks a streaming read as running; returns its id.</summary>
+    private int BeginStreamingRead()
     {
-        ArgumentNullException.ThrowIfNull(filePath);
         if (_reader is not null)
             throw new InvalidOperationException("A BeginRead* session is open on this engine. Call Close() before ReadAsync, or use a separate engine instance.");
         ThrowIfStreamingRead();
         ThrowIfWriterOpenForRead();
 
         _streamingRead = true;
-        int id = ++_streamingReadId;
+        return ++_streamingReadId;
+    }
+
+    private void EndStreamingRead(int id)
+    {
+        // After Close() the engine belongs to whatever session was opened since.
+        if (id == _streamingReadId)
+            _streamingRead = false;
+    }
+
+    /// <summary>
+    /// The <see cref="PipelineLineReader"/> read of <c>ReadAsync</c>: opens and owns <paramref name="filePath"/> when
+    /// <paramref name="fromFile"/>, else reads the caller's <paramref name="stream"/> and leaves it open. The null
+    /// check and the session guards run when the enumeration starts.
+    /// </summary>
+    private async IAsyncEnumerable<T> ReadPipelineAsync(
+        string? filePath, Stream? stream, bool fromFile, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        if (fromFile)
+            ArgumentNullException.ThrowIfNull(filePath);
+        else
+            ArgumentNullException.ThrowIfNull(stream);
+
+        int id = BeginStreamingRead();
         try
         {
-            await foreach (var record in StreamFileAsync(filePath, id, cancellationToken).ConfigureAwait(false))
-                yield return record;
+            using var ownedStream = fromFile ? FileBuffers.OpenAsyncStream(filePath!) : null;
+            var lineReader = new PipelineLineReader(ownedStream ?? stream!, Encoding);
+            await using var lineReaderScope = lineReader.ConfigureAwait(false);
+            using var session = BeginSession();
+            session.AllowRecycle = RecycleRecords;
+            try
+            {
+                while (id == _streamingReadId && !session.Stopped && await lineReader.ReadLineAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    if (session.Push(lineReader.CurrentLine.Span, lineReader.CurrentEnding))
+                    {
+                        // A Close() from AfterReadRecord still returns this record, then ends the enumeration.
+                        if (id == _streamingReadId)
+                        {
+                            LastRecord = session.Current;
+                            SyncPosition(session);
+                        }
+
+                        yield return session.Current;
+                    }
+                }
+
+                if (id == _streamingReadId)
+                    session.Complete();
+            }
+            finally
+            {
+                if (id == _streamingReadId)
+                    SyncPosition(session);
+            }
         }
         finally
         {
-            // After Close() the engine belongs to whatever session was opened since.
-            if (id == _streamingReadId)
-                _streamingRead = false;
+            EndStreamingRead(id);
         }
     }
 
-    private async IAsyncEnumerable<T> StreamFileAsync(string filePath, int id, [EnumeratorCancellation] CancellationToken cancellationToken)
+    /// <summary>
+    /// The <see cref="TextReader"/> read of <c>ReadAsync</c>; the reader is not disposed. The null check and the
+    /// session guards run when the enumeration starts.
+    /// </summary>
+    private async IAsyncEnumerable<T> ReadTextAsync(TextReader? reader, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        using var stream = FileBuffers.OpenAsyncStream(filePath);
-        var lineReader = new PipelineLineReader(stream, Encoding);
-        await using var lineReaderScope = lineReader.ConfigureAwait(false);
-        using var session = BeginSession();
-        session.AllowRecycle = RecycleRecords;
+        ArgumentNullException.ThrowIfNull(reader);
+
+        int id = BeginStreamingRead();
         try
         {
-            while (id == _streamingReadId && !session.Stopped && await lineReader.ReadLineAsync(cancellationToken).ConfigureAwait(false))
+            using var source = new TextReaderLineSource(reader);
+            using var session = BeginSession();
+            session.AllowRecycle = RecycleRecords;
+            try
             {
-                if (session.Push(lineReader.CurrentLine.Span, lineReader.CurrentEnding))
+                while (id == _streamingReadId && !session.Stopped && await source.ReadLineAsync(cancellationToken).ConfigureAwait(false))
                 {
-                    // A Close() from AfterReadRecord still returns this record, then ends the enumeration.
-                    if (id == _streamingReadId)
+                    if (session.Push(source.CurrentLine.Span, source.CurrentEnding))
                     {
-                        LastRecord = session.Current;
-                        SyncPosition(session);
+                        // A Close() from AfterReadRecord still returns this record, then ends the enumeration.
+                        if (id == _streamingReadId)
+                        {
+                            LastRecord = session.Current;
+                            SyncPosition(session);
+                        }
+
+                        yield return session.Current;
                     }
-
-                    yield return session.Current;
                 }
-            }
 
-            if (id == _streamingReadId)
-                session.Complete();
+                if (id == _streamingReadId)
+                    session.Complete();
+            }
+            finally
+            {
+                if (id == _streamingReadId)
+                    SyncPosition(session);
+            }
         }
         finally
         {
-            if (id == _streamingReadId)
-                SyncPosition(session);
+            EndStreamingRead(id);
         }
     }
 
@@ -380,7 +501,7 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     /// The engine owns the <see cref="StreamWriter"/> and disposes it on <see cref="Close"/>/<see cref="Dispose"/>.
     /// </summary>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="filePath"/> is null.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when a write session is already open, or a read session (or <see cref="ReadAsync"/> enumeration) is open.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when a write session is already open, or a read session (or <c>ReadAsync</c> enumeration) is open.</exception>
     public void BeginWriteFile(string filePath)
     {
         ArgumentNullException.ThrowIfNull(filePath);
@@ -398,7 +519,7 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     /// The engine owns the <see cref="StreamWriter"/> and disposes it on <see cref="Close"/>/<see cref="Dispose"/>.
     /// </summary>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="filePath"/> is null.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when a write session is already open, or a read session (or <see cref="ReadAsync"/> enumeration) is open.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when a write session is already open, or a read session (or <c>ReadAsync</c> enumeration) is open.</exception>
     public void BeginAppendFile(string filePath)
     {
         ArgumentNullException.ThrowIfNull(filePath);
@@ -408,8 +529,8 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
         _ownsWriter = true;
 
         // 3.x BeginAppendToFile: no header/footer in the middle of an existing file.
-        HeaderText = null;
-        FooterText = null;
+        HeaderText = string.Empty;
+        FooterText = string.Empty;
         InitWriteSession();
     }
 
@@ -418,7 +539,7 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     /// the writer on <see cref="Close"/>/<see cref="Dispose"/> — the caller owns it.
     /// </summary>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="writer"/> is null.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when a write session is already open, or a read session (or <see cref="ReadAsync"/> enumeration) is open.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when a write session is already open, or a read session (or <c>ReadAsync</c> enumeration) is open.</exception>
     public void BeginWriteStream(TextWriter writer)
     {
         ArgumentNullException.ThrowIfNull(writer);
@@ -432,7 +553,7 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     /// Accumulates written records in memory.
     /// Retrieve the result via <see cref="EndWriteString"/> (which also calls <see cref="Close"/>).
     /// </summary>
-    /// <exception cref="InvalidOperationException">Thrown when a write session is already open, or a read session (or <see cref="ReadAsync"/> enumeration) is open.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when a write session is already open, or a read session (or <c>ReadAsync</c> enumeration) is open.</exception>
     public void BeginWriteString()
     {
         ThrowIfWriterOpen();
@@ -555,7 +676,7 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     /// <summary>
     /// Flushes and closes the current read or write session. Idempotent.
     /// Writes <see cref="FooterText"/> (if set) before flushing the writer. A running
-    /// <see cref="ReadAsync"/> enumeration ends at its next record, and the engine can start a new session
+    /// <c>ReadAsync</c> enumeration ends at its next record, and the engine can start a new session
     /// even when that enumerator is never disposed.
     /// </summary>
     public void Close()
@@ -635,11 +756,11 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     {
         LineNumber = 0;
         TotalRecords = 0;
-        HeaderText = null;
-        FooterText = null;
+        HeaderText = string.Empty;
+        FooterText = string.Empty;
         LastRecord = default;
         _errorManager.ClearErrors();
-        return new RecordReadSession<T>(_core, this, this, _errorManager, NewLineForWrite, maxRecords: 0);
+        return new RecordReadSession<T>(_core, this, this, _errorManager, maxRecords: 0);
     }
 
     /// <summary>Starts the session and consumes the <see cref="IgnoreFirstAttribute"/> header lines eagerly.</summary>

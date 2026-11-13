@@ -1,0 +1,152 @@
+<!--
+title: Must read
+section: Guide
+description: The short list of things worth knowing before you use ModernLibs.FileHelpers in production - FAQ, attribute and converter reference, performance and debugging tips.
+lede: The short list of things worth knowing before this goes to production: what is deliberately not here, the questions everybody asks, and the attributes and converters at a glance.
+-->
+<h2 id="important">Important</h2>
+<h3>Layouts are fixed at compile time</h3>
+<p>A source generator turns each record type into parsing code when you build. That is why the library is fast and works under
+Native AOT, and it is also why anything that creates or changes a layout at run time is not available:
+<code>ClassBuilder</code>, <code>engine.Options</code>, the non-generic engines and <code>SmartFormatDetector</code>.
+Declare one record type per layout.</p>
+<h3>Databases and Excel are out of scope</h3>
+<p>FileHelpers 3.x could link files to SQL Server, Access and Excel through <code>DataLink</code> and the storage classes. Those
+are not included. Read or write the typed records here and use your data-access or spreadsheet library for the other side.</p>
+<h3>Defaults differ from 3.x in two places</h3>
+<p>The default encoding is UTF-8 on every platform, and written lines end with <code>\r\n</code> on every platform.
+Both can be set on the engine (<code>Encoding</code>, <code>NewLineForWrite</code>). The <a href="migration.html#behaviour">migration guide</a> has the details.</p>
+
+<h2 id="faq">FAQ</h2>
+<dl class="faq">
+  <div><dt>My file has a header line. How do I ignore it?</dt>
+    <dd>Put <code>[IgnoreFirst(1)]</code> on the record class. For footer lines use <code>[IgnoreLast(n)]</code>. The skipped text is
+    available afterwards as <code>engine.HeaderText</code> and <code>engine.FooterText</code>.</dd></div>
+  <div><dt>I want to write a file with a header.</dt>
+    <dd>Set <code>engine.HeaderText</code> before you call <code>WriteFile</code>. It is not generated from the field names
+    (<code>GetFileHeader()</code> from 3.x is not available).
+      <code-block lang="csharp">
+engine.HeaderText = "Id,Name,Balance,Joined";
+engine.WriteFile("customers.csv", customers);
+      </code-block></dd></div>
+  <div><dt>Some characters are not read correctly.</dt>
+    <dd>That is an encoding problem. The default is UTF-8; pass another encoding to the engine.
+      <code-block lang="csharp">
+Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);   // needed on .NET for code pages
+var engine = new FileHelperEngine<Customer>(Encoding.GetEncoding(1252));
+      </code-block></dd></div>
+  <div><dt>How can I skip certain lines when reading?</dt>
+    <dd>For fixed rules use attributes on the record: <code>[IgnoreEmptyLines]</code>, <code>[IgnoreCommentedLines('#')]</code> or
+    <code>[ConditionalRecord(RecordCondition.ExcludeIfBegins, "//")]</code>. For anything else, handle the
+    <a href="examples.html#events-read"><code>BeforeReadRecord</code> event</a> or implement
+    <a href="examples.html#inotifyread"><code>INotifyRead&lt;T&gt;</code></a> and set <code>e.SkipThisRecord = true</code>.</dd></div>
+  <div><dt>My DateTime field has a different format.</dt>
+    <dd>Say so on the field: <code>[FieldConverter(ConverterKind.Date, "M-d-yyyy")]</code>. Without a format, <code>DateTime</code>
+    fields use <code>ddMMyyyy</code>, as in 3.x. See <a href="#converters">converters</a>.</dd></div>
+  <div><dt>A numeric field is sometimes empty.</dt>
+    <dd>Declare it nullable (<code>int?</code>) or give it a default with <code>[FieldNullValue(0)]</code>. Otherwise an empty
+    value raises <code>NullValueNotFoundException</code>. <a href="examples.html#missing-values">Example</a>.</dd></div>
+  <div><dt>The build says MLFH-something.</dt>
+    <dd>Record layouts are checked when you build. The message names the field; the
+    <a href="diagnostics.html">diagnostics reference</a> explains each rule and its fix.</dd></div>
+</dl>
+
+<h2 id="attributes">Attributes</h2>
+<h3>On the record</h3>
+<div class="table"><table>
+  <thead><tr><th>Attribute</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td><code>[DelimitedRecord(",")]</code></td><td>Fields are separated by the given delimiter. <code>MultilineMode</code> sets the multiline mode of every quoted field at once.</td></tr>
+    <tr><td><code>[FixedLengthRecord]</code></td><td>Fields have fixed widths. <code>FixedMode</code>: <code>ExactLength</code> (default), <code>AllowMoreChars</code>, <code>AllowLessChars</code>, <code>AllowVariableLength</code>.</td></tr>
+    <tr><td><code>[IgnoreFirst(n)]</code>, <code>[IgnoreLast(n)]</code></td><td>Skip header and footer lines; they are kept in <code>HeaderText</code> / <code>FooterText</code>.</td></tr>
+    <tr><td><code>[IgnoreEmptyLines]</code></td><td>Skip empty lines; optionally lines with only white space.</td></tr>
+    <tr><td><code>[IgnoreCommentedLines('#')]</code></td><td>Skip lines that start with the marker character.</td></tr>
+    <tr><td><code>[ConditionalRecord(condition, text)]</code></td><td>Include or exclude lines that begin with, end with, contain or match a regex.</td></tr>
+    <tr><td><code>[IgnoreInheritedClass]</code></td><td>Stop mapping fields of base classes above this one.</td></tr>
+  </tbody>
+</table></div>
+<h3>On a field</h3>
+<div class="table"><table>
+  <thead><tr><th>Attribute</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td><code>[FieldFixedLength(n)]</code></td><td>Width of a fixed-length field. Required on every field of a fixed-length record.</td></tr>
+    <tr><td><code>[FieldAlign(AlignMode, char)]</code></td><td>Alignment and padding character when writing a fixed-length field.</td></tr>
+    <tr><td><code>[FieldTrim(TrimMode)]</code></td><td>Trim white space (or the given characters) when reading: <code>Both</code>, <code>Left</code>, <code>Right</code>.</td></tr>
+    <tr><td><code>[FieldQuoted]</code></td><td>The value may be quoted. Options: quote character, <code>QuoteMode</code>, <code>MultilineMode</code>. Delimited records only.</td></tr>
+    <tr><td><code>[FieldDelimiter("|")]</code></td><td>A different delimiter after this one field.</td></tr>
+    <tr><td><code>[FieldOrder(n)]</code></td><td>Explicit field order. Use it on all fields or none.</td></tr>
+    <tr><td><code>[FieldConverter(...)]</code></td><td>How the text becomes a value. See <a href="#converters">converters</a>.</td></tr>
+    <tr><td><code>[FieldNullValue(value)]</code></td><td>The value to use when the field is empty.</td></tr>
+    <tr><td><code>[FieldOptional]</code></td><td>The field may be missing at the end of a line.</td></tr>
+    <tr><td><code>[FieldNotEmpty]</code></td><td>An empty value is an error.</td></tr>
+    <tr><td><code>[FieldInNewLine]</code></td><td>The field starts on a new line of the same record.</td></tr>
+    <tr><td><code>[FieldHidden]</code></td><td>The member is not part of the file.</td></tr>
+    <tr><td><code>[FieldValueDiscarded]</code></td><td>The column is in the file, but its value is not stored.</td></tr>
+  </tbody>
+</table></div>
+<p>Members that are <code>public</code>, <code>internal</code> or <code>protected internal</code> are mapped, fields and properties alike.
+<code>private</code> and <code>protected</code> members cannot be mapped; the build tells you when that would drop a column
+(<code>MLFH023</code>, <code>MLFH028</code>).</p>
+
+<h2 id="converters">Converters</h2>
+<p>Most field types need no attribute: <code>string</code>, <code>char</code>, <code>bool</code>, all integer types, <code>decimal</code>,
+<code>double</code>, <code>float</code>, <code>DateTime</code>, <code>DateOnly</code>, <code>TimeOnly</code>, <code>DateTimeOffset</code>,
+<code>TimeSpan</code>, <code>Guid</code>, enums and their nullable forms. Add <code>[FieldConverter]</code> to change the format.</p>
+<div class="table"><table>
+  <thead><tr><th>You want</th><th>Write</th></tr></thead>
+  <tbody>
+    <tr><td>A date format</td><td><code>[FieldConverter(ConverterKind.Date, "yyyy-MM-dd")]</code></td></tr>
+    <tr><td>Several accepted date formats</td><td><code>[FieldConverter(ConverterKind.DateMultiFormat, "yyyy-MM-dd", "dd/MM/yyyy")]</code></td></tr>
+    <tr><td>A decimal comma</td><td><code>[FieldConverter(ConverterKind.Decimal, ",")]</code></td></tr>
+    <tr><td>A culture for one field</td><td><code>[FieldConverter(ConverterKind.Decimal, CultureName = "de-DE")]</code></td></tr>
+    <tr><td>Other boolean texts</td><td><code>[FieldConverter(ConverterKind.Boolean, "yes", "no")]</code></td></tr>
+    <tr><td>Your own rules</td><td><code>[FieldConverter(typeof(MyConverter))]</code>, see the <a href="examples.html#custom-converter">example</a></td></tr>
+  </tbody>
+</table></div>
+<p>Defaults follow FileHelpers 3.x and do not depend on the machine's culture. <code>bool</code> accepts <code>true</code>/<code>false</code>,
+<code>1</code>/<code>0</code>, <code>y</code>/<code>n</code> and <code>t</code>/<code>f</code>. Enums are read by name, ignoring case.</p>
+
+<h2 id="performance">Performance</h2>
+<h3>Do not load what you can stream</h3>
+<p><code>ReadFile</code> builds an array of every record. For large files, use <code>ReadAsync</code>, <code>ReadSync</code>, a callback
+or <code>FileHelperAsyncEngine&lt;T&gt;</code>: one record is in memory at a time.</p>
+<h3>Discard fields you do not use</h3>
+<p>Mark columns you never read with <code>[FieldValueDiscarded]</code>. The column still counts in the layout, but its value is not converted or stored.</p>
+<h3>Use structs for numeric data <span class="tag tag--new">New in 4.x</span></h3>
+<p>A <code>struct</code> or <code>record struct</code> whose fields are all value types is read through a callback or <code>ReadSync</code>
+without any heap allocation per record. <a href="examples.html#struct-records">Example</a>.</p>
+<h3 id="choosing">Choosing a read method</h3>
+<div class="table"><table>
+  <thead><tr><th>Method</th><th>Result array</th><th>Use for</th></tr></thead>
+  <tbody>
+    <tr><td><code>ReadFile</code> / <code>ReadString</code> / <code>ReadStream</code> / <code>ReadSpan</code></td><td>Yes</td><td>Small and medium inputs</td></tr>
+    <tr><td>Callback overloads</td><td>No</td><td>Processing records as they are read</td></tr>
+    <tr><td><code>ReadSync</code></td><td>No</td><td>Lazy enumeration with LINQ or <code>foreach</code></td></tr>
+    <tr><td><code>ReadAsync</code></td><td>No</td><td>Large files, async code, cancellation</td></tr>
+    <tr><td><code>FileHelperAsyncEngine&lt;T&gt;</code></td><td>No</td><td>3.x-style pull loops, record-by-record writing</td></tr>
+    <tr><td><code>ParallelReadFile</code> / <code>ParallelReadString</code></td><td>Yes</td><td>Large in-memory inputs on multi-core machines</td></tr>
+  </tbody>
+</table></div>
+<p>All of them go through the same record pipeline, so they produce the same records, errors and line numbers for the same input.
+The <a href="{{REPO}}/blob/main/docs/OPT-IN-FEATURES.md">opt-in features</a> document describes each one.</p>
+
+<h2 id="debugging">Debugging</h2>
+<h3>Read the whole exception</h3>
+<p>Exceptions carry the context you need. <code>ConvertException</code> has <code>LineNumber</code>, <code>ColumnNumber</code>,
+<code>FieldName</code>, <code>FieldType</code> and <code>FieldStringValue</code>.</p>
+<code-block lang="csharp">
+try
+{
+    engine.ReadFile("customers.csv");
+}
+catch (ConvertException ex)
+{
+    Console.WriteLine($"Line {ex.LineNumber}, field {ex.FieldName}: '{ex.FieldStringValue}' is not a {ex.FieldType.Name}");
+}
+</code-block>
+<h3>Collect errors instead of stopping</h3>
+<p>With <code>ErrorMode.SaveAndContinue</code> the good records are returned and the bad ones are listed in
+<code>engine.ErrorManager.Errors</code>. <a href="examples.html#errors">Example</a>.</p>
+<h3>Let the build find layout mistakes</h3>
+<p>Do not suppress <code>MLFH</code> errors. A hidden error comes back at run time as a <code>BadUsageException</code>
+that names it. See <a href="diagnostics.html#suppressing">suppressing diagnostics</a>.</p>

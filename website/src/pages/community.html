@@ -1,0 +1,62 @@
+<!--
+title: Credits & contributing
+section: Project
+description: Who built FileHelpers, how ModernLibs.FileHelpers relates to the original project, and how to report bugs or contribute.
+lede: This library exists because FileHelpers did first. Here is who to thank, where to send feedback, and what a contribution needs to look like.
+-->
+<h2 id="credits">Credits</h2>
+<p>The API and behaviour of this library are modelled on <a href="https://github.com/MarcosMeli/FileHelpers">FileHelpers</a>,
+created by <b>Marcos Meli</b> and maintained with the help of many contributors. Attribute names, engines, events,
+error modes and exception types are theirs; FileHelpers 3.x is the reference for how this library behaves. Thank you to
+everyone who built and maintained it.</p>
+<p>The original project's own <a href="https://www.filehelpers.net/credits/">credits page</a> lists the people behind it.</p>
+<p class="note"><b>This is not the original project.</b> ModernLibs.FileHelpers is an independent reimplementation. Please report
+problems with this library in <a href="{{REPO}}/issues">its own issue tracker</a>, not upstream.</p>
+
+<h2 id="feedback">Contact and feedback</h2>
+<nav class="cards" aria-label="Feedback channels">
+  <a href="{{REPO}}/issues"><b>Issues</b><small>Bugs, questions and feature requests</small></a>
+  <a href="{{REPO}}"><b>Source code</b><small>Browse, star or fork on GitHub</small></a>
+  <a href="{{NUGET}}"><b>NuGet</b><small>Releases and download statistics</small></a>
+</nav>
+<h3>A good bug report</h3>
+<p>Include a minimal record type, a few input lines, what you expected and what happened. If the behaviour differs from
+FileHelpers 3.x, say so: 3.x is the reference, and the <a href="migration.html">migration guide</a> lists the known differences.</p>
+
+<h2 id="contribute">Contributing</h2>
+<p>Bug reports, documentation fixes and pull requests are welcome. For a feature, open an issue first so the API can be
+agreed before you write code.</p>
+<h3>Build and test</h3>
+<p>You need the .NET 10 SDK version pinned in <code>global.json</code>.</p>
+<code-block lang="shell">
+dotnet build -c Release
+
+# main suite (TUnit)
+dotnet test --project tests/ModernLibs.FileHelpers.Tests -c Release
+
+# the migration sample must keep working
+dotnet run --project samples/MigrationSamples -c Release
+</code-block>
+<h3>Design constraints</h3>
+<p>These are requirements, not preferences. Pull requests that break them cannot be merged.</p>
+<ol class="numbered">
+  <li><span>.NET 10 only</span><small>The library targets <code>net10.0</code>; there is no multi-targeting.</small></li>
+  <li><span>AOT and trimming safe</span><small>No reflection, <code>Reflection.Emit</code>, <code>Expression</code> compilation or <code>MakeGenericType</code>. Everything that depends on the record type is generated at compile time.</small></li>
+  <li><span>Allocation budget</span><small>Reading a value-type struct record must not allocate per record or per line on the callback and streaming paths. Tests enforce it.</small></li>
+  <li><span>FileHelpers 3.x compatibility</span><small>Names, signatures, exceptions and error handling follow 3.x. Intentional differences are documented in the migration guide.</small></li>
+</ol>
+<p>The full <a href="{{REPO}}/blob/main/CONTRIBUTING.md">contributing guide</a> covers the repository layout, mutation testing,
+fuzzing and benchmarks.</p>
+<h3>Where help is wanted</h3>
+<p>The <a href="{{REPO}}/blob/main/docs/GAP-ANALYSIS.md#3-gaps-that-could-be-closed">gap analysis</a> lists 3.x features that
+could be added without reflection and are still open, such as <code>[FieldArrayLength]</code>, header lines from
+<code>[FieldCaption]</code> and engine-level overrides for record options.</p>
+
+<h2 id="license">License</h2>
+<p>ModernLibs.FileHelpers is released under the <a href="{{REPO}}/blob/main/LICENSE">MIT License</a>, which allows the use of the
+code and binaries everywhere, including commercial applications. FileHelpers 3.x is MIT licensed as well.</p>
+
+<h2 id="colophon">About this site</h2>
+<p>Static HTML, built by a dependency-free script in the repository. Fonts (Inter, JetBrains Mono, Newsreader; SIL Open Font
+License) are served from this site. There are no trackers, cookies or third-party requests. The home page animation uses
+<a href="https://gsap.com/">GSAP</a>; everything reads the same without JavaScript.</p>

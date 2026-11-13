@@ -1,0 +1,643 @@
+<!--
+title: Examples
+section: Guide
+description: Worked examples for ModernLibs.FileHelpers - reading and writing delimited and fixed files, missing values, attributes, converters, events, error modes, multi-record and master/detail files.
+lede: The same catalogue the FileHelpers site has always had, rewritten for 4.x. Where a 3.x example relied on something that is not included, the entry says so and shows what to do instead.
+-->
+<nav class="cards" aria-label="Example groups">
+  <a href="#quickstart"><b>Quick start</b><small>Read, write, record by record, properties</small></a>
+  <a href="#missing-values"><b>Missing values</b><small>Nullable types, FieldNullValue</small></a>
+  <a href="#attributes"><b>Attributes</b><small>FieldTrim, FieldOrder, FixedMode</small></a>
+  <a href="#converters"><b>Converters</b><small>Enums, custom converters</small></a>
+  <a href="#events"><b>Events</b><small>INotifyRead, INotifyWrite, engine events</small></a>
+  <a href="#errors"><b>Error handling</b><small>Throw, ignore, save and continue</small></a>
+  <a href="#advanced"><b>Advanced</b><small>Multi-record, delimiters, structs, parallel</small></a>
+  <a href="#master-detail"><b>Master/detail</b><small>Common and custom selectors</small></a>
+  <a href="#sorting"><b>Sorting &amp; transforms</b><small>What replaced the 3.x helper engines</small></a>
+</nav>
+<p>Every sample assumes <code>using ModernLibs.FileHelpers;</code>.</p>
+
+<h2 id="quickstart">Quick start</h2>
+
+<h3 id="read-delimited">Read a delimited file</h3>
+<code-block lang="data" title="orders.txt">
+10248|VINET|04071996|32.38
+10249|TOMSP|05071996|11.61
+10250|HANAR|08071996|65.83
+</code-block>
+<code-block lang="csharp">
+[DelimitedRecord("|")]
+public sealed class Order
+{
+    public int OrderId;
+    public string CustomerId = "";
+
+    [FieldConverter(ConverterKind.Date, "ddMMyyyy")]
+    public DateTime OrderDate;
+
+    public decimal Freight;
+}
+
+var engine = new FileHelperEngine<Order>();
+Order[] orders = engine.ReadFile("orders.txt");
+
+foreach (Order order in orders)
+    Console.WriteLine($"{order.OrderId} {order.CustomerId} {order.OrderDate:d} {order.Freight}");
+</code-block>
+
+<h3 id="write-delimited">Write a delimited file</h3>
+<code-block lang="csharp">
+var orders = new List<Order>
+{
+    new() { OrderId = 1, CustomerId = "AIRG", OrderDate = new DateTime(2026, 3, 5), Freight = 82.43m },
+    new() { OrderId = 2, CustomerId = "JSYV", OrderDate = new DateTime(2026, 3, 6), Freight = 12.22m },
+};
+
+var engine = new FileHelperEngine<Order>();
+engine.WriteFile("orders-out.txt", orders);
+
+// or get the text, or add to an existing file
+string text = engine.WriteString(orders);
+engine.AppendToFile("orders-out.txt", orders);
+</code-block>
+<code-block lang="data" title="orders-out.txt">
+1|AIRG|05032026|82.43
+2|JSYV|06032026|12.22
+</code-block>
+
+<h3 id="read-fixed">Read a fixed-length file</h3>
+<p>The kind of layout a COBOL program writes: no separators, every field at a known position.</p>
+<code-block lang="data" title="customers.txt">
+01010 Alfreds Futterkiste          13122005
+12399 Ana Trujillo Emparedados     23012000
+00011 Antonio Moreno Taqueria      21042001
+</code-block>
+<code-block lang="csharp">
+[FixedLengthRecord]
+public sealed class Customer
+{
+    [FieldFixedLength(5)]
+    public int Id;
+
+    [FieldFixedLength(30)]
+    [FieldTrim(TrimMode.Both)]
+    public string Name = "";
+
+    [FieldFixedLength(8)]
+    [FieldConverter(ConverterKind.Date, "ddMMyyyy")]
+    public DateTime AddedDate;
+}
+
+var engine = new FileHelperEngine<Customer>();
+Customer[] customers = engine.ReadFile("customers.txt");
+</code-block>
+
+<h3 id="write-fixed">Write a fixed-length file</h3>
+<p><code>[FieldAlign]</code> decides the side a value is padded on and the padding character.</p>
+<code-block lang="csharp">
+[FixedLengthRecord]
+public sealed class Payment
+{
+    [FieldFixedLength(8)]
+    [FieldAlign(AlignMode.Right, '0')]
+    public int Account;
+
+    [FieldFixedLength(12)]
+    [FieldAlign(AlignMode.Right, '0')]
+    public decimal Amount;
+
+    [FieldFixedLength(10)]
+    public string Reference = "";
+}
+
+var engine = new FileHelperEngine<Payment>();
+string text = engine.WriteString(new[]
+{
+    new Payment { Account = 4711, Amount = 1250.00m, Reference = "INV-2031" },
+});
+</code-block>
+<code-block lang="data" title="Result">
+00004711000001250.00INV-2031
+</code-block>
+
+<h3 id="record-by-record">Read or write record by record</h3>
+<p>Use <code>FileHelperAsyncEngine&lt;T&gt;</code> for the 3.x pull loop. Despite the name it is synchronous: “async” means
+“not all at once”.</p>
+<code-block lang="csharp">
+using var engine = new FileHelperAsyncEngine<Customer>();
+
+engine.BeginReadFile("customers.txt");
+while (engine.ReadNext() is { } customer)
+{
+    Console.WriteLine(customer.Name);
+}
+engine.Close();
+
+engine.BeginWriteFile("customers-out.txt");
+engine.WriteNext(new Customer { Id = 7, Name = "Around the Horn", AddedDate = DateTime.Today });
+</code-block>
+<p>In 4.x you can also stream with <code>await foreach</code> or a callback:</p>
+<code-block lang="csharp">
+var engine = new FileHelperEngine<Customer>();
+
+await foreach (Customer customer in engine.ReadAsync("customers.txt", cancellationToken))
+    Console.WriteLine(customer.Name);
+
+int count = engine.ReadFile("customers.txt", customer => Console.WriteLine(customer.Name));
+</code-block>
+
+<h3 id="autoproperties">Auto-properties</h3>
+<p>Properties work like fields. Records, positional records and <code>required</code> members do too.</p>
+<code-block lang="csharp">
+[DelimitedRecord("|")]
+public sealed class Order
+{
+    public int OrderId { get; set; }
+    public required string CustomerId { get; init; }
+    public decimal Freight { get; set; }
+}
+
+[DelimitedRecord("|")]
+public sealed record OrderLine(int OrderId, string Product, int Quantity);
+</code-block>
+
+<h2 id="missing-values">Missing values</h2>
+
+<h3 id="nullable">With nullable types</h3>
+<p>An empty field for a nullable value type reads as <code>null</code>.</p>
+<code-block lang="data" title="orders.txt">
+10248|VINET||32.38
+10249|TOMSP|05071996|
+</code-block>
+<code-block lang="csharp">
+[DelimitedRecord("|")]
+public sealed class Order
+{
+    public int OrderId;
+    public string CustomerId = "";
+
+    [FieldConverter(ConverterKind.Date, "ddMMyyyy")]
+    public DateTime? OrderDate;
+
+    public decimal? Freight;
+}
+</code-block>
+
+<h3 id="fieldnullvalue">With <code>[FieldNullValue]</code></h3>
+<p>Or keep the type non-nullable and name the value to use. The value must be a constant of the field type.</p>
+<code-block lang="csharp">
+[DelimitedRecord("|")]
+public sealed class Order
+{
+    public int OrderId;
+    public string CustomerId = "";
+
+    [FieldNullValue(0)]
+    public int Quantity;
+
+    [FieldNullValue(0.0)]
+    public double Discount;
+}
+</code-block>
+<p class="note"><b>Different from 3.x:</b> <code>[FieldNullValue(typeof(DateTime), "2000-01-01")]</code> is not available, because a
+<code>DateTime</code> cannot be an attribute constant. Declare the field as <code>DateTime?</code> and substitute the default in your code.
+Without either, an empty value-type field raises <code>NullValueNotFoundException</code>.</p>
+
+<h2 id="attributes">Attributes</h2>
+
+<h3 id="fieldtrim"><code>[FieldTrim]</code></h3>
+<p>Mostly for fixed-length records, where short values are padded with spaces.</p>
+<code-block lang="csharp">
+[FixedLengthRecord]
+public sealed class Customer
+{
+    [FieldFixedLength(5)]
+    public int Id;
+
+    [FieldFixedLength(30)]
+    [FieldTrim(TrimMode.Both)]     // "  Alfreds Futterkiste   " -> "Alfreds Futterkiste"
+    public string Name = "";
+
+    [FieldFixedLength(12)]
+    [FieldTrim(TrimMode.Left)]
+    public string City = "";
+}
+</code-block>
+
+<h3 id="fieldorder"><code>[FieldOrder]</code></h3>
+<p>Fields are mapped in declaration order. <code>[FieldOrder]</code> makes the order explicit, which helps with partial classes and
+inheritance. Use it on every mapped field or on none (<code>MLFH024</code>).</p>
+<code-block lang="csharp">
+[DelimitedRecord("|")]
+public sealed class Order
+{
+    [FieldOrder(20)] public string CustomerId = "";
+    [FieldOrder(10)] public int OrderId;        // first column
+    [FieldOrder(30)] public decimal Freight;
+}
+</code-block>
+
+<h3 id="fixed-mode"><code>FixedMode.AllowLessChars</code></h3>
+<p>By default every line of a fixed-length file must have exactly the declared length. <code>FixedMode</code> relaxes that when
+some lines are cut short or carry extra characters.</p>
+<code-block lang="data" title="customers.txt">
+01010 Alfreds Futterkiste          13122005
+12399 Ana Trujillo Emparedados
+</code-block>
+<code-block lang="csharp">
+[FixedLengthRecord(FixedMode.AllowLessChars)]
+public sealed class Customer
+{
+    [FieldFixedLength(5)]
+    public int Id;
+
+    [FieldFixedLength(30)]
+    [FieldTrim(TrimMode.Both)]
+    public string Name = "";
+
+    [FieldFixedLength(8)]
+    [FieldConverter(ConverterKind.Date, "ddMMyyyy")]
+    public DateTime? AddedDate;
+}
+</code-block>
+<p>The other values are <code>ExactLength</code> (default), <code>AllowMoreChars</code> and <code>AllowVariableLength</code>.</p>
+
+<h2 id="converters">Converters</h2>
+
+<h3 id="enum-converter">Enums</h3>
+<p>Enum fields are read by name, ignoring case, and written by name. No converter is needed.</p>
+<code-block lang="data" title="customers.txt">
+ALFKI|Alfreds Futterkiste|SalesRepresentative
+ANATR|Ana Trujillo Emparedados|Owner
+</code-block>
+<code-block lang="csharp">
+public enum CustomerTitle { Owner, SalesRepresentative, MarketingManager }
+
+[DelimitedRecord("|")]
+public sealed class Customer
+{
+    public string Id = "";
+    public string Name = "";
+    public CustomerTitle Title;
+}
+</code-block>
+
+<h3 id="custom-converter">A custom converter</h3>
+<p>Derive from <code>ConverterBase</code>, as in 3.x. It now lives in <code>ModernLibs.FileHelpers.Converters</code>.
+Here an amount is stored without its decimal point: <code>0001234</code> means 12.34.</p>
+<code-block lang="csharp">
+using System.Globalization;
+using ModernLibs.FileHelpers.Converters;
+
+public sealed class ImpliedDecimalConverter : ConverterBase
+{
+    public override object? StringToField(string from) =>
+        decimal.Parse(from, CultureInfo.InvariantCulture) / 100m;
+
+    public override string? FieldToString(object? from) =>
+        ((decimal)from! * 100m).ToString("0", CultureInfo.InvariantCulture);
+}
+
+[FixedLengthRecord]
+public sealed class Payment
+{
+    [FieldFixedLength(8)]
+    public int Account;
+
+    [FieldFixedLength(7)]
+    [FieldAlign(AlignMode.Right, '0')]
+    [FieldConverter(typeof(ImpliedDecimalConverter))]
+    public decimal Amount;
+}
+</code-block>
+<p>Converters can take arguments, which must be strings: <code>[FieldConverter(typeof(TextBoolConverter), "ja", "nein")]</code> calls a
+constructor with two <code>string</code> parameters. The generated code calls the constructor directly; there is no reflection.</p>
+
+<h3 id="span-converter">A span converter <span class="tag tag--new">New in 4.x</span></h3>
+<p><code>ISpanConverter&lt;T&gt;</code> parses from a span and formats into a span, so no intermediate string is allocated.</p>
+<code-block lang="csharp">
+using ModernLibs.FileHelpers.Converters;
+
+public sealed class IsoDateOnlyConverter : ISpanConverter<DateOnly>
+{
+    private static readonly DateOnlyConverter Inner = new("yyyy-MM-dd");
+
+    public bool TryParse(ReadOnlySpan<char> span, out DateOnly value) => Inner.TryParse(span, out value);
+
+    public bool TryFormat(DateOnly value, Span<char> destination, out int charsWritten) =>
+        Inner.TryFormat(value, destination, out charsWritten);
+}
+
+[DelimitedRecord(",")]
+public sealed class Shipment
+{
+    [FieldConverter(typeof(IsoDateOnlyConverter))]
+    public DateOnly ShippedOn;
+}
+</code-block>
+
+<h2 id="events">Events and notification</h2>
+
+<h3 id="inotifyread"><code>INotifyRead&lt;T&gt;</code></h3>
+<p>Implement the interface on the record and it is told about its own reading. Use it to skip lines or to finish a record after
+its fields are filled.</p>
+<code-block lang="csharp">
+[DelimitedRecord("|")]
+public sealed class Order : INotifyRead<Order>
+{
+    public int OrderId;
+    public string CustomerId = "";
+    public decimal Freight;
+
+    public void BeforeRead(BeforeReadEventArgs<Order> e)
+    {
+        if (e.RecordLine.StartsWith("TOTAL"))
+            e.SkipThisRecord = true;
+    }
+
+    public void AfterRead(AfterReadEventArgs<Order> e)
+    {
+        if (Freight < 0)
+            e.SkipThisRecord = true;
+    }
+}
+</code-block>
+
+<h3 id="inotifywrite"><code>INotifyWrite&lt;T&gt;</code></h3>
+<code-block lang="csharp">
+[DelimitedRecord("|")]
+public sealed class Order : INotifyWrite<Order>
+{
+    public int OrderId;
+    public string CustomerId = "";
+    public decimal Freight;
+
+    public void BeforeWrite(BeforeWriteEventArgs<Order> e)
+    {
+        if (Freight == 0)
+            e.SkipThisRecord = true;      // do not write free shipments
+    }
+
+    public void AfterWrite(AfterWriteEventArgs<Order> e)
+    {
+        e.RecordLine = e.RecordLine.ToUpperInvariant();   // change the line that is written
+    }
+}
+</code-block>
+
+<h3 id="events-read">Before/after read events</h3>
+<p>The same hooks as events on the engine, when the logic does not belong in the record.</p>
+<code-block lang="csharp">
+var engine = new FileHelperEngine<Order>();
+
+engine.BeforeReadRecord += (sender, e) =>
+{
+    if (e.RecordLine.StartsWith("#"))
+        e.SkipThisRecord = true;
+
+    if (e.RecordLine.StartsWith("END"))
+        e.StopReading = true;             // new in 4.x
+};
+
+engine.AfterReadRecord += (sender, e) =>
+{
+    if (e.Record.Freight > 1000)
+        Console.WriteLine($"Line {e.LineNumber}: unusually high freight");
+};
+
+Order[] orders = engine.ReadFile("orders.txt");
+</code-block>
+
+<h3 id="events-write">Before/after write events</h3>
+<code-block lang="csharp">
+var engine = new FileHelperEngine<Order>();
+
+engine.BeforeWriteRecord += (sender, e) =>
+{
+    if (e.Record.CustomerId.Length == 0)
+        e.SkipThisRecord = true;
+};
+
+engine.AfterWriteRecord += (sender, e) =>
+{
+    Console.WriteLine($"{e.RecordNumber}: {e.RecordLine}");
+};
+
+engine.Progress += (sender, e) => Console.WriteLine($"{e.CurrentRecord} of {e.TotalRecords}");
+
+engine.WriteFile("orders-out.txt", orders);
+</code-block>
+<p class="note"><b>Different from 3.x:</b> handlers are <code>(object sender, XxxEventArgs&lt;T&gt; e)</code>. Lambdas compile
+unchanged; named handler methods need their first parameter changed from <code>EngineBase</code> to <code>object</code>.</p>
+
+<h2 id="errors">Error handling</h2>
+
+<h3 id="error-throw"><code>ErrorMode.ThrowException</code></h3>
+<p>The default. The first bad record stops the read with an exception that says where.</p>
+<code-block lang="csharp">
+var engine = new FileHelperEngine<Order>();   // ErrorMode.ThrowException
+
+try
+{
+    engine.ReadFile("orders.txt");
+}
+catch (ConvertException ex)
+{
+    Console.WriteLine($"Line {ex.LineNumber}, field {ex.FieldName}: '{ex.FieldStringValue}' is not a {ex.FieldType.Name}");
+}
+catch (FileHelpersException ex)     // base class: wrong field count, bad quoting, ...
+{
+    Console.WriteLine(ex.Message);
+}
+</code-block>
+
+<h3 id="error-ignore"><code>ErrorMode.IgnoreAndContinue</code></h3>
+<p>Bad records are skipped silently. Use it only when losing lines is acceptable.</p>
+<code-block lang="csharp">
+var engine = new FileHelperEngine<Order> { ErrorMode = ErrorMode.IgnoreAndContinue };
+Order[] good = engine.ReadFile("orders.txt");
+</code-block>
+
+<h3 id="error-save"><code>ErrorMode.SaveAndContinue</code></h3>
+<p>Bad records are skipped and collected, so you can report them after the good ones are processed.</p>
+<code-block lang="csharp">
+var engine = new FileHelperEngine<Order> { ErrorMode = ErrorMode.SaveAndContinue };
+Order[] good = engine.ReadFile("orders.txt");
+
+foreach (ErrorInfo error in engine.ErrorManager.Errors)
+{
+    Console.WriteLine($"Line {error.LineNumber}, field {error.FieldName}: {error.ExceptionInfo?.Message}");
+    Console.WriteLine(error.RecordString);
+}
+
+if (engine.ErrorManager.Errors.Count > 0)
+    engine.ErrorManager.SaveErrors("orders.errors.txt");
+</code-block>
+
+<h2 id="advanced">Advanced</h2>
+
+<h3 id="multi-record">Multi-record processing</h3>
+<p>One file, several layouts. Each record type gets a selector that says whether a line belongs to it; lines that match no
+selector are skipped.</p>
+<code-block lang="data" title="mixed.txt">
+ORD|10248|VINET
+LIN|10248|Queso Cabrales|12
+LIN|10248|Singaporean Hokkien Fried Mee|10
+ORD|10249|TOMSP
+</code-block>
+<code-block lang="csharp">
+[DelimitedRecord("|")]
+public sealed class Order { public string Kind = ""; public int OrderId; public string CustomerId = ""; }
+
+[DelimitedRecord("|")]
+public sealed class OrderLine { public string Kind = ""; public int OrderId; public string Product = ""; public int Quantity; }
+
+var engine = new MultiRecordEngine(
+    MultiRecordType.For<Order>(line => line.StartsWith("ORD")),
+    MultiRecordType.For<OrderLine>(line => line.StartsWith("LIN")));
+
+object[] records = engine.ReadFile("mixed.txt");
+
+foreach (object record in records)
+{
+    switch (record)
+    {
+        case Order order: Console.WriteLine($"Order {order.OrderId}"); break;
+        case OrderLine line: Console.WriteLine($"  {line.Quantity} x {line.Product}"); break;
+    }
+}
+</code-block>
+<p class="note"><b>Different from 3.x:</b> there is no <code>RecordTypeSelector</code> returning a <code>Type</code>. The selector
+receives a <code>ReadOnlySpan&lt;char&gt;</code>; call <code>line.ToString()</code> if you need <code>string</code>-only methods.</p>
+
+<h3 id="multiple-delimiters">Multiple delimiters</h3>
+<p><code>[FieldDelimiter]</code> sets the delimiter that follows one field.</p>
+<code-block lang="csharp">
+[DelimitedRecord(",")]
+public sealed class Reading
+{
+    public int SensorId;
+
+    [FieldDelimiter("|")]
+    public string Unit = "";      // 17,celsius|21.5
+
+    public double Value;
+}
+</code-block>
+<p>To write the <em>same data</em> with a different delimiter, declare a second record type and project:
+<code>tabEngine.WriteFile(path, rows.Select(r =&gt; new ReadingTab { ... }))</code>.</p>
+
+<h3 id="dynamic-options">Dynamic engine options <span class="tag tag--gone">Not in 4.x</span></h3>
+<p>In 3.x, <code>engine.Options</code> could change the delimiter, <code>IgnoreFirst</code> or field lengths at run time. Here the layout is
+compiled into the generated parser, so it cannot change after the build. Declare one record type per layout; a shared interface
+or base class keeps the rest of your code unaware of the difference.</p>
+
+<h3 id="format-detector">Smart format detector <span class="tag tag--gone">Not in 4.x</span></h3>
+<p><code>SmartFormatDetector</code> guessed a layout from sample files and produced a run-time class. It depends on run-time
+code generation and is not included. Declare the layout; for CSV files with no known schema, use a CSV-first library.</p>
+
+<h3 id="struct-records">Struct records without allocations <span class="tag tag--new">New in 4.x</span></h3>
+<p>A struct whose fields are all value types can be read through a callback or a streaming method without any heap allocation
+per record.</p>
+<code-block lang="csharp">
+[DelimitedRecord(",")]
+public record struct Trade
+{
+    public long Id;
+    public decimal Price;
+    public int Quantity;
+}
+
+var engine = new FileHelperEngine<Trade>();
+
+decimal notional = 0;
+int count = engine.ReadFile("trades.csv", trade => notional += trade.Price * trade.Quantity);
+</code-block>
+
+<h3 id="parallel">Parallel reads <span class="tag tag--new">New in 4.x</span></h3>
+<p>For large inputs that fit in memory. The result is the same as a sequential read: the same records in the same order, the same
+errors and line numbers.</p>
+<code-block lang="csharp">
+Order[] orders = engine.ParallelReadFile("orders.txt");
+</code-block>
+<p>Records with quoted fields are read sequentially unless multiline values are turned off for them. See
+<a href="{{REPO}}/blob/main/docs/OPT-IN-FEATURES.md#parallel-reads">parallel reads</a>.</p>
+
+<h2 id="master-detail">Master/detail</h2>
+
+<h3 id="master-detail-common">With a common selector</h3>
+<p>When the master lines can be recognised by how they begin, end or what they contain.</p>
+<code-block lang="data" title="orders.txt">
+ORD|10248|VINET
+LIN|10248|Queso Cabrales|12
+LIN|10248|Mozzarella di Giovanni|5
+ORD|10249|TOMSP
+LIN|10249|Tofu|9
+</code-block>
+<code-block lang="csharp">
+var engine = new MasterDetailEngine<Order, OrderLine>(CommonSelectorMode.MasterIfBegins, "ORD");
+
+MasterDetails<Order, OrderLine>[] groups = engine.ReadFile("orders.txt");
+
+foreach (var group in groups)
+{
+    Console.WriteLine($"Order {group.Master.OrderId}: {group.Details.Count} lines");
+    foreach (OrderLine line in group.Details)
+        Console.WriteLine($"  {line.Quantity} x {line.Product}");
+}
+</code-block>
+
+<h3 id="master-detail-custom">With a custom selector</h3>
+<p>Return what each line is: a master, a detail, or something to skip.</p>
+<code-block lang="csharp">
+var engine = new MasterDetailEngine<Order, OrderLine>(line =>
+    line.StartsWith("ORD") ? RecordAction.Master :
+    line.StartsWith("LIN") ? RecordAction.Detail :
+    RecordAction.Skip);
+
+MasterDetails<Order, OrderLine>[] groups = engine.ReadFile("orders.txt");
+</code-block>
+<p class="note"><b>Different from 3.x:</b> the enum <code>CommonSelector</code> is now <code>CommonSelectorMode</code>, the selector is passed
+to the constructor, and <code>Details</code> is an <code>IReadOnlyList&lt;TDetail&gt;</code> (use <code>Count</code>, not <code>Length</code>).</p>
+
+<h2 id="sorting">Sorting and transforms</h2>
+<p>FileHelpers 3.x shipped helper engines for sorting, converting and comparing files. They are not included in 4.x, because
+LINQ and the streaming reads do the same work in a few lines.</p>
+
+<h3 id="sort">Sort a file <span class="tag tag--gone">BigFileSorter not in 4.x</span></h3>
+<code-block lang="csharp">
+var engine = new FileHelperEngine<Order>();
+
+Order[] orders = engine.ReadFile("orders.txt");
+engine.WriteFile("orders-sorted.txt", orders.OrderBy(o => o.CustomerId).ThenBy(o => o.OrderId));
+</code-block>
+<p>For files that do not fit in memory, use an external sort tool, or read in chunks, sort each and merge.</p>
+
+<h3 id="transform">Convert one format to another <span class="tag tag--gone">FileTransformEngine not in 4.x</span></h3>
+<p>Read with one engine, project, write with another. <code>ReadSync</code> streams, so the file is never fully in memory.</p>
+<code-block lang="csharp">
+var source = new FileHelperEngine<Customer>();          // the fixed-length record from above
+var target = new FileHelperEngine<CustomerCsv>();       // a [DelimitedRecord(",")] with the same members
+
+using var reader = new StreamReader("customers.txt");
+target.WriteFile("customers.csv", source.ReadSync(reader).Select(c => new CustomerCsv
+{
+    Id = c.Id,
+    Name = c.Name,
+    AddedDate = c.AddedDate,
+}));
+</code-block>
+
+<h3 id="diff">Compare two files <span class="tag tag--gone">FileDiffEngine not in 4.x</span></h3>
+<code-block lang="csharp">
+[DelimitedRecord("|")]
+public sealed record StockLine(string Sku, int Quantity);   // records compare by value
+
+var engine = new FileHelperEngine<StockLine>();
+
+StockLine[] before = engine.ReadFile("monday.txt");
+StockLine[] after = engine.ReadFile("tuesday.txt");
+
+IEnumerable<StockLine> added = after.Except(before);
+IEnumerable<StockLine> removed = before.Except(after);
+</code-block>

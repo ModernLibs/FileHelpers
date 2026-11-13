@@ -1,0 +1,223 @@
+<!--
+layout: home
+title: Introduction
+description: Typed reading and writing of fixed-length and delimited (CSV, TSV, pipe) text files for .NET 10, with the FileHelpers 3.x API. Source-generated, no reflection, ready for Native AOT.
+-->
+<section class="hero">
+  <p class="label hero__kicker"><span>v{{VERSION}}</span><span>.NET 10</span><span>Native AOT</span><span>MIT</span></p>
+  <h1 class="hero__title">Flat files, read as <em>typed records</em>.</h1>
+  <div class="hero__row">
+    <p class="hero__lede">ModernLibs.FileHelpers reads and writes fixed-length and delimited text files
+    (CSV, TSV, pipe) for .NET 10. You describe a record with attributes, the FileHelpers 3.x way;
+    a source generator writes the parser at compile time.</p>
+    <div class="hero__actions">
+      <div class="install">
+        <span class="label">Install</span>
+        <code id="install-cmd">dotnet add package ModernLibs.FileHelpers</code>
+        <button type="button" class="copy" data-copy="#install-cmd" hidden>Copy</button>
+      </div>
+      <p class="hero__links"><a class="btn" href="quick-start.html">Quick start</a><a class="btn btn--ghost" href="migration.html">Coming from 3.x</a></p>
+    </div>
+  </div>
+</section>
+
+<section class="parse" aria-labelledby="parse-title" data-parse>
+  <div class="parse__stage">
+    <header class="parse__head">
+      <p class="label" id="parse-title">One line, one record</p>
+      <p class="label parse__step" aria-hidden="true"><span data-step-label>Parsed</span></p>
+    </header>
+
+    <div class="record" role="img" aria-label="The fixed-width line 000042John Smith, padded to 20 characters, then 0001234.50, split into the fields Id (6 characters), Name (20) and Salary (10)">
+      <div class="record__line" aria-hidden="true">
+        <span class="field" data-field="id" style="--w:6"><span class="field__chars">000042</span><span class="field__meta"><b>Id</b> 6</span></span><span class="field" data-field="name" style="--w:20"><span class="field__chars">John Smith<span class="pad">··········</span></span><span class="field__meta"><b>Name</b> 20</span></span><span class="field" data-field="salary" style="--w:10"><span class="field__chars">0001234.50</span><span class="field__meta"><b>Salary</b> 10</span></span>
+      </div>
+    </div>
+
+    <div class="parse__cols">
+      <div class="parse__col">
+        <p class="label">You write</p>
+        <pre class="layout-code" tabindex="0"><code><span class="t-t">[FixedLengthRecord]</span>
+<span class="t-k">public sealed class</span> <span class="t-t">Employee</span>
+{
+<span class="hl" data-hl="id">    [<span class="t-t">FieldFixedLength</span>(<span class="t-n">6</span>)]
+    [<span class="t-t">FieldAlign</span>(<span class="t-t">AlignMode</span>.Right, <span class="t-s">'0'</span>)]
+    <span class="t-k">public int</span> Id;
+</span><span class="hl" data-hl="name">    [<span class="t-t">FieldFixedLength</span>(<span class="t-n">20</span>)]
+    [<span class="t-t">FieldTrim</span>(<span class="t-t">TrimMode</span>.Right)]
+    <span class="t-k">public string</span> Name = <span class="t-s">""</span>;
+</span><span class="hl" data-hl="salary">    [<span class="t-t">FieldFixedLength</span>(<span class="t-n">10</span>)]
+    [<span class="t-t">FieldAlign</span>(<span class="t-t">AlignMode</span>.Right, <span class="t-s">'0'</span>)]
+    <span class="t-k">public decimal</span> Salary;
+</span>}</code></pre>
+      </div>
+      <div class="parse__col">
+        <p class="label">You get</p>
+        <pre class="result" tabindex="0"><code><span class="t-t">Employee</span>
+{
+<span data-out="id">    Id     = <span class="t-n">42</span>,
+</span><span data-out="name">    Name   = <span class="t-s">"John Smith"</span>,
+</span><span data-out="salary">    Salary = <span class="t-n">1234.50m</span>
+</span>}</code></pre>
+        <p class="parse__note">The parsing code is generated when you build. Nothing is discovered by reflection at run time,
+        so the same record works under trimming and <code>PublishAot</code>.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band" aria-labelledby="who-title">
+  <div class="band__head">
+    <p class="label">01 · Who needs it</p>
+    <h2 id="who-title">Almost every system still trades in text files.</h2>
+  </div>
+  <div class="band__body split">
+    <p class="statement">Bank statements, mainframe extracts, carrier manifests, ERP exports, the CSV somebody
+    mails every Monday. The formats are old and they are not going away. This library is an easy and
+    reliable way to read and write them as ordinary .NET objects.</p>
+    <ol class="numbered">
+      <li><span>Imports and exports between systems</span><small>fixed-width and delimited, both directions</small></li>
+      <li><span>COBOL and mainframe output</span><small>padded, zero-filled, column-positioned</small></li>
+      <li><span>Log and report parsing</span><small>comment lines, headers, footers, conditional records</small></li>
+      <li><span>Data warehouse loads</span><small>streaming, callbacks, parallel reads</small></li>
+      <li><span>Format conversion</span><small>read one layout, project, write another</small></li>
+    </ol>
+  </div>
+</section>
+
+<section class="band" aria-labelledby="layouts-title">
+  <div class="band__head">
+    <p class="label">02 · Two layouts</p>
+    <h2 id="layouts-title">Describe the record. The engine does the rest.</h2>
+  </div>
+  <div class="band__body duo">
+    <div>
+      <h3>Delimited</h3>
+      <code-block lang="data" title="customers.csv">
+Id,Name,Balance,Joined
+1732,"Perez, Juan",435.00,2002-05-11
+554,Pedro Gomez,12342.30,2004-02-06
+      </code-block>
+      <code-block lang="csharp">
+[DelimitedRecord(",")]
+[IgnoreFirst(1)]
+public sealed class Customer
+{
+    public int Id;
+
+    [FieldQuoted]
+    public string Name = "";
+
+    public decimal Balance;
+
+    [FieldConverter(ConverterKind.Date, "yyyy-MM-dd")]
+    public DateTime Joined;
+}
+
+var engine = new FileHelperEngine<Customer>();
+Customer[] customers = engine.ReadFile("customers.csv");
+      </code-block>
+    </div>
+    <div>
+      <h3>Fixed length</h3>
+      <code-block lang="data" title="staff.txt">
+000042John Smith          0001234.50
+000043Mary Jones          0000980.00
+      </code-block>
+      <code-block lang="csharp">
+[FixedLengthRecord]
+public sealed class Employee
+{
+    [FieldFixedLength(6)]
+    [FieldAlign(AlignMode.Right, '0')]
+    public int Id;
+
+    [FieldFixedLength(20)]
+    [FieldTrim(TrimMode.Right)]
+    public string Name = "";
+
+    [FieldFixedLength(10)]
+    [FieldAlign(AlignMode.Right, '0')]
+    public decimal Salary;
+}
+
+var engine = new FileHelperEngine<Employee>();
+Employee[] staff = engine.ReadFile("staff.txt");
+engine.WriteFile("staff-copy.txt", staff);
+      </code-block>
+    </div>
+  </div>
+  <p class="band__more"><a class="arrow" href="quick-start.html">Quick start: delimited, fixed length, record by record</a></p>
+</section>
+
+<section class="band" aria-labelledby="features-title">
+  <div class="band__head">
+    <p class="label">03 · Features</p>
+    <h2 id="features-title">The FileHelpers API, rebuilt on a source generator.</h2>
+  </div>
+  <ul class="grid">
+    <li><h3>Easy to use</h3><p>A class, a few attributes, one engine call. <a href="examples.html#quickstart">See the examples</a>.</p></li>
+    <li><h3>Converters included</h3><p>Numbers, dates, booleans, <code>Guid</code>, enums and their nullable forms, with per-field culture. <a href="examples.html#converters">Write your own</a> when you need to.</p></li>
+    <li><h3>Events</h3><p>Before and after every record read or written, plus progress. <a href="examples.html#events">Skip, rewrite or stop</a>.</p></li>
+    <li><h3>No reflection</h3><p>3.x generated code at run time. This generates it at build time: lines are sliced as spans and parsed in place.</p></li>
+    <li><h3>Native AOT and trimming</h3><p>Built with <code>IsAotCompatible</code> and <code>IsTrimmable</code>. Publish with <code>PublishAot=true</code>.</p></li>
+    <li><h3>Three error modes</h3><p>Throw, skip silently, or <a href="examples.html#errors">save and continue</a> and read the error list afterwards.</p></li>
+    <li><h3>Compile-time checks</h3><p>A missing field length is a build error, not a production incident. <a href="diagnostics.html">29 diagnostics</a>.</p></li>
+    <li><h3>Records and structs</h3><p>Classes, structs, <code>record</code> and <code>record struct</code>, positional records, <code>required</code> members.</p></li>
+    <li><h3>Record by record</h3><p><code>ReadAsync</code>, <code>ReadSync</code>, callbacks and the 3.x pull loop. <a href="examples.html#record-by-record">Large files stay out of memory</a>.</p></li>
+    <li><h3>Multi-record files</h3><p>Several record types in one file, each with its own selector. <a href="examples.html#multi-record">Example</a>.</p></li>
+    <li><h3>Master/detail</h3><p>Group detail lines under their master line while reading. <a href="examples.html#master-detail">Example</a>.</p></li>
+    <li><h3>Open source</h3><p>MIT licensed, free in any kind of project, no runtime dependencies. <a href="{{REPO}}">Source on GitHub</a>.</p></li>
+  </ul>
+</section>
+
+<section class="band" aria-labelledby="bench-title">
+  <div class="band__head">
+    <p class="label">04 · Benchmarks</p>
+    <h2 id="bench-title">Read 100K records into typed objects.</h2>
+  </div>
+  <div class="band__body duo">
+    <figure class="chart" style="--max:120">
+      <figcaption><b>Fixed-width file</b> 7 fields, class records · mean ms, lower is better</figcaption>
+      <dl>
+        <div class="own"><dt>ModernLibs.FileHelpers</dt><dd style="--v:51"><span>48–51</span></dd></div>
+        <div><dt>CsvHelper 34</dt><dd style="--v:54"><span>54</span></dd></div>
+        <div><dt>FileHelpers 3.5.2</dt><dd style="--v:111"><span>111</span></dd></div>
+      </dl>
+    </figure>
+    <figure class="chart" style="--max:480">
+      <figcaption><b>Delimited file</b> 25 columns, with dates · mean ms, lower is better</figcaption>
+      <dl>
+        <div><dt>Sylvan.Data.Csv 1.4.4</dt><dd style="--v:131"><span>131</span></dd></div>
+        <div class="own"><dt>ModernLibs.FileHelpers</dt><dd style="--v:155"><span>155</span></dd></div>
+        <div><dt>CsvHelper 34</dt><dd style="--v:165"><span>165</span></dd></div>
+        <div><dt>Sep 0.17.1</dt><dd style="--v:171"><span>171</span></dd></div>
+        <div><dt>FileHelpers 3.5.2</dt><dd style="--v:459"><span>459</span></dd></div>
+      </dl>
+    </figure>
+  </div>
+  <p class="band__more">Where we are behind, the page says so. <a class="arrow" href="benchmarks.html">Full results, hardware and method</a></p>
+</section>
+
+<section class="band band--ink" aria-labelledby="migrate-title">
+  <div class="band__head">
+    <p class="label">05 · From FileHelpers 3.x</p>
+    <h2 id="migrate-title">Most code migrates by changing one line.</h2>
+  </div>
+  <div class="band__body split">
+    <div>
+      <code-block lang="diff" title="Customer.cs">
+- using FileHelpers;
++ using ModernLibs.FileHelpers;
+      </code-block>
+      <p>The same attribute names, engine classes, events, <code>ErrorMode</code> and exception types.
+      FileHelpers 3.x is the reference for behaviour.</p>
+    </div>
+    <ol class="numbered">
+      <li><span>Not included</span><small>run-time class builders, non-generic engines, <code>engine.Options</code></small></li>
+      <li><span>Different defaults</span><small>UTF-8 everywhere, <code>\r\n</code> on every platform</small></li>
+      <li><span>Checked at build time</span><small>layout mistakes that 3.x threw at run time</small></li>
+    </ol>
+  </div>
+  <p class="band__more"><a class="arrow" href="migration.html">Migration guide</a></p>
+</section>

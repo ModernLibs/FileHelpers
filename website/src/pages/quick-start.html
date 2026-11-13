@@ -1,0 +1,156 @@
+<!--
+title: Quick start
+section: Getting started
+description: Read and write delimited and fixed-length files with ModernLibs.FileHelpers in three steps - define a record class, create an engine, use the array.
+lede: Choose your file type. In each case you define a class that maps to one record, create an engine for it, and work with ordinary .NET objects.
+-->
+<p>First <a href="install.html">install the package</a>. Every sample on this page starts with
+<code>using ModernLibs.FileHelpers;</code>.</p>
+<nav class="cards" aria-label="File types">
+  <a href="#delimited"><b>Delimited</b><small>CSV, TSV, pipe: fields separated by a character</small></a>
+  <a href="#fixed"><b>Fixed length</b><small>Every field at a fixed column position</small></a>
+  <a href="#record-by-record"><b>Record by record</b><small>Large files, one record in memory at a time</small></a>
+</nav>
+
+<h2 id="delimited">Delimited</h2>
+<p>For this example the file is delimited by a comma and has a header line:</p>
+<code-block lang="data" title="customers.csv">
+Id,Name,Balance,Joined
+1732,Juan Perez,435.00,2002-05-11
+554,Pedro Gomez,12342.30,2004-02-06
+112,"Politti, Ramiro",0.00,2000-02-01
+924,Pablo Ramirez,3321.30,2002-11-24
+</code-block>
+
+<h3>1. The mapping class</h3>
+<p>Fields are read in declaration order. Use <code>[FieldOrder(n)]</code> when you want the order to be explicit.</p>
+<code-block lang="csharp">
+using ModernLibs.FileHelpers;
+
+[DelimitedRecord(",")]
+[IgnoreFirst(1)]
+public sealed class Customer
+{
+    public int Id;
+
+    [FieldQuoted('"', QuoteMode.OptionalForBoth)]
+    public string Name = "";
+
+    public decimal Balance;
+
+    [FieldConverter(ConverterKind.Date, "yyyy-MM-dd")]
+    public DateTime Joined;
+}
+</code-block>
+
+<h3>2. An engine to read and write</h3>
+<code-block lang="csharp">
+var engine = new FileHelperEngine<Customer>();
+
+// To read: the result is an array of Customer.
+// The skipped header line is kept in engine.HeaderText.
+Customer[] customers = engine.ReadFile("customers.csv");
+
+// To write: HeaderText is written back first.
+engine.WriteFile("customers-copy.csv", customers);
+</code-block>
+
+<h3>3. Use the array</h3>
+<code-block lang="csharp">
+foreach (Customer c in customers)
+    Console.WriteLine($"{c.Id}: {c.Name} owes {c.Balance}, joined {c.Joined:dd/MM/yy}");
+</code-block>
+
+<h2 id="fixed">Fixed length</h2>
+<p>Here every field has a fixed width, the kind of file a mainframe or a COBOL program writes:</p>
+<code-block lang="data" title="staff.txt">
+000042John Smith          0001234.50
+000043Mary Jones          0000980.00
+000044Ramiro Politti      0000000.00
+</code-block>
+
+<h3>1. The mapping class</h3>
+<p>Each field declares its width. <code>[FieldAlign]</code> says how a value is padded when written,
+and <code>[FieldTrim]</code> what is removed when read.</p>
+<code-block lang="csharp">
+using ModernLibs.FileHelpers;
+
+[FixedLengthRecord]
+public sealed class Employee
+{
+    [FieldFixedLength(6)]
+    [FieldAlign(AlignMode.Right, '0')]
+    public int Id;
+
+    [FieldFixedLength(20)]
+    [FieldTrim(TrimMode.Right)]
+    public string Name = "";
+
+    [FieldFixedLength(10)]
+    [FieldAlign(AlignMode.Right, '0')]
+    public decimal Salary;
+}
+</code-block>
+
+<h3>2. An engine to read and write</h3>
+<code-block lang="csharp">
+var engine = new FileHelperEngine<Employee>();
+
+Employee[] staff = engine.ReadFile("staff.txt");
+
+// Writes the same layout back: zero-filled numbers, padded names.
+engine.WriteFile("staff-copy.txt", staff);
+</code-block>
+
+<h3>3. Use the array</h3>
+<code-block lang="csharp">
+foreach (Employee e in staff)
+    Console.WriteLine($"{e.Id}: {e.Name} earns {e.Salary}");
+</code-block>
+<p><code>[FixedLengthRecord(FixedMode.AllowLessChars)]</code> and the other <code>FixedMode</code> values control how lines
+that are shorter or longer than the layout are handled. See the <a href="examples.html#fixed-mode">example</a>.</p>
+
+<h2 id="record-by-record">Record by record</h2>
+<p><code>ReadFile</code> returns the whole file as an array. For large files, read one record at a time instead.
+The record class is the same as above.</p>
+
+<h3>The FileHelpers 3.x pull loop</h3>
+<code-block lang="csharp">
+using var reader = new FileHelperAsyncEngine<Customer>();
+reader.BeginReadFile("customers.csv");
+
+while (reader.ReadNext() is { } customer)
+{
+    Console.WriteLine(customer.Name);
+}
+</code-block>
+<p>Writing works the same way:</p>
+<code-block lang="csharp">
+using var writer = new FileHelperAsyncEngine<Customer>();
+writer.BeginWriteFile("out.csv");
+
+foreach (Customer c in LoadCustomers())
+    writer.WriteNext(c);
+</code-block>
+
+<h3>Async streams and callbacks <span class="tag tag--new">New in 4.x</span></h3>
+<code-block lang="csharp">
+var engine = new FileHelperEngine<Customer>();
+
+// IAsyncEnumerable<T>, with cancellation
+await foreach (Customer c in engine.ReadAsync("customers.csv", cancellationToken))
+{
+    Process(c);
+}
+
+// A callback per record; returns the number of records, allocates no array
+int count = engine.ReadFile("customers.csv", c => Process(c));
+</code-block>
+<p>The <a href="must-read.html#choosing">read-method table</a> says which one to use when.</p>
+
+<h2 id="next">Where next</h2>
+<nav class="cards" aria-label="Next steps">
+  <a href="examples.html"><b>Examples</b><small>Converters, events, error modes, master/detail</small></a>
+  <a href="must-read.html"><b>Must read</b><small>FAQ, attributes, performance tips</small></a>
+  <a href="migration.html"><b>Migration</b><small>If you are coming from FileHelpers 3.x</small></a>
+</nav>

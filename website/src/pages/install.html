@@ -1,0 +1,71 @@
+<!--
+title: Install
+section: Getting started
+description: Install ModernLibs.FileHelpers from NuGet. One package, no runtime dependencies; the source generator and analyzer are included.
+lede: One package from NuGet. The source generator and the analyzer that checks your record layouts are inside it; there is nothing else to install.
+-->
+<h2 id="nuget">NuGet</h2>
+<p>The package is <a href="{{NUGET}}">ModernLibs.FileHelpers</a> on nuget.org.</p>
+<code-block lang="shell" title=".NET CLI">
+dotnet add package ModernLibs.FileHelpers
+</code-block>
+<code-block lang="xml" title="Project file">
+<PackageReference Include="ModernLibs.FileHelpers" Version="{{VERSION}}" />
+</code-block>
+<p>Or search for <code>ModernLibs.FileHelpers</code> in the NuGet package manager of your IDE.</p>
+
+<h2 id="requirements">Requirements</h2>
+<div class="table"><table>
+  <thead><tr><th>What</th><th>Needed</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td>Target framework</td><td><code>net10.0</code></td><td>The library targets .NET 10 only.</td></tr>
+    <tr><td>C# version</td><td>11 or later</td><td>The .NET 10 SDK defaults to C# 14, so this only matters if your project pins an older <code>&lt;LangVersion&gt;</code>. A lower version is reported as <a href="diagnostics.html#reference"><code>MLFH026</code></a>.</td></tr>
+    <tr><td>Runtime dependencies</td><td>None</td><td>The generator ships in the package as an analyzer.</td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="first-record">Check that it works</h2>
+<p>Add a record type and read one line. If this builds and prints a name, the generator is running.</p>
+<code-block lang="csharp" title="Program.cs">
+using ModernLibs.FileHelpers;
+
+var engine = new FileHelperEngine<Customer>();
+Customer[] customers = engine.ReadString("1,Ada Lovelace,120.50\r\n");
+
+Console.WriteLine(customers[0].Name);   // Ada Lovelace
+
+[DelimitedRecord(",")]
+public sealed class Customer
+{
+    public int Id;
+    public string Name = "";
+    public decimal Balance;
+}
+</code-block>
+<p class="note"><b>If you get</b> <code>InvalidOperationException: No IRecordDescriptor&lt;T&gt; registered</code>, the record type was not
+processed by the generator. Check that it has <code>[DelimitedRecord]</code> or <code>[FixedLengthRecord]</code> and that the build shows
+no <code>MLFH</code> errors. See <a href="migration.html#troubleshooting">troubleshooting</a>.</p>
+
+<h2 id="aot">Native AOT and trimming</h2>
+<p>All parsing and formatting code is generated at compile time. The library uses no reflection, <code>Expression</code>
+compilation or <code>DynamicMethod</code>, and is built with <code>IsAotCompatible</code> and <code>IsTrimmable</code>, so the trim and
+AOT analyzers check it on every build. Applications that use it can publish with:</p>
+<code-block lang="xml" title="Project file">
+<PropertyGroup>
+  <PublishAot>true</PublishAot>
+</PropertyGroup>
+</code-block>
+
+<h2 id="versions">Versions</h2>
+<p>4.x is a ground-up reimplementation that follows FileHelpers 3.x, so its major version continues after 3.x.
+Versions 4.0.0 to 4.7.0 were development milestones, published only as source releases on GitHub.
+<b>4.8.0 is the first release on NuGet.</b> From 4.8.0 on, the package follows
+<a href="https://semver.org/">Semantic Versioning</a>.</p>
+<p>The <a href="{{REPO}}/blob/main/CHANGELOG.md">changelog</a> lists every release. This site describes {{VERSION}}.</p>
+
+<h2 id="from-3x">Replacing FileHelpers 3.x</h2>
+<p>Swap the package reference and the namespace. The <a href="migration.html">migration guide</a> covers the rest.</p>
+<code-block lang="xml" title="Project file">
+<!-- <PackageReference Include="FileHelpers" Version="3.5.2" /> -->
+<PackageReference Include="ModernLibs.FileHelpers" Version="{{VERSION}}" />
+</code-block>

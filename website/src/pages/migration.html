@@ -1,0 +1,127 @@
+<!--
+title: Migration from 3.x
+section: Guide
+description: How to move from FileHelpers 3.x to ModernLibs.FileHelpers - package and namespace change, the types that are not included, renamed members and the behaviour that differs.
+lede: The API follows FileHelpers 3.x, so most code migrates by changing the namespace. This page is the overview; the full guide in the repository lists every difference we know of.
+-->
+<h2 id="namespace">1. Package and namespace</h2>
+<p>This is the change every project needs.</p>
+<code-block lang="xml" title="Project file">
+<!-- <PackageReference Include="FileHelpers" Version="3.5.2" /> -->
+<PackageReference Include="ModernLibs.FileHelpers" Version="{{VERSION}}" />
+</code-block>
+<code-block lang="diff" title="Every file that uses the library">
+- using FileHelpers;
+- using FileHelpers.Events;
+- using FileHelpers.MasterDetail;
++ using ModernLibs.FileHelpers;
++ using ModernLibs.FileHelpers.Converters;   // only if you write custom converters
+</code-block>
+<p>The library targets .NET 10 and needs C# 11 or later. Record types are checked at compile time: a layout mistake that 3.x
+reported at run time is now a build error or warning (<a href="diagnostics.html">diagnostics</a>).</p>
+
+<h2 id="not-included">2. What is not included</h2>
+<p>Anything that creates or changes a record layout at run time conflicts with source generation and Native AOT. A second group
+was left out because other tools do it better.</p>
+<div class="table"><table>
+  <thead><tr><th>FileHelpers 3.x</th><th>Use instead</th></tr></thead>
+  <tbody>
+    <tr><td>Non-generic engines: <code>FileHelperEngine(Type)</code>, <code>MasterDetailEngine(Type, Type)</code></td><td>The generic engines: <code>new FileHelperEngine&lt;Customer&gt;()</code></td></tr>
+    <tr><td><code>DelimitedFileEngine&lt;T&gt;</code>, <code>FixedFileEngine&lt;T&gt;</code>, <code>engine.Options</code></td><td>One record type per layout</td></tr>
+    <tr><td><code>ClassBuilder</code> and the rest of <code>FileHelpers.Dynamic</code></td><td>Record types declared in source</td></tr>
+    <tr><td><code>CsvEngine</code>, <code>SmartFormatDetector</code></td><td>A <code>[DelimitedRecord(",")]</code> type; a CSV-first library if there is no fixed schema</td></tr>
+    <tr><td><code>RecordTypeSelector</code> (returns a <code>Type</code>)</td><td><code>MultiRecordType.For&lt;T&gt;(selector)</code>, see the <a href="examples.html#multi-record">example</a></td></tr>
+    <tr><td><code>CommonEngine</code>, <code>FileTransformEngine</code>, <code>FileDiffEngine</code>, <code>BigFileSorter</code></td><td>The engine methods plus LINQ, see <a href="examples.html#sorting">sorting and transforms</a></td></tr>
+    <tr><td><code>FileDataLink</code>, the <code>DataStorage</code> classes, <code>ExcelNPOIStorage</code>, <code>DataTable</code> helpers</td><td>Your data-access or spreadsheet library</td></tr>
+    <tr><td><code>[FieldArrayLength]</code></td><td>Separate fields, or one string field that you split</td></tr>
+    <tr><td><code>[FieldIgnored]</code></td><td><code>[FieldHidden]</code></td></tr>
+  </tbody>
+</table></div>
+<p>The <a href="{{REPO}}/blob/main/docs/GAP-ANALYSIS.md">gap analysis</a> explains each decision and lists the gaps that are still open.</p>
+
+<h2 id="renamed">3. What was renamed</h2>
+<div class="table"><table>
+  <thead><tr><th>FileHelpers 3.x</th><th>ModernLibs.FileHelpers</th></tr></thead>
+  <tbody>
+    <tr><td><code>using (engine.BeginReadFile(...))</code></td><td><code>BeginReadFile</code> returns <code>void</code>; dispose the engine (<code>using var engine = ...</code>)</td></tr>
+    <tr><td><code>ReadNexts(n)</code>, <code>ReadToEnd()</code>, <code>WriteNexts(records)</code></td><td><code>ReadNext(n)</code>, <code>ReadRemaining()</code>, <code>WriteNext(records)</code></td></tr>
+    <tr><td><code>BeginAppendToFile(path)</code></td><td><code>BeginAppendFile(path)</code></td></tr>
+    <tr><td>Event handlers <code>(EngineBase engine, ...)</code></td><td><code>(object sender, ...)</code>; lambdas compile unchanged</td></tr>
+    <tr><td><code>INotifyRead</code>, <code>INotifyWrite</code></td><td><code>INotifyRead&lt;T&gt;</code>, <code>INotifyWrite&lt;T&gt;</code></td></tr>
+    <tr><td><code>enum CommonSelector</code></td><td><code>enum CommonSelectorMode</code></td></tr>
+    <tr><td><code>RecordCondition.IncludeIfMatchRegex</code></td><td><code>RecordCondition.IncludeIfRegex</code></td></tr>
+    <tr><td><code>[IgnoreCommentedLines("#")]</code></td><td><code>[IgnoreCommentedLines('#')]</code>: the marker is a single <code>char</code></td></tr>
+    <tr><td><code>[FieldTrim(TrimMode.Both, " *")]</code></td><td><code>[FieldTrim(TrimMode.Both, ' ', '*')]</code></td></tr>
+    <tr><td><code>ErrorManager.Errors</code> is an array</td><td><code>IReadOnlyList&lt;ErrorInfo&gt;</code>: <code>Count</code>, not <code>Length</code></td></tr>
+    <tr><td><code>MasterDetails.Details</code> is an array</td><td><code>IReadOnlyList&lt;TDetail&gt;</code>: <code>Count</code>, not <code>Length</code></td></tr>
+    <tr><td><code>GetFileHeader()</code>, <code>ReadFileAsList</code>, <code>ReadFileAsDT</code></td><td>Not available: set <code>HeaderText</code>; <code>new List&lt;T&gt;(engine.ReadFile(path))</code></td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="behaviour">4. What behaves differently</h2>
+<p>Code that compiles but does something else. Since 4.8.0 the list is short: quoting, trimming, comment lines, empty fields
+and conversion errors all follow 3.x.</p>
+<h3>Default encoding is UTF-8</h3>
+<p>3.x used the system code page on .NET Framework. If your files use a legacy code page, set it:</p>
+<code-block lang="csharp">
+Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+var engine = new FileHelperEngine<Customer>(Encoding.GetEncoding(1252));
+</code-block>
+<h3>Lines end with <code>\r\n</code> everywhere</h3>
+<p>3.x used <code>Environment.NewLine</code>, which is <code>\n</code> on Linux and macOS. Set <code>engine.NewLineForWrite = "\n";</code> if you need that.</p>
+<h3><code>HeaderText</code> and <code>FooterText</code> can be null</h3>
+<p>They are <code>null</code> when there is no header or footer; in 3.x they were empty strings.</p>
+<h3>Which members are mapped</h3>
+<p>3.x mapped every instance field of any accessibility. Here <code>public</code>, <code>internal</code> and <code>protected internal</code> fields
+<em>and properties</em> are mapped. A <code>private</code> field that 3.x would read as a column is reported (<code>MLFH028</code>), so a
+migrated record cannot lose a column silently.</p>
+<code-block lang="csharp">
+[DelimitedRecord(",")]
+public sealed class Invoice
+{
+    public int Number;
+    internal decimal Total;               // mapped, as in 3.x
+    [FieldHidden] internal string? Note;  // left out of the layout
+    private int _retries;                 // MLFH028: a column in 3.x, not mapped here
+}
+</code-block>
+<h3>Multi-record files ignore <code>[IgnoreFirst]</code></h3>
+<p><code>MultiRecordEngine</code> does not apply <code>[IgnoreFirst]</code> / <code>[IgnoreLast]</code>. Header lines are still dropped as long
+as no selector matches them.</p>
+
+<h2 id="new">5. What is new</h2>
+<ul>
+  <li><b>Source generation and AOT.</b> No reflection at run time; works with <code>PublishAot=true</code> and trimming.</li>
+  <li><b>Structs and records.</b> <code>struct</code>, <code>record struct</code>, positional records, <code>required</code> members.</li>
+  <li><b>More field types.</b> <code>DateOnly</code>, <code>TimeOnly</code>, <code>DateTimeOffset</code>, <code>TimeSpan</code> and enums without a custom converter.</li>
+  <li><b>Streaming.</b> <code>ReadSync</code>, <code>ReadAsync</code>, callbacks, and async multi-record and master/detail engines.</li>
+  <li><b>Parallel reads</b> with sequential semantics.</li>
+  <li><b><code>StopReading</code></b> in the before-read event, and <b><code>ISpanConverter&lt;T&gt;</code></b> for allocation-free converters.</li>
+  <li><b>Error details.</b> <code>ErrorInfo.FieldName</code>, <code>ColumnIndex</code> and <code>RawFieldValue</code>.</li>
+</ul>
+
+<h2 id="troubleshooting">6. Troubleshooting</h2>
+<dl class="faq">
+  <div><dt><code>InvalidOperationException: No IRecordDescriptor&lt;T&gt; registered</code></dt>
+    <dd>The record type was not processed by the generator. Check that it has <code>[DelimitedRecord]</code> or
+    <code>[FixedLengthRecord]</code>, that the build shows no <code>MLFH</code> errors for it, and that the project references the package.</dd></div>
+  <div><dt>Columns are shifted, or a field you did not expect is read</dt>
+    <dd>An <code>internal</code> member is mapped, as in 3.x. Mark members that are not in the file <code>[FieldHidden]</code>.</dd></div>
+  <div><dt><code>MLFH026</code> on every record type</dt>
+    <dd>The project compiles with a C# version below 11. Remove the <code>&lt;LangVersion&gt;</code> setting or set it to 11 or later.</dd></div>
+  <div><dt><code>MLFH013</code> unsupported field type</dt>
+    <dd>The field type has no built-in conversion. Add a <a href="examples.html#custom-converter">custom converter</a>.</dd></div>
+  <div><dt><code>InvalidOperationException</code> from <code>FileHelperAsyncEngine&lt;T&gt;</code></dt>
+    <dd>One engine instance runs one read or write session at a time. Call <code>Close()</code> first, or use a separate instance.</dd></div>
+</dl>
+
+<h2 id="full-guide">The full guide</h2>
+<p>This page is a summary. The complete guide was checked against FileHelpers 3.5.2 and covers every signature, default and
+edge case, section by section.</p>
+<nav class="cards" aria-label="Migration documents">
+  <a href="{{REPO}}/blob/main/docs/MIGRATION.md"><b>Migration guide</b><small>Every known difference from 3.x</small></a>
+  <a href="{{REPO}}/blob/main/docs/GAP-ANALYSIS.md"><b>Gap analysis</b><small>What is left out, and why</small></a>
+  <a href="{{REPO}}/tree/main/samples/MigrationSamples"><b>Migration sample</b><small>The same app on 3.x and on 4.x</small></a>
+</nav>
+<p>Behaviour that is not listed follows FileHelpers 3.x. If you find a difference that is not listed, please
+<a href="{{REPO}}/issues">open an issue</a>.</p>

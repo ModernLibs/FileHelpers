@@ -1,0 +1,79 @@
+<!--
+title: Diagnostics
+section: Guide
+description: The compile-time checks of ModernLibs.FileHelpers - 29 MLFH diagnostics that report record layout mistakes as build errors and warnings.
+lede: FileHelpers 3.x had an optional analyzer and found most layout mistakes at run time. Here the analyzer ships in the package, and a broken layout does not build.
+-->
+<h2 id="how">How it works</h2>
+<p>The source generator checks every record type when you build. Many mistakes that FileHelpers 3.x reported at run time with a
+<code>BadUsageException</code> are build errors here. The rules are reported by an analyzer in the same assembly as the generator,
+so they appear as you type and point at the offending declaration.</p>
+<code-block lang="csharp">
+[FixedLengthRecord]
+public sealed class Employee
+{
+    [FieldFixedLength(6)]
+    public int Id;
+
+    public string Name = "";      // error MLFH002: missing [FieldFixedLength]
+}
+</code-block>
+<p>When a record has an error, the generator does not emit its descriptor. Other record types in the same project are not affected.</p>
+
+<h2 id="reference">Reference</h2>
+<p>All rules use the category <code>FileHelpers.Generator</code>. Each one links to its full description, with the code that triggers
+it and the fix.</p>
+<div class="table"><table>
+  <thead><tr><th>Rule</th><th>Severity</th><th>Title</th></tr></thead>
+  <tbody>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh001"><code>MLFH001</code></a></td><td>Error</td><td>Missing record attribute</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh002"><code>MLFH002</code></a></td><td>Error</td><td>Missing or non-positive <code>[FieldFixedLength]</code></td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh003"><code>MLFH003</code></a></td><td>Error</td><td>Ambiguous field order</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh004"><code>MLFH004</code></a></td><td>Error</td><td>Unrecognised <code>[FieldConverter(typeof(X))]</code> type</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh005"><code>MLFH005</code></a></td><td>Error</td><td>Invalid <code>ConditionalRecord</code> regex pattern</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh006"><code>MLFH006</code></a></td><td>Error</td><td><code>FieldConverter</code> target type lacks parameterless constructor</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh007"><code>MLFH007</code></a></td><td>Warning</td><td><code>FieldFixedLength</code> exceeds configured maximum width</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh008"><code>MLFH008</code></a></td><td>Warning</td><td><code>FieldOrder</code> has gaps in sequence</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh009"><code>MLFH009</code></a></td><td>Warning</td><td>Record type has no public fields or properties</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh010"><code>MLFH010</code></a></td><td>Error</td><td><code>FieldNullValue</code> type is incompatible with the field type</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh011"><code>MLFH011</code></a></td><td>Error</td><td>Conflicting record attributes</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh012"><code>MLFH012</code></a></td><td>Error</td><td>Empty delimiter</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh013"><code>MLFH013</code></a></td><td>Error</td><td>Unsupported field type</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh014"><code>MLFH014</code></a></td><td>Error</td><td>Record type cannot be constructed</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh015"><code>MLFH015</code></a></td><td>Error</td><td>Annotated member cannot be assigned</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh016"><code>MLFH016</code></a></td><td>Error</td><td>Generic record types are not supported</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh017"><code>MLFH017</code></a></td><td>Error</td><td>Record type is not accessible</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh018"><code>MLFH018</code></a></td><td>Error</td><td>Required field after an optional field</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh019"><code>MLFH019</code></a></td><td>Error</td><td><code>ConverterKind</code> does not match the field type</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh020"><code>MLFH020</code></a></td><td>Error</td><td>Descriptor generation failed</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh021"><code>MLFH021</code></a></td><td>Error</td><td>Invalid converter arguments</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh022"><code>MLFH022</code></a></td><td>Error</td><td>No converter constructor for the converter arguments</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh023"><code>MLFH023</code></a></td><td>Error</td><td>Annotated member is not accessible</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh024"><code>MLFH024</code></a></td><td>Error</td><td><code>[FieldOrder]</code> must be used on all fields or none</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh025"><code>MLFH025</code></a></td><td>Error</td><td><code>[FieldQuoted]</code> is only valid in delimited records</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh026"><code>MLFH026</code></a></td><td>Error</td><td>C# 11 or later is required</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh027"><code>MLFH027</code></a></td><td>Error</td><td>ref struct records are not supported</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh028"><code>MLFH028</code></a></td><td>Warning</td><td>Member mapped by FileHelpers 3.x is not part of the layout</td></tr>
+    <tr><td><a href="{{REPO}}/blob/main/docs/diagnostics.md#mlfh029"><code>MLFH029</code></a></td><td>Warning</td><td><code>[FieldInNewLine]</code> first field with <code>[IgnoreEmptyLines]</code></td></tr>
+  </tbody>
+</table></div>
+
+<h2 id="suppressing">Suppressing diagnostics</h2>
+<p>Warnings (<code>MLFH007</code>, <code>MLFH008</code>, <code>MLFH009</code>, <code>MLFH028</code>, <code>MLFH029</code>) and
+<code>MLFH001</code> can be suppressed as usual: <code>#pragma warning disable</code>, <code>[SuppressMessage]</code>, an
+<code>.editorconfig</code> severity or <code>&lt;NoWarn&gt;</code>.</p>
+<p>Every other error means the record has no working descriptor. These are not configurable: <code>#pragma</code>,
+<code>.editorconfig</code> and <code>&lt;NoWarn&gt;</code> do not hide them, and the build fails until the record is fixed.</p>
+<p class="note"><b>Two paths can still hide them, and neither fails silently.</b> With <code>[SuppressMessage]</code> or
+<code>&lt;RunAnalyzers&gt;false&lt;/RunAnalyzers&gt;</code>, the generator registers a descriptor whose members throw a
+<code>BadUsageException</code> naming the record and each error. Creating or using an engine for that record throws it.</p>
+
+<h2 id="other-generators">Records from other source generators</h2>
+<p>The FileHelpers generator cannot see types that another source generator adds to the compilation, so such a record gets no
+descriptor and no diagnostic; using it throws <code>InvalidOperationException</code> (<code>No IRecordDescriptor&lt;T&gt; registered</code>).
+Declare record types, and all their mapped members, in your own source files.</p>
+
+<h2 id="from-analyzer">If you used FileHelpers.Analyzer</h2>
+<p>The 3.x analyzer was a separate package that suggested style fixes: use the generic engine, prefer <code>[FieldHidden]</code>,
+avoid obsolete names. Most of its advice is now simply how the API works: only the generic engines exist, and <code>[FieldIgnored]</code>
+was removed in favour of <code>[FieldHidden]</code>. You do not need to install anything; remove the <code>FileHelpers.Analyzer</code> reference when you migrate.</p>

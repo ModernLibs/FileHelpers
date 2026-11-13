@@ -1,0 +1,92 @@
+<!--
+title: Benchmarks
+section: Project
+description: Benchmark results for ModernLibs.FileHelpers 4.9.0 against FileHelpers 3.5.2, Sep, Sylvan.Data.Csv and CsvHelper - time and allocation for 100K records, including the cases where it is behind.
+lede: Time and allocation for 100K records, against FileHelpers 3.5.2 and three CSV libraries. Where we are behind, the table says so.
+-->
+<h2 id="summary">Summary</h2>
+<ul>
+  <li><b>The fastest fixed-width reader in our benchmarks:</b> more than twice as fast as FileHelpers 3.5.2 and ahead of CsvHelper 34.</li>
+  <li><b>On par with the best CSV readers:</b> reading a 25-column file, ahead of Sep and CsvHelper 34 at every size we measured,
+  level with Sylvan at 1M rows and behind it at 10K and 100K.</li>
+  <li><b>Behind on two things:</b> Sep, Sylvan and CsvHelper read quoted fields faster, and CsvHelper writes faster.</li>
+</ul>
+
+<h2 id="charts">Reading 100K records</h2>
+<p>Mean milliseconds to read 100K records into typed objects. Lower is better.</p>
+<div class="duo">
+  <figure class="chart" style="--max:120">
+    <figcaption><b>Fixed-width file</b> 7 fields, class records</figcaption>
+    <dl>
+      <div class="own"><dt>ModernLibs.FileHelpers</dt><dd style="--v:51"><span>48–51</span></dd></div>
+      <div><dt>CsvHelper 34</dt><dd style="--v:54"><span>54</span></dd></div>
+      <div><dt>FileHelpers 3.5.2</dt><dd style="--v:111"><span>111</span></dd></div>
+    </dl>
+  </figure>
+  <figure class="chart" style="--max:480">
+    <figcaption><b>Delimited file</b> 25 columns, with dates</figcaption>
+    <dl>
+      <div><dt>Sylvan.Data.Csv 1.4.4</dt><dd style="--v:131"><span>131</span></dd></div>
+      <div class="own"><dt>ModernLibs.FileHelpers</dt><dd style="--v:155"><span>155</span></dd></div>
+      <div><dt>CsvHelper 34</dt><dd style="--v:165"><span>165</span></dd></div>
+      <div><dt>Sep 0.17.1</dt><dd style="--v:171"><span>171</span></dd></div>
+      <div><dt>FileHelpers 3.5.2</dt><dd style="--v:459"><span>459</span></dd></div>
+    </dl>
+  </figure>
+</div>
+<p>Fixed-width values come from two suites on one machine (48 ms and 51 ms for ModernLibs.FileHelpers).</p>
+
+<h2 id="table">Time and allocation</h2>
+<p>100K records: the fixed-width file has 7 fields and class records; the delimited file has 25 columns with dates.</p>
+<div class="table"><table>
+  <thead><tr><th>Scenario</th><th>Library</th><th class="num">Mean</th><th class="num">Allocated</th></tr></thead>
+  <tbody>
+    <tr class="own"><td rowspan="3">Fixed-width read, 7 fields</td><td>ModernLibs.FileHelpers 4.9.0</td><td class="num">48 to 51 ms</td><td class="num">39.7 MB</td></tr>
+    <tr><td>CsvHelper 34.0.0</td><td class="num">54 ms</td><td class="num">40.9 MB</td></tr>
+    <tr><td>FileHelpers 3.5.2</td><td class="num">111 ms</td><td class="num">59.5 MB</td></tr>
+    <tr><td rowspan="5">25-column read</td><td>Sylvan.Data.Csv 1.4.4</td><td class="num">131 ms</td><td class="num">75.7 MB</td></tr>
+    <tr class="own"><td>ModernLibs.FileHelpers 4.9.0</td><td class="num">155 ms</td><td class="num">75.7 MB</td></tr>
+    <tr><td>CsvHelper 34.0.0</td><td class="num">165 ms</td><td class="num">76.9 MB</td></tr>
+    <tr><td>Sep 0.17.1</td><td class="num">171 ms</td><td class="num">75.6 MB</td></tr>
+    <tr><td>FileHelpers 3.5.2</td><td class="num">459 ms</td><td class="num">230.7 MB</td></tr>
+    <tr><td rowspan="4">Quoted-field read</td><td>CsvHelper 34.0.0</td><td class="num">28 ms</td><td class="num">21.7 MB</td></tr>
+    <tr><td>Sep 0.17.1</td><td class="num">29 ms</td><td class="num">20.5 MB</td></tr>
+    <tr><td>Sylvan.Data.Csv 1.4.4</td><td class="num">38 ms</td><td class="num">22.8 MB</td></tr>
+    <tr class="own"><td>ModernLibs.FileHelpers 4.9.0</td><td class="num">46 ms</td><td class="num">22.8 MB</td></tr>
+    <tr><td rowspan="3">25-column write</td><td>CsvHelper 34.0.0</td><td class="num">58 ms</td><td class="num">110.8 MB</td></tr>
+    <tr class="own"><td>ModernLibs.FileHelpers 4.9.0</td><td class="num">69 to 70 ms</td><td class="num">55.4 MB</td></tr>
+    <tr><td>Sep 0.17.1</td><td class="num">102 ms</td><td class="num">110.6 MB</td></tr>
+  </tbody>
+</table></div>
+<p>A library that is missing from a scenario is not measured by that suite. Sep and Sylvan do not read fixed-width files; we have
+not benchmarked other fixed-width libraries such as RecordParser or FlatFiles. Where a cell has a range, two suites measured the
+same operation.</p>
+
+<h2 id="method">Method</h2>
+<div class="table"><table>
+  <tbody>
+    <tr><td>Machine</td><td>Azure <code>Standard_D8as_v5</code> virtual machine</td></tr>
+    <tr><td>CPU</td><td>AMD EPYC 7763, 8 logical processors</td></tr>
+    <tr><td>OS</td><td>Ubuntu 24.04</td></tr>
+    <tr><td>.NET</td><td>10.0.13</td></tr>
+    <tr><td>Harness</td><td>BenchmarkDotNet 0.15.8, default job</td></tr>
+  </tbody>
+</table></div>
+<p>ModernLibs.FileHelpers and FileHelpers 3.5.2 produce typed records through their attributes and converters; the other libraries
+are measured with the row-to-object code written in each benchmark.</p>
+<p class="note"><b>Your numbers will differ.</b> Results depend on hardware and record shape. Run the suite on a machine like your
+production one before you draw conclusions.</p>
+<code-block lang="shell">
+# Release build, on an otherwise idle machine
+dotnet run -c Release --project benchmarks/ModernLibs.FileHelpers.Benchmarks -- --filter '*'
+</code-block>
+<nav class="cards" aria-label="Benchmark documents">
+  <a href="{{REPO}}/blob/main/docs/benchmarks/v4.9.0.md"><b>4.9.0 results</b><small>Every suite, every row</small></a>
+  <a href="{{REPO}}/blob/main/BENCHMARKS.md"><b>How to run</b><small>The suite on your own hardware</small></a>
+</nav>
+
+<h2 id="why">Why it is fast</h2>
+<p>The read path works on <code>ReadOnlySpan&lt;char&gt;</code>: lines and fields are sliced, not copied, and numeric, date and other
+value-type fields are parsed straight from the span. <code>ReadFile</code> parses records as it reads the file instead of loading it
+into one string, buffers are pooled, and the quote scan uses vector search. Struct records with value-type fields are read without
+per-record allocations, and the test suite checks that.</p>

@@ -1,0 +1,58 @@
+name: Website
+
+# Builds the site in website/ on pull requests that touch it (the build fails on broken links).
+# Deployment to GitHub Pages runs only when the workflow is started by hand: enable Pages first
+# (Settings -> Pages -> Source: GitHub Actions). To publish on every merge, add a `push` trigger
+# for `main` with the same paths and extend the `if` of the deploy job.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'website/**'
+      - 'assets/logo.svg'
+      - '.github/workflows/website.yml'
+  workflow_dispatch:
+
+# Least-privilege token: the build only reads the repository; the deploy job adds what Pages needs.
+permissions:
+  contents: read
+
+concurrency:
+  group: website-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      # Supply chain: every action is pinned to a full commit SHA (tags are mutable); the trailing
+      # comment names the release the SHA belongs to.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # No dependencies: the build script uses only Node's standard library.
+      - name: Build
+        run: node website/build.mjs
+
+      - name: Upload Pages artifact
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: website/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

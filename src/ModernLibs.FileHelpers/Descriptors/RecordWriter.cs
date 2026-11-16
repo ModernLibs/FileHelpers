@@ -27,6 +27,13 @@ public ref struct RecordWriter
     /// <summary>The least free space <see cref="Grow"/> gives (4.9: the 64-char stack buffer per field).</summary>
     private const int MinGrowth = 64;
 
+    /// <summary>
+    /// Up to this length <see cref="Quote"/> moves the text with a scalar loop: the source and the destination of the
+    /// move overlap, and an overlapping <c>CopyTo</c> leaves the managed copy for the native <c>memmove</c>, a fixed cost
+    /// a short field does not earn back (G2, T23 review).
+    /// </summary>
+    private const int ScalarQuoteLength = 64;
+
     private readonly RecordWriteBuffer? _buffer;
 
     /// <summary>The storage from the start of the record to its end.</summary>
@@ -164,23 +171,38 @@ public ref struct RecordWriter
         ThrowIfDefault();
         CheckFieldStart(fieldStart);
         ReadOnlySpan<char> text = _span[fieldStart.._position];
-        bool newLine = text.IndexOfAny('\r', '\n') >= 0;
+
+        // One scan for the first quote char or line break: a value with neither is not scanned again (G2).
+        int first = text.IndexOfAny(quote, '\r', '\n');
+        bool newLine = first >= 0 && text[first..].IndexOfAny('\r', '\n') >= 0;
         if (newLine && !multilineWrite)
             throw new BadUsageException("One value for the field " + field + " has a new line inside. To allow this value to be written you must add a FieldQuoted attribute with the multiline option set.");
         if (!always && !newLine && text.IndexOf(separator, StringComparison.Ordinal) < 0)
             return;
 
         int length = text.Length;
-        int quotes = text.Count(quote);
+        int quotes = first < 0 ? 0 : text[first..].Count(quote);
         int added = quotes + 2;
         if (added > _span.Length - _position)
             GrowFree(added);
 
-        // The quoted text is longer, so the text moves right in place: without a quote char it shifts by one; otherwise
-        // the blocks between quote chars are copied from the end, each quote char written twice (G3). Every destination
-        // lies right of the text not yet copied; CopyTo handles the overlap of a block with its own destination.
+        // The quoted text is longer, so the text moves right in place, from the end. Short text: one scalar loop that
+        // writes each quote char twice. Longer text: without a quote char it shifts by one; otherwise the blocks between
+        // quote chars are copied, each quote char written twice (G3). Every destination lies right of the text not yet
+        // moved; CopyTo handles the overlap of a block with its own destination.
         Span<char> target = _span.Slice(fieldStart, length + added);
-        if (quotes == 0)
+        if (length <= ScalarQuoteLength)
+        {
+            int to = length + quotes;
+            for (int from = length - 1; from >= 0; from--)
+            {
+                char c = target[from];
+                target[to--] = c;
+                if (c == quote)
+                    target[to--] = quote;
+            }
+        }
+        else if (quotes == 0)
         {
             target[..length].CopyTo(target[1..]);
         }

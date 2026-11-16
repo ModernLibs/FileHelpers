@@ -374,7 +374,7 @@ public static class Program
                 failures.Add($"{name}: a write threw {ex.GetType().Name}: {ex.Message}");
             }
 
-            if (descriptor.WriterFormatCalls != 0 || descriptor.LegacyFormatCalls != 5 * records.Length)
+            if (records.Length == 0 || descriptor.WriterFormatCalls != 0 || descriptor.LegacyFormatCalls != 5 * records.Length)
             {
                 failures.Add($"{name}: with DisableRecordWriter the writes called the record writer {descriptor.WriterFormatCalls} times "
                     + $"and the legacy Format {descriptor.LegacyFormatCalls} times for {records.Length} records on 5 engine kinds");

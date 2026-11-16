@@ -150,9 +150,9 @@ public sealed class WritePathTests
     /// <summary>
     /// Review Focus 5: the 4.9.1 <c>[FieldInNewLine]</c> descriptor (Generated49) still gets a
     /// <see cref="RentedBufferWriter"/> whose <c>NewLine</c> is the engine's <c>NewLineForWrite</c>, with and without
-    /// <c>AfterWriteRecord</c>: with <c>"|\n"</c> it writes the Golden49 text with <c>"\r\n"</c> replaced by
-    /// <c>"|\n"</c>. Generated48 has no <c>[FieldInNewLine]</c> snapshot; its two descriptors are checked for the
-    /// buffer and its <c>NewLine</c>.
+    /// <c>AfterWriteRecord</c>, through <c>WriteString</c>, <c>WriteStreamAsync</c> and
+    /// <see cref="FileHelperAsyncEngine{T}.WriteNext(T)"/>: with <c>"|\n"</c> it writes the Golden49 text with
+    /// <c>"\r\n"</c> replaced by <c>"|\n"</c>.
     /// </summary>
     [Test]
     [Arguments(false)]
@@ -174,19 +174,48 @@ public sealed class WritePathTests
             string goldenWritten = golden!.Split('\n').First(l => l.StartsWith("written:", StringComparison.Ordinal))["written:".Length..];
 
             var records = new FileHelperEngine<Compat49NewLine> { ErrorMode = ErrorMode.SaveAndContinue }.ReadString(input);
+            string expected = goldenWritten.Replace("\\r\\n", "|\\n", StringComparison.Ordinal);
+            string because = $"input {index} ({Compat49Inputs.Kinds[index]})";
+
             string text = engine.WriteString(records);
             written += engine.TotalRecords;
+            await Assert.That(Escape(text)).IsEqualTo(expected).Because("WriteString, " + because);
 
-            await Assert.That(Escape(text)).IsEqualTo(goldenWritten.Replace("\\r\\n", "|\\n", StringComparison.Ordinal))
-                .Because($"input {index} ({Compat49Inputs.Kinds[index]})");
+            // WriteStreamAsync: the second branch of AppendPendingRecord (through the session buffer, not the pending block).
+            var asyncWriter = new StringWriter();
+            await engine.WriteStreamAsync(asyncWriter, records);
+            written += engine.TotalRecords;
+            await Assert.That(Escape(asyncWriter.ToString())).IsEqualTo(expected).Because("WriteStreamAsync, " + because);
+
+            using (var asyncEngine = new FileHelperAsyncEngine<Compat49NewLine>(descriptor, NewPaths) { NewLineForWrite = "|\n" })
+            {
+                if (afterWriteRecord)
+                    asyncEngine.AfterWriteRecord += (_, e) => e.RecordLine = e.RecordLine;
+                asyncEngine.BeginWriteString();
+                asyncEngine.WriteNext(records);
+                written += asyncEngine.TotalRecords;
+                await Assert.That(Escape(asyncEngine.EndWriteString())).IsEqualTo(expected).Because("FileHelperAsyncEngine.WriteNext, " + because);
+            }
+
             index++;
         }
 
         await Assert.That(descriptor.FormatCalls).IsEqualTo(written);
         await Assert.That(written).IsGreaterThan(0);
         await Assert.That(descriptor.WrongWriters).IsEqualTo(0);
+    }
 
-        var quoted = new LegacyCheckingDescriptor<Compat48Quoted>(FileHelperRegistry<Compat48Quoted>.Descriptor, "|\n");
+    /// <summary>
+    /// The two 4.8.0 descriptors (Generated48, no <c>[FieldInNewLine]</c> snapshot there) get a
+    /// <see cref="RentedBufferWriter"/> whose <c>NewLine</c> is the engine's <c>NewLineForWrite</c>, with and without
+    /// <c>AfterWriteRecord</c>.
+    /// </summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Old_4_8_Descriptors_Still_Get_A_RentedBufferWriter_With_NewLine_Set(bool afterWriteRecord)
+    {
+        var quoted =new LegacyCheckingDescriptor<Compat48Quoted>(FileHelperRegistry<Compat48Quoted>.Descriptor, "|\n");
         var fixedLength = new LegacyCheckingDescriptor<Compat48Fixed>(FileHelperRegistry<Compat48Fixed>.Descriptor, "|\n");
         var (quotedText, quotedCrLf) = WriteOld(quoted, "id,name,amount,day,code,count,note\r\n1,\"Smith, John\",12.50,2026-11-08,A1,3,\"first\"\r\n2,plain,0.1,2024-02-29,B2,,\r\n", afterWriteRecord);
         var (fixedText, fixedCrLf) = WriteOld(fixedLength, "000001Alice     08112026000012.50\r\n000002Bob       29022024000000.10\r\n", afterWriteRecord);

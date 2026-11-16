@@ -94,13 +94,21 @@ internal sealed class RentedBufferWriter : RecordWriteBuffer, IBufferWriter<char
         // Grow by doubling until the required capacity fits.
         // Math.Max seeds newSize at `required` when the buffer length is 0 (e.g. post-dispose),
         // preventing an infinite loop where 0 * 2 never reaches the required threshold.
-        int newSize = (int)Math.Max(Math.Min(2L * Storage.Length, Array.MaxLength), required);
+        int newSize = NextSize(Storage.Length, required);
 
         char[] larger = ArrayPool<char>.Shared.Rent(newSize);
         Storage.AsSpan(0, keep).CopyTo(larger);
         ArrayPool<char>.Shared.Return(Storage);
         Storage = larger;
     }
+
+    /// <summary>
+    /// The size of the next rental: twice <paramref name="length"/>, at most <see cref="Array.MaxLength"/>, and at least
+    /// <paramref name="required"/>. Before 4.10 the doubling was computed in <see cref="int"/>, so above 2^30 chars it
+    /// overflowed and the size fell back to <paramref name="required"/>; now it stops at <see cref="Array.MaxLength"/>.
+    /// </summary>
+    internal static int NextSize(int length, int required) =>
+        (int)Math.Max(Math.Min(2L * length, Array.MaxLength), required);
 
     private void ThrowIfDisposed()
     {

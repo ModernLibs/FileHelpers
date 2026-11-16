@@ -301,6 +301,94 @@ public sealed class RecordWriterTests
         await Assert.That(text).IsEqualTo("throw:InvalidDataException:format failed|committed:committed");
     }
 
+    [Test]
+    public async Task Edge_Arguments_Throw_The_Documented_Exceptions()
+    {
+        await Assert.That(Run(string.Empty, 16, (ref RecordWriter w) => w.Grow(null!)))
+            .StartsWith("throw:ArgumentNullException:");
+        await Assert.That(Run(string.Empty, 16, (ref RecordWriter w) => w.Reserve(-1)))
+            .StartsWith("throw:ArgumentOutOfRangeException:");
+        await Assert.That(Run(string.Empty, 16, (ref RecordWriter w) =>
+        {
+            w.Write("ab".AsSpan());
+            w.Quote(3, '"', true, true, ",", "Name");
+        })).StartsWith("throw:ArgumentOutOfRangeException:");
+        await Assert.That(Run(string.Empty, 16, (ref RecordWriter w) =>
+        {
+            w.Write("ab".AsSpan());
+            w.Quote(-1, '"', true, true, ",", "Name");
+        })).StartsWith("throw:ArgumentOutOfRangeException:");
+        await Assert.That(Run(string.Empty, 16, (ref RecordWriter w) =>
+        {
+            w.Write("ab".AsSpan());
+            w.Pad(3, 5, 0, ' ', false, "Amount");
+        })).StartsWith("throw:ArgumentOutOfRangeException:");
+        await Assert.That(Run(string.Empty, 16, (ref RecordWriter w) =>
+        {
+            w.Write("ab".AsSpan());
+            w.Pad(-1, 5, 0, ' ', false, "Amount");
+        })).StartsWith("throw:ArgumentOutOfRangeException:");
+    }
+
+    [Test]
+    [Arguments("")]
+    [Arguments("ab")]
+    public async Task Pad_Width_0_And_Quote_With_An_Empty_Separator_Equal_The_4_9_Helpers(string text)
+    {
+        foreach (bool overflowError in (bool[])[false, true])
+        {
+            string expected = Expect("c", "b|", () =>
+            {
+                var buffer = new ArrayBufferWriter<char>();
+                LegacyEmittedWriteCopies.WritePadded(buffer, text, 0, 2, ' ', overflowError, "Amount");
+                return buffer.WrittenSpan.ToString();
+            });
+            string actual = Run("c", 1, (ref RecordWriter w) =>
+            {
+                w.Write('b');
+                int start = w.Position;
+                w.Write(text.AsSpan());
+                w.Pad(start, 0, 2, ' ', overflowError, "Amount");
+                w.Write('|');
+            });
+            await Assert.That(actual).IsEqualTo(expected).Because($"Pad width 0, overflowError {overflowError}");
+        }
+
+        // An empty separator is found in every text (also in an empty one), so the value is always quoted.
+        string quotedExpected = Expect("c", "b|", () =>
+        {
+            var buffer = new ArrayBufferWriter<char>();
+            LegacyEmittedWriteCopies.WriteQuotedField(buffer, text, '"', false, false, string.Empty, "Name");
+            return buffer.WrittenSpan.ToString();
+        });
+        string quoted = Run("c", 1, (ref RecordWriter w) =>
+        {
+            w.Write('b');
+            int start = w.Position;
+            w.Write(text.AsSpan());
+            w.Quote(start, '"', false, false, string.Empty, "Name");
+            w.Write('|');
+        });
+        await Assert.That(quoted).IsEqualTo(quotedExpected);
+        await Assert.That(quoted).IsEqualTo("cb\"" + text + "\"|");
+    }
+
+    /// <summary>
+    /// The growth size of <see cref="RentedBufferWriter"/>: twice the length, at least the required size, and capped
+    /// at <see cref="Array.MaxLength"/> where the doubling of 4.9 overflowed <see cref="int"/>.
+    /// </summary>
+    [Test]
+    [Arguments(16, 20, 32)]
+    [Arguments(16, 100, 100)]
+    [Arguments(0, 5, 5)]
+    [Arguments(0x40000000, 0x40000001, 0x7FFFFFC7)]
+    [Arguments(0x7FFFFFC7, 0x7FFFFFC7, 0x7FFFFFC7)]
+    public async Task RentedBufferWriter_Growth_Doubles_And_Stops_At_Array_MaxLength(int length, int required, int expected)
+    {
+        await Assert.That(Array.MaxLength).IsEqualTo(0x7FFFFFC7);
+        await Assert.That(RentedBufferWriter.NextSize(length, required)).IsEqualTo(expected);
+    }
+
     private static void Check(bool condition, string what)
     {
         if (!condition)

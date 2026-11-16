@@ -2,6 +2,7 @@
 // emit distinct, sequential code sections. Splitting further would only thread more parameters.
 #pragma warning disable MA0051
 
+using System.Reflection;
 using System.Text;
 using Microsoft.CodeAnalysis;
 using ModernLibs.FileHelpers.Generator.Models;
@@ -21,6 +22,25 @@ internal static class DescriptorEmitter
     private const string Converters = "global::ModernLibs.FileHelpers.Converters.";
     private const string Memory = "global::System.MemoryExtensions.";
     private const string ConverterHolder = "__Conv";
+
+    /// <summary>
+    /// The <c>[GeneratedCode]</c> line above both emitted classes. The version is the generator assembly's
+    /// informational version without the <c>+</c> build metadata.
+    /// </summary>
+    private static readonly string GeneratedCodeAttribute = BuildGeneratedCodeAttribute();
+
+    private static string BuildGeneratedCodeAttribute()
+    {
+        string version = typeof(DescriptorEmitter).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0";
+        int plus = version.IndexOf('+');
+        if (plus >= 0)
+        {
+            version = version.Substring(0, plus);
+        }
+
+        return $"[global::System.CodeDom.Compiler.GeneratedCodeAttribute(\"ModernLibs.FileHelpers.Generator\", \"{version}\")]";
+    }
 
     internal static void Emit(SourceProductionContext spc, RecordModel model)
     {
@@ -61,6 +81,7 @@ internal static class DescriptorEmitter
             : $" : global::ModernLibs.FileHelpers.IRecordDescriptor<{fqType}>";
         string descriptorName = $"__{model.TypeName}Descriptor";
 
+        sb.AppendLine(GeneratedCodeAttribute);
         sb.AppendLine($"file sealed class {descriptorName}{implements}");
         sb.AppendLine("{");
         sb.AppendLine($"    public static readonly {descriptorName} Instance = new();");
@@ -105,6 +126,7 @@ internal static class DescriptorEmitter
         sb.AppendLine("}");
         sb.AppendLine();
 
+        sb.AppendLine(GeneratedCodeAttribute);
         sb.AppendLine($"file static class __{model.TypeName}Registration");
         sb.AppendLine("{");
         sb.AppendLine("    [global::System.Runtime.CompilerServices.ModuleInitializer]");

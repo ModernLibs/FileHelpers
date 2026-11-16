@@ -35,7 +35,7 @@ internal static class PrototypeCheck
             Console.WriteLine($"// Tokenizer_*: the four tokenizers give the same field ends on {CheckTokenizers(dir)} lines.");
             Console.WriteLine($"// Scan_SpanCreate: equals Scan_LoadUnsafe on {CheckScan(dir)} lines.");
             Console.WriteLine($"// Unquote_Helper, UnquoteToString_Helper and CreateString_Helper: {CheckReadHelpers()} setups compared every string with the reference.");
-            Console.WriteLine($"// Slice_Direct: equals Slice_MathMin (class and struct) on {CheckFixedSlices()} lines, and throws on a line of the wrong width.");
+            Console.WriteLine($"// Slice_Direct: equals Slice_MathMin (class and struct) on {CheckFixedSlices()} lines, and both throw on a line of the wrong width.");
             return 0;
         }
         catch (Exception e)
@@ -189,8 +189,8 @@ internal static class PrototypeCheck
     }
 
     /// <summary>
-    /// Slice_Direct and Slice_MathMin give the same twelve values, as class and as struct, on every seeded line; the
-    /// direct shape throws on a line that is too short or too long, where only the Math.Min shape slices it.
+    /// Slice_Direct and Slice_MathMin give the same twelve values, as class and as struct, on every seeded line; both
+    /// shapes throw on a line that is too short or too long.
     /// </summary>
     private static int CheckFixedSlices()
     {
@@ -206,19 +206,25 @@ internal static class PrototypeCheck
 
             foreach (string wrong in new[] { lines[0][..^1], lines[0] + "X" })
             {
-                bool threw = false;
-                try
-                {
-                    FixedSliceBenchmarks.ParseDirect(record, wrong);
-                }
-                catch (InvalidOperationException)
-                {
-                    threw = true;
-                }
-                DataCheck.That(threw, $"Slice_Direct ({record}) accepted a line of {wrong.Length} characters");
+                AssertThrows(() => FixedSliceBenchmarks.ParseMathMin(record, wrong), "Slice_MathMin", record, wrong.Length);
+                AssertThrows(() => FixedSliceBenchmarks.ParseDirect(record, wrong), "Slice_Direct", record, wrong.Length);
             }
         }
         return lines.Length;
+    }
+
+    private static void AssertThrows(Action parse, string name, FixedSliceRecord record, int length)
+    {
+        bool threw = false;
+        try
+        {
+            parse();
+        }
+        catch (InvalidOperationException)
+        {
+            threw = true;
+        }
+        DataCheck.That(threw, $"{name} ({record}) accepted a line of {length} characters");
     }
 
     /// <summary>Scan_SpanCreate and Scan_LoadUnsafe give the same result on every line of every dataset and on random lines.</summary>

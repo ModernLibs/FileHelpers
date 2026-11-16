@@ -22,11 +22,12 @@ public enum FixedSliceRecord
 /// and without the <c>Math.Min</c> the generator emits today.
 /// </summary>
 /// <remarks>
-/// <see cref="Slice_MathMin"/> reproduces the expression of <c>EmitFixedLengthFieldSplitting</c> in
-/// <c>DescriptorEmitter.cs</c>: <c>line.Length &gt; offset ? line.Slice(offset, Math.Min(width, line.Length - offset)) :
-/// ReadOnlySpan&lt;char&gt;.Empty</c>. <see cref="Slice_Direct"/> is <c>line.Slice(offset, width)</c> after one length test
-/// (a line of the wrong width throws before any slice), the shape G5 would emit for <c>ExactLength</c> records
-/// without optional fields. Every slice is reduced to one <see cref="int"/> (its length and first character) so the
+/// <see cref="Slice_MathMin"/> is the validated <c>ExactLength</c> <c>Parse</c> shape of today: one length test that
+/// throws on a line of the wrong width (<c>EmitFixedLengthModeValidation</c>), then the slice expression of
+/// <c>EmitFixedLengthFieldSplitting</c> in <c>DescriptorEmitter.cs</c>: <c>line.Length &gt; offset ? line.Slice(offset,
+/// Math.Min(width, line.Length - offset)) : ReadOnlySpan&lt;char&gt;.Empty</c>. <see cref="Slice_Direct"/> has the same
+/// length test, then <c>line.Slice(offset, width)</c>: the shape G5 would emit for <c>ExactLength</c> records without
+/// optional fields. Every slice is reduced to one <see cref="int"/> (its length and first character) so the
 /// work cannot be removed, and the twelve values fill a record of the kind in <see cref="Record"/>. Each method
 /// returns the sum of all twelve values of all records. The setups compare every record with a <c>Substring</c>
 /// reference; the comparison of the two shapes with each other lives in <c>--check-prototypes</c>.
@@ -123,6 +124,8 @@ public class FixedSliceBenchmarks
 
     internal static Rec MathMinClass(ReadOnlySpan<char> line)
     {
+        if (line.Length != LineLength)
+            throw new InvalidOperationException("Line of the wrong width.");
         int v0 = Value(line.Length > 0 ? line.Slice(0, Math.Min(6, line.Length - 0)) : ReadOnlySpan<char>.Empty);
         int v1 = Value(line.Length > 6 ? line.Slice(6, Math.Min(8, line.Length - 6)) : ReadOnlySpan<char>.Empty);
         int v2 = Value(line.Length > 14 ? line.Slice(14, Math.Min(4, line.Length - 14)) : ReadOnlySpan<char>.Empty);
@@ -140,6 +143,8 @@ public class FixedSliceBenchmarks
 
     internal static RecS MathMinStruct(ReadOnlySpan<char> line)
     {
+        if (line.Length != LineLength)
+            throw new InvalidOperationException("Line of the wrong width.");
         int v0 = Value(line.Length > 0 ? line.Slice(0, Math.Min(6, line.Length - 0)) : ReadOnlySpan<char>.Empty);
         int v1 = Value(line.Length > 6 ? line.Slice(6, Math.Min(8, line.Length - 6)) : ReadOnlySpan<char>.Empty);
         int v2 = Value(line.Length > 14 ? line.Slice(14, Math.Min(4, line.Length - 14)) : ReadOnlySpan<char>.Empty);

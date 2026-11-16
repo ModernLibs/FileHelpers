@@ -108,12 +108,14 @@ public class CreateStringBenchmarks
         Check(nameof(CreateString_Cached), CreateCached, CreateString_Cached());
     }
 
+#if !FILEHELPERS_BASELINE
     [GlobalSetup(Target = nameof(CreateString_Helper))]
     public void SetupHelper()
     {
         Prepare();
         Check(nameof(CreateString_Helper), RecordParsing.CreateString, CreateString_Helper());
     }
+#endif
 
     [Benchmark(Baseline = true)]
     public long CreateString_New()
@@ -137,6 +139,7 @@ public class CreateStringBenchmarks
         return length;
     }
 
+#if !FILEHELPERS_BASELINE
     /// <summary>The shipped R4 helper <see cref="RecordParsing.CreateString"/>.</summary>
     [Benchmark]
     public long CreateString_Helper()
@@ -148,6 +151,7 @@ public class CreateStringBenchmarks
             length += RecordParsing.CreateString(lines[fields[k]].AsSpan(fields[k + 1], fields[k + 2])).Length;
         return length;
     }
+#endif
 
     /// <summary>Today's generated code: <c>new string(span)</c>.</summary>
     internal static string CreateNew(ReadOnlySpan<char> value) => new(value);

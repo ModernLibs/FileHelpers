@@ -172,6 +172,9 @@ internal static class PrototypeCheck
     /// </summary>
     private static int CheckReadHelpers()
     {
+#if FILEHELPERS_BASELINE
+        return 0; // the helpers are 4.10 API: a baseline build (4.9.1 package or source) has none to check
+#else
         int setups = 0;
         foreach (var values in Enum.GetValues<UnquoteSet>())
         {
@@ -186,6 +189,7 @@ internal static class PrototypeCheck
             setups++;
         }
         return setups;
+#endif
     }
 
     /// <summary>

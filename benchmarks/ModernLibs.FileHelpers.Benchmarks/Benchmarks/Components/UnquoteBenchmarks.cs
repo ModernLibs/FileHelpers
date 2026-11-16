@@ -104,6 +104,7 @@ public class UnquoteBenchmarks
         Check(nameof(Unquote_IndexOf), UnquoteIndexOf, Unquote_IndexOf());
     }
 
+#if !FILEHELPERS_BASELINE
     [GlobalSetup(Target = nameof(Unquote_Helper))]
     public void SetupHelper()
     {
@@ -117,6 +118,7 @@ public class UnquoteBenchmarks
         Prepare();
         Check(nameof(UnquoteToString_Helper), static value => RecordParsing.UnquoteToString(value, Quote), UnquoteToString_Helper());
     }
+#endif
 
     [Benchmark(Baseline = true)]
     public long Unquote_Current()
@@ -140,6 +142,7 @@ public class UnquoteBenchmarks
         return length;
     }
 
+#if !FILEHELPERS_BASELINE
     /// <summary>
     /// The shipped R3 helper <see cref="RecordParsing.Unquote"/>, measured as the length of the returned span. Informative
     /// only: it creates no string, so it is not comparable to <see cref="Unquote_Current"/>; S1 is judged on
@@ -167,6 +170,7 @@ public class UnquoteBenchmarks
             length += RecordParsing.UnquoteToString(lines[inner[k]].AsSpan(inner[k + 1], inner[k + 2]), Quote).Length;
         return length;
     }
+#endif
 
     /// <summary>The emitted strip pass of today (the <c>[FieldQuoted] strip + unescape</c> block of the generated parser).</summary>
     internal static string UnquoteCurrent(ReadOnlySpan<char> inner)

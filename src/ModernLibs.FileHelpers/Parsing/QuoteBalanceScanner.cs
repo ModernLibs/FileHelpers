@@ -130,10 +130,11 @@ internal static class QuoteBalanceScanner
     private static int ScanSingleQuote(ReadOnlySpan<char> line, bool startsInsideQuotes, char delimiter, char quote, ReadOnlySpan<char> quotes, int field, out bool endsInside)
     {
         var walk = new QuoteWalk(field);
+        var none = default(NoRecorder);
         if (startsInsideQuotes && QuoteOf(quotes, field) != '\0')
             walk.Inside = true;
         else
-            walk.OpenAt(line, 0, quotes);
+            walk.OpenAt(line, 0, quotes, ref none);
 
         int length = line.Length;
         ref ushort start = ref Unsafe.As<char, ushort>(ref MemoryMarshal.GetReference(line));
@@ -150,7 +151,7 @@ internal static class QuoteBalanceScanner
                 {
                     int at = position + BitOperations.TrailingZeroCount(mask);
                     mask &= mask - 1;
-                    walk.Visit(line, at, delimiter, quote, quotes);
+                    walk.Visit(line, at, delimiter, quote, quotes, ref none);
                 }
             }
         }
@@ -167,7 +168,7 @@ internal static class QuoteBalanceScanner
                 {
                     int at = position + BitOperations.TrailingZeroCount(mask);
                     mask &= mask - 1;
-                    walk.Visit(line, at, delimiter, quote, quotes);
+                    walk.Visit(line, at, delimiter, quote, quotes, ref none);
                 }
             }
         }
@@ -176,17 +177,25 @@ internal static class QuoteBalanceScanner
         {
             char c = line[position];
             if (c == delimiter || c == quote)
-                walk.Visit(line, position, delimiter, quote, quotes);
+                walk.Visit(line, position, delimiter, quote, quotes, ref none);
         }
 
         endsInside = walk.Inside;
         return walk.Field;
     }
 
-    /// <summary>The state of <see cref="ScanSingleQuote"/>, advanced at each delimiter or quote position.</summary>
-    private struct QuoteWalk(int field)
+    /// <summary>
+    /// The state of <see cref="ScanSingleQuote"/> and <see cref="RecordTokenizer.TokenizeQuoted"/>, advanced at each
+    /// delimiter or quote position in increasing order. The transitions read and write <see cref="Field"/>,
+    /// <see cref="Inside"/> and <c>_next</c> only; they tell the recorder what they did and never read anything
+    /// back from it, so the scan (<see cref="NoRecorder"/>) and the tokenizer (<see cref="TokenRecorder"/>) end in the
+    /// same <c>(Field, Inside)</c> for the same line. The recorder is a type argument, so the JIT compiles the walk
+    /// once per recorder and the scan's copy holds none of the recording code (T20, review D1).
+    /// </summary>
+    /// <param name="field">The field the walk starts in.</param>
+    internal struct QuoteWalk(int field)
     {
-        /// <summary>The field the scan is in.</summary>
+        /// <summary>The field the walk is in.</summary>
         public int Field = field;
 
         /// <summary>Inside the quoted value of <see cref="Field"/>.</summary>
@@ -197,18 +206,21 @@ internal static class QuoteBalanceScanner
 
         /// <summary>A quoted field opens when its quote is the first character of the field.</summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void OpenAt(ReadOnlySpan<char> line, int fieldStart, ReadOnlySpan<char> quotes)
+        public void OpenAt<TRecorder>(ReadOnlySpan<char> line, int fieldStart, ReadOnlySpan<char> quotes, ref TRecorder recorder)
+            where TRecorder : struct, IWalkRecorder, allows ref struct
         {
             char q = QuoteOf(quotes, Field);
             if (q != '\0' && fieldStart < line.Length && line[fieldStart] == q)
             {
                 Inside = true;
                 _next = fieldStart + 1;
+                recorder.Opened();
             }
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Visit(ReadOnlySpan<char> line, int at, char delimiter, char quote, ReadOnlySpan<char> quotes)
+        public void Visit<TRecorder>(ReadOnlySpan<char> line, int at, char delimiter, char quote, ReadOnlySpan<char> quotes, ref TRecorder recorder)
+            where TRecorder : struct, IWalkRecorder, allows ref struct
         {
             if (at < _next)
                 return;
@@ -221,18 +233,110 @@ internal static class QuoteBalanceScanner
                 if (at + 1 < line.Length && line[at + 1] == quote)
                 {
                     _next = at + 2;
+                    recorder.Doubled();
                     return;
                 }
 
                 Inside = false;
+                recorder.Closed(at);
                 return;
             }
 
             // Outside a quoted value a quote is literal text: only a delimiter matters.
             if (line[at] != delimiter)
                 return;
+            recorder.End(Field, at);
             Field++;
-            OpenAt(line, at + 1, quotes);
+            OpenAt(line, at + 1, quotes, ref recorder);
+        }
+    }
+
+    /// <summary>What <see cref="QuoteWalk"/> tells its recorder; no member returns anything to the walk.</summary>
+    internal interface IWalkRecorder
+    {
+        /// <summary>The current field opened a quoted value.</summary>
+        void Opened();
+
+        /// <summary>The quoted value has a doubled quote.</summary>
+        void Doubled();
+
+        /// <summary>The quoted value closed at <paramref name="at"/>.</summary>
+        void Closed(int at);
+
+        /// <summary>
+        /// Field <paramref name="field"/> ends at <paramref name="at"/> (its delimiter). The walk calls it before it moves
+        /// to the next field; the tokenizer calls it once at the record end, never inside an open quoted value.
+        /// </summary>
+        void End(int field, int at);
+    }
+
+    /// <summary>The recorder of the scan: records nothing.</summary>
+    internal struct NoRecorder : IWalkRecorder
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly void Opened()
+        {
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly void Doubled()
+        {
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly void Closed(int at)
+        {
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public readonly void End(int field, int at)
+        {
+        }
+    }
+
+    /// <summary>
+    /// The recorder of the tokenizer: writes the end entry of each field into <paramref name="ends"/> while there is
+    /// room (the <see cref="TokenBuffer"/> layout, flags included), and notes a quoted value followed by text.
+    /// </summary>
+    /// <param name="ends">The end entries; empty when the record is too long to tokenize.</param>
+    internal ref struct TokenRecorder(Span<int> ends) : IWalkRecorder
+    {
+        private readonly Span<int> _ends = ends;
+
+        /// <summary>The flags of the end entry of the current field: <see cref="TokenBuffer.QuotedBit"/>, <see cref="TokenBuffer.DoubledBit"/>.</summary>
+        private int _entry;
+
+        /// <summary>The position of the closing quote of the last quoted value.</summary>
+        private int _closedAt;
+
+        /// <summary>A quoted value is followed by text before its delimiter or the record end: no tokens.</summary>
+        public bool Refused { get; private set; }
+
+        /// <summary>A quoted value of the record has a doubled quote.</summary>
+        public bool AnyDoubled { get; private set; }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Opened() => _entry = TokenBuffer.QuotedBit;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Doubled()
+        {
+            _entry |= TokenBuffer.DoubledBit;
+            AnyDoubled = true;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Closed(int at) => _closedAt = at;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void End(int field, int at)
+        {
+            // A field with QuotedBit that is not inside its value any more left it through the close: _closedAt is its own.
+            if (_entry != 0 && _closedAt + 1 != at)
+                Refused = true;
+            if ((uint)field < (uint)_ends.Length)
+                _ends[field] = at | _entry;
+            _entry = 0;
         }
     }
 

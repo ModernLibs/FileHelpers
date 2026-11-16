@@ -132,6 +132,15 @@ internal static class Compat49Inputs
             Long: "5,1,2,3",
             Bad: ["6,abc,1", "7,!x,1", "8,,1"],
             Unclosed: "9,\"1,1"),
+
+        // Path-only (ruling P20): read by the three-path tests only, never by the Golden49 test.
+        ["Compat49NotEmpty"] = new(
+            4,
+            ["1,\"Smith, John\",t,5", "2,plain,u,6", "3,\"say \"\"hi\"\"\",v,7", "4,\"multi\r\nline\",w,8"],
+            Short: "5,\"n\",x",
+            Long: "6,\"n\",x,1,2",
+            Bad: ["7,\"\",t,1", "8,a, ,1", "9,,t,1", "10,a,,1", "11,\" \",t,1"],
+            Unclosed: "12,\"open,t,1"),
     };
 
     /// <summary>The kind of each input of <see cref="For"/>, in the same order (failure messages, golden files).</summary>

@@ -37,9 +37,9 @@ internal static class ShapeInput
         ["Compat49Struct"] = [";"],
     };
 
-    /// <summary>The names of the <see cref="Compat49Matrix"/> shapes.</summary>
+    /// <summary>The names of the <see cref="Compat49Matrix"/> shapes, the path-only ones included.</summary>
     private static readonly HashSet<string> KnownShapes =
-        new(Compat49Matrix.All().Select(c => c.Name), StringComparer.Ordinal);
+        new(Compat49Matrix.All().Select(c => c.Name).Concat(Compat49Matrix.PathOnlyShapes), StringComparer.Ordinal);
 
     /// <summary>A shape the matrix does not know is a mistake of the caller, not a comma-delimited shape.</summary>
     private static void RequireShape(string name)

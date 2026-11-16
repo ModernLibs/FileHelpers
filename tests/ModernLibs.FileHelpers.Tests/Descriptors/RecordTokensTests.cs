@@ -218,6 +218,31 @@ public sealed class RecordTokensTests
         await Assert.That(p.Reused).IsTrue();
     }
 
+    /// <summary>
+    /// Ruling P18 (T15 review M2): a quoted entry shorter than its two quotes has no value between them. The runtime
+    /// never makes one (the tokenizer refuses an unclosed quote), so this is the "no member throws" contract only:
+    /// an empty value, <see cref="string.Empty"/>, with or without the doubled flag.
+    /// </summary>
+    [Test]
+    [Arguments("\"", 1)]
+    [Arguments("", 0)]
+    public async Task Quoted_Entry_Shorter_Than_Two_Chars_Is_Empty(string record, int end)
+    {
+        static (bool Quoted, bool ValueEmpty, string String, bool DoubledValueEmpty, string DoubledString) Probe(string record, int end)
+        {
+            var tokens = Tokens(new TokenBuffer(1), record, [end | Q], quote: '"');
+            var doubled = Tokens(new TokenBuffer(1), record, [end | Q | D], quote: '"');
+            return (tokens.IsQuoted(0), tokens.GetValue(0).IsEmpty, tokens.GetString(0), doubled.GetValue(0).IsEmpty, doubled.GetString(0));
+        }
+
+        var p = Probe(record, end);
+        await Assert.That(p.Quoted).IsTrue();
+        await Assert.That(p.ValueEmpty).IsTrue();
+        await Assert.That(ReferenceEquals(p.String, string.Empty)).IsTrue();
+        await Assert.That(p.DoubledValueEmpty).IsTrue();
+        await Assert.That(ReferenceEquals(p.DoubledString, string.Empty)).IsTrue();
+    }
+
     [Test]
     public async Task Buffer_Holds_One_End_More_Than_The_Field_Count()
     {

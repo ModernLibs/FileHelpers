@@ -151,7 +151,7 @@ public sealed class QuotedPrescanTests
             string text = line.ToString();
 
             // Only lines that complete a record on their own (no multiline record opened)
-            if (core.OpensMultiline(text, 0, out _, out _) || text.Length == 0)
+            if (core.OpensMultiline(text, 0, tokens: null, out _, out _) || text.Length == 0)
                 continue;
 
             // Act

@@ -88,7 +88,7 @@ public sealed class Compat49Tests
         await Assert.That(names.Distinct(StringComparer.Ordinal).Count()).IsEqualTo(19);
         foreach (string name in names)
             await Assert.That(Compat49Inputs.For(name).Count()).IsEqualTo(Compat49Inputs.Kinds.Length);
-        await Assert.That(Compat49Matrix.Paths().Select(p => p.Name)).IsEquivalentTo(names);
+        await Assert.That(Compat49Matrix.Paths().Select(p => p.Name)).IsEquivalentTo(names.Concat(Compat49Matrix.PathOnlyShapes));
     }
 
     /// <summary>
@@ -118,14 +118,15 @@ public sealed class Compat49Tests
     }
 
     /// <summary>
-    /// The eligibility rule of T15/T17 (design 4.5), computed from the descriptor's <c>Fields</c> and <c>Options</c>
-    /// alone: delimited, one line per record, a one-char record delimiter, no <c>[FieldDelimiter]</c>, no quoted
-    /// field. It must equal <c>Core.Tokenized</c> of the default engine for every shape; T20 widens the rule.
+    /// The eligibility rule of T15/T17 and T20 (design 4.5), computed from the descriptor's <c>Fields</c> and
+    /// <c>Options</c> alone: delimited, one line per record, a one-char record delimiter, no <c>[FieldDelimiter]</c>;
+    /// quoted fields only with one quote char other than the delimiter and no start trim on a quoted field. It must
+    /// equal <c>Core.Tokenized</c> of the default engine for every shape, and one quoted shape must be tokenized.
     /// </summary>
     [Test]
     public async Task The_Matrix_Reaches_The_Tokenized_Path()
     {
-        var eligible = Compat49Matrix.Twins(Eligibility.Instance).ToList();
+        var eligible = Compat49Matrix.PathTwins(Eligibility.Instance).ToList();
         var tokenized = Compat49Matrix.Paths().ToDictionary(p => p.Name, p => p.Tokenized, StringComparer.Ordinal);
 
         foreach (var (name, isEligible) in eligible)
@@ -140,6 +141,8 @@ public sealed class Compat49Tests
         var names = eligible.Where(e => e.Eligible).Select(e => e.Name).ToList();
         Console.WriteLine($"Tokenized shapes ({names.Count} of {eligible.Count}): {string.Join(", ", names)}");
         await Assert.That(names).Contains("Compat49Plain25");
+        await Assert.That(names).Contains("Compat49QuoteAlways");      // T20: one quoted shape at least
+        await Assert.That(names).Contains("Compat49NotEmpty");         // P20: [FieldNotEmpty] on the tokenized path
     }
 
     private sealed class Eligibility : Compat49Matrix.ITwinVisitor<(string Name, bool Eligible)>
@@ -150,9 +153,27 @@ public sealed class Compat49Tests
         {
             var descriptor = FileHelperRegistry<T>.Descriptor;
             var options = descriptor.Options;
-            bool eligible = options.Delimiter is { Length: 1 } && options.LineCountPerLogicalRecord <= 1 && options.QuoteChar == '\0';
+            bool eligible = options.Delimiter is { Length: 1 } && options.LineCountPerLogicalRecord <= 1;
+            bool anyFieldQuote = false;
             foreach (ref readonly var field in descriptor.Fields)
-                eligible &= !field.IsInNewLine && field.Delimiter is not { Length: > 0 } && field.QuoteChar == '\0';
+            {
+                eligible &= !field.IsInNewLine && field.Delimiter is not { Length: > 0 };
+                anyFieldQuote |= field.QuoteChar != '\0';
+            }
+
+            // T20: quoted fields too, when they all use one quote char other than the delimiter and none trims its
+            // start (3.x skips blanks before the quote of such a field; freeze F-11).
+            char quote = '\0';
+            foreach (ref readonly var field in descriptor.Fields)
+            {
+                char q = anyFieldQuote ? field.QuoteChar : options.QuoteChar;
+                if (q == '\0')
+                    continue;
+                eligible &= (quote == '\0' || quote == q) && options.Delimiter is { Length: 1 } delimiter && q != delimiter[0]
+                    && field.TrimMode is not (TrimMode.Both or TrimMode.Left);
+                quote = q;
+            }
+
             return (name, eligible);
         }
     }

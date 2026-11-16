@@ -248,7 +248,8 @@ public sealed class TokenizedReadTests
         await Assert.That(Tokenized<TokPlain>(',')).IsTrue();
         await Assert.That(Tokenized<TokStrings>(',')).IsTrue();
 
-        await Assert.That(Tokenized<TokQuoted>(',')).IsFalse();
+        await Assert.That(Tokenized<TokQuoted>(',')).IsTrue();                // T20: quoted fields
+        await Assert.That(Tokenized<TokQuotedTrim>(',')).IsFalse();           // F-11: a quoted field with a start trim
         await Assert.That(Tokenized<TokTwoCharDelimiter>(':')).IsFalse();
         await Assert.That(Tokenized<TokFieldDelimiter>(',')).IsFalse();
         await Assert.That(Tokenized<TokNewLine>(',')).IsFalse();

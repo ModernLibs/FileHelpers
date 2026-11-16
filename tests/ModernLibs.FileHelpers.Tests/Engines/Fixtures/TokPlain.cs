@@ -73,12 +73,20 @@ public sealed class TokStrings
     [FieldOrder(5), FieldOptional] public string? E { get; set; }
 }
 
-/// <summary>Not tokenized in T15: a <c>[FieldQuoted]</c> field.</summary>
+/// <summary>A <c>[FieldQuoted]</c> field: not tokenized in T15, tokenized from T20 on.</summary>
 [DelimitedRecord(",")]
 public sealed class TokQuoted
 {
     [FieldOrder(1)] public int Id { get; set; }
     [FieldOrder(2), FieldQuoted] public string Name { get; set; } = string.Empty;
+}
+
+/// <summary>Not tokenized (freeze F-11): a <c>[FieldQuoted]</c> field that trims both ends skips blanks before its quote.</summary>
+[DelimitedRecord(",")]
+public sealed class TokQuotedTrim
+{
+    [FieldOrder(1)] public int Id { get; set; }
+    [FieldOrder(2), FieldQuoted, FieldTrim(TrimMode.Both)] public string Name { get; set; } = string.Empty;
 }
 
 /// <summary>Not tokenized: a two-char delimiter.</summary>

@@ -22,7 +22,7 @@ namespace ModernLibs.FileHelpers.Tests.Engines;
 /// <summary>
 /// The generated <see cref="ITokenizedDescriptor{T}"/> bodies (T17) at run time: the tokenized and the legacy body
 /// read the same values and throw the same errors, with tokens the runtime builds or tokens written by hand (the
-/// quoted bodies run here before T20 turns the quoted path on in the runtime).
+/// quoted bodies ran here before T20 turned the quoted path on in the runtime).
 /// </summary>
 [Category("Engines")]
 public sealed class TokenizedGeneratedReadTests
@@ -155,11 +155,15 @@ public sealed class TokenizedGeneratedReadTests
         var quoted = Run("a,\"b\"", [1, 5 | Quoted]);
         await Assert.That(quoted).IsEqualTo((true, 1, "A", "b"));
 
-        // An engine read: one converter call per record.
+        // An engine read on the tokenized path (T20: quoted records are tokenized; ruling P19): one converter call
+        // per record.
         CountingConverter.Calls = 0;
-        var rows = Engine<TgCounting>(TokensPath).ReadString("a,\"b\"\r\nc,\"d\"\r\ne,\"f\"\r\n");
+        var counting = new CountingDescriptor<TgCounting>();
+        var rows = new FileHelperEngine<TgCounting>(counting, Encoding.UTF8, TokensPath).ReadString("a,\"b\"\r\nc,\"d\"\r\ne,\"f\"\r\n");
         await Assert.That(rows.Length).IsEqualTo(3);
         await Assert.That(CountingConverter.Calls).IsEqualTo(3);
+        await Assert.That(counting.TryParseCalls).IsEqualTo(3);
+        await Assert.That(counting.ParseCalls).IsEqualTo(0);
     }
 
     [Test]
@@ -277,8 +281,8 @@ public sealed class TokenizedGeneratedReadTests
         await Assert.That(FileHelperRegistry<TgQuoted>.Descriptor is ITokenizedDescriptor<TgQuoted>).IsTrue();
         await Assert.That(FileHelperRegistry<TgFixed>.Descriptor is ITokenizedDescriptor<TgFixed>).IsFalse();
 
-        // T15 runtime: quoted record types stay on the legacy path until T20.
-        await Assert.That(new RecordReadCore<TgQuoted>(FileHelperRegistry<TgQuoted>.Descriptor, TokensPath).Tokenized).IsFalse();
+        // T20 runtime: quoted record types take the tokenized path too.
+        await Assert.That(new RecordReadCore<TgQuoted>(FileHelperRegistry<TgQuoted>.Descriptor, TokensPath).Tokenized).IsTrue();
         await Assert.That(new RecordReadCore<TgRecycle>(FileHelperRegistry<TgRecycle>.Descriptor, TokensPath).Tokenized).IsTrue();
     }
 }

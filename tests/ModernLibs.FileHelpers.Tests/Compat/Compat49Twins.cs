@@ -224,6 +224,20 @@ public sealed class Compat49SpanConverterTwin
     [FieldOrder(3), FieldConverter(typeof(Compat49CentsConverter))] public decimal? Discount { get; set; }
 }
 
+/// <summary>
+/// Path-only shape (ruling P20; no 4.9.1 type, no Golden49 file): <c>[FieldNotEmpty]</c> on a quoted and on a plain
+/// field, read only by the three-path tests (<see cref="Compat49Matrix.Paths"/>), so the fuzz sees the empty-value
+/// check on the tokenized path.
+/// </summary>
+[DelimitedRecord(",")]
+public sealed class Compat49NotEmptyTwin
+{
+    [FieldOrder(1)] public int Id { get; set; }
+    [FieldOrder(2), FieldQuoted, FieldNotEmpty] public string Name { get; set; } = string.Empty;
+    [FieldOrder(3), FieldNotEmpty] public string Tail { get; set; } = string.Empty;
+    [FieldOrder(4)] public int Count { get; set; }
+}
+
 /// <summary>Upper-cases on read, lower-cases on write; a value starting with '!' raises <see cref="ConvertException"/>.</summary>
 public sealed class Compat49UpperConverter : ConverterBase
 {

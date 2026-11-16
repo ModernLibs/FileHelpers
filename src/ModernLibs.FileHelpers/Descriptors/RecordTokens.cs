@@ -65,12 +65,18 @@ public readonly ref struct RecordTokens
         if (entry >= 0)
             return raw;
 
-        var inner = raw[1..^1];
+        var inner = Inner(raw);
         if ((entry & TokenBuffer.DoubledBit) == 0)
             return inner;
 
         return _scratch is { } scratch ? scratch.Unquote(inner, _quote) : RecordParsing.Unquote(inner, _quote);
     }
+
+    /// <summary>
+    /// The text between the quotes of a quoted entry's raw text. Empty when the raw text is shorter than the two
+    /// quotes: the runtime never makes such an entry (an unclosed quote has no tokens), and no member throws.
+    /// </summary>
+    private static ReadOnlySpan<char> Inner(ReadOnlySpan<char> raw) => raw.Length < 2 ? default : raw[1..^1];
 
     /// <summary>
     /// The value of field <paramref name="index"/> as a string (see <see cref="GetValue"/>): <see cref="string.Empty"/>
@@ -82,7 +88,7 @@ public readonly ref struct RecordTokens
     public string GetString(int index)
     {
         if ((uint)index < (uint)_ends.Length && _ends[index] is var entry && (entry & QuotedDoubled) == QuotedDoubled)
-            return RecordParsing.UnquoteToString(Raw(index, entry)[1..^1], _quote);
+            return RecordParsing.UnquoteToString(Inner(Raw(index, entry)), _quote);
 
         return RecordParsing.CreateString(GetValue(index));
     }

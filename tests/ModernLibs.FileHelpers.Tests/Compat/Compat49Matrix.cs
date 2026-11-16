@@ -61,7 +61,20 @@ internal static class Compat49Matrix
     /// default engine.
     /// </summary>
     public static IEnumerable<(string Name, Func<string, string> ReadDefault, Func<string, string> ReadScalar, Func<string, string> ReadLegacy, bool Tokenized)> Paths() =>
-        Twins(PathReads.Instance);
+        PathTwins(PathReads.Instance);
+
+    /// <summary>
+    /// The path-only shapes (ruling P20): current record types with no 4.9.1 type, read by <see cref="Paths"/> only.
+    /// </summary>
+    public static IReadOnlyList<string> PathOnlyShapes { get; } = ["Compat49NotEmpty"];
+
+    /// <summary><see cref="Twins{TResult}"/> and then the path-only shapes (<see cref="PathOnlyShapes"/>).</summary>
+    internal static IEnumerable<TResult> PathTwins<TResult>(ITwinVisitor<TResult> visitor)
+    {
+        foreach (var result in Twins(visitor))
+            yield return result;
+        yield return Visit<Compat49NotEmptyTwin, TResult>(visitor);
+    }
 
     /// <summary>A generic action on the twin record type of one shape (<see cref="Twins{TResult}"/>).</summary>
     internal interface ITwinVisitor<out TResult>

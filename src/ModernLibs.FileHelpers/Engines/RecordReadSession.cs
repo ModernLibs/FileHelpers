@@ -61,7 +61,7 @@ internal sealed class RecordReadSession<T> : IDisposable
     private StringBuilder? _footer;
 
     // Multiline assembly and FieldInNewLine grouping; lines after a failing line of a FieldInNewLine record.
-    private readonly LogicalLineAssembler _assembler = new();
+    private readonly LogicalLineAssembler _assembler;
     private readonly PendingLines _pending = new();
 
     private T _current = default!;
@@ -94,6 +94,10 @@ internal sealed class RecordReadSession<T> : IDisposable
         _hasAfterRead = host?.AfterReadHandler is not null || RecordReadCore<T>.HasNotifyRead;
         _singleLineRecords = !core.Multiline && core.LinesPerRecord == 1;
         _tokens = core.CreateTokenBuffer();
+
+        // The assembler scan of a quoted record type tokenizes each line into this buffer while it looks for an
+        // open quote (T20, R6): Parse then reads those tokens instead of tokenizing again.
+        _assembler = new LogicalLineAssembler(_tokens);
 
         if (applyHeaderFooter)
         {
@@ -378,7 +382,7 @@ internal sealed class RecordReadSession<T> : IDisposable
             if (recordText is null)
                 return false;
             record = recordText.AsSpan();
-            scan = default; // the handler may have replaced the text
+            scan = default; // the handler may have replaced the text: TokenCount 0, Parse tokenizes it
         }
 
         T parsed;

@@ -3,7 +3,9 @@
     python3 -I -m unittest discover -s benchmarks/tools -p 'test_*.py'
 """
 
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import sys
@@ -507,10 +509,12 @@ class T59Tests(unittest.TestCase):
         write(os.path.join(self.vm, "runtime-410", "051-component-y.json"),
               doc("/w/bin/net10", "/w/bin/net11-ra-on", "*FixedSliceBenchmarks*", rows))
         markdown = round_report.build(self.round)
-        row = [l for l in markdown.splitlines()
-               if "Format_WriterDirectCall against Format_GenericWriter" in l and "net11-ra-on" in l]
-        self.assertEqual(len(row), 1)
-        self.assertIn("1.100", row[0])
+        # the fixture scales only the net11-ra-on side (the B side of the pair), so net10 shows 1.000
+        for build, ratio in (("net10", "1.000"), ("net11-ra-on", "1.100")):  # both runtimes
+            row = [l for l in markdown.splitlines()
+                   if "Format_WriterDirectCall against Format_GenericWriter" in l and "| %s |" % build in l]
+            self.assertEqual(len(row), 1, build)
+            self.assertIn(ratio, row[0])
         self.assertIn("converter call shapes for the write path: Format_WriterDirectCall against Format_GenericHelper",
                       markdown)                                             # the existing row is unchanged
         g5 = [l for l in markdown.splitlines() if "FixedSliceBenchmarks.Slice_Direct against Slice_MathMin" in l]
@@ -579,8 +583,9 @@ class T59Tests(unittest.TestCase):
         self.comparison_fixture()
         markdown = round_report.build(self.round)
         self.assertIn("No result files", markdown)
-        self.assertEqual(round_report.main(["--compare", self.round]), 0)
-        self.assertEqual(round_report.main(["--compare"]), 2)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(round_report.main(["--compare", self.round]), 0)
+            self.assertEqual(round_report.main(["--compare"]), 2)
 
 
 if __name__ == "__main__":

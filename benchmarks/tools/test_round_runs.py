@@ -3,6 +3,7 @@
     python3 -I -m unittest discover -s benchmarks/tools -p 'test_*.py'
 """
 
+import contextlib
 import io
 import json
 import os
@@ -23,6 +24,13 @@ async      ra                 *EngineAsyncBenchmarks.Engine_WriteStreamAsync_Nul
 prototype  v410-net10         *Prototypes.R6UpperBoundBenchmarks*
 aot        aot-ra             *PackageAssets_ParseAndDiscard
 """
+
+
+@contextlib.contextmanager
+def quiet():
+    """Swallows what a tool prints to stdout and stderr (the tests check the exit code)."""
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        yield
 
 
 # What the fake builds hash to (ab.py records these per side; --resume compares them with the folders).
@@ -200,10 +208,12 @@ class RunTests(unittest.TestCase):
         filters = os.path.join(self.raw, "filters.txt")
         with open(filters, "w", encoding="utf-8") as f:
             f.write("bad line\n")
-        self.assertEqual(round_runs.main(["--check-filters", filters]), 2)
+        with quiet():
+            self.assertEqual(round_runs.main(["--check-filters", filters]), 2)
         with open(filters, "w", encoding="utf-8") as f:
             f.write(FILTERS)
-        self.assertEqual(round_runs.main(["--check-filters", filters]), 0)
+        with quiet():
+            self.assertEqual(round_runs.main(["--check-filters", filters]), 0)
 
     def main(self, ab, extra=()):
         filters = os.path.join(self.raw, "filters.txt")
@@ -435,8 +445,9 @@ class RowCapEnvAndBasePairTests(unittest.TestCase):
         check = os.path.join(self.raw, "f.txt")
         with open(check, "w", encoding="utf-8") as f:
             f.write(self.BASE_FILTERS)
-        self.assertEqual(round_runs.main(["--check-filters", check]), 2)
-        self.assertEqual(round_runs.main(["--check-filters", check, "--base-commit", "abc"]), 0)
+        with quiet():
+            self.assertEqual(round_runs.main(["--check-filters", check]), 2)
+            self.assertEqual(round_runs.main(["--check-filters", check, "--base-commit", "abc"]), 0)
 
     def test_the_base_pairs_run_with_a_base_commit(self):
         ab = FakeAb()
@@ -496,7 +507,7 @@ class CompareTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def methods_of(self, folder, glob):
-        return ["Ns.Cls.FileHelpers_A", "Ns.Cls.ModernLibs_B", "Ns.Cls.Sylvan_C", "Ns.Cls.CsvHelper_D"]
+        return ["Ns.Cls.FileHelpers_A", "Ns.Cls.WriteString", "Ns.Cls.Sylvan_C", "Ns.Cls.CsvHelper_D"]
 
     def compare(self, runner, resume=False, launches=3):
         out = io.StringIO()
@@ -527,8 +538,32 @@ class CompareTests(unittest.TestCase):
         off = [c for c in runner.cmds if "net11-ra-off" in c[1]]
         on = [c for c in runner.cmds if "net11-ra-on" in c[1]]
         self.assertEqual(off[0][2:off[0].index("--artifacts")],
-                         ["--filter", "Ns.Cls.FileHelpers_A", "Ns.Cls.ModernLibs_B"])
+                         ["--filter", "Ns.Cls.FileHelpers_A", "Ns.Cls.WriteString"])
         self.assertEqual(on[0][2:on[0].index("--artifacts")], ["--filter", "*Components.UnquoteBenchmarks*"])
+
+    def test_net11_ra_off_keeps_the_library_methods_and_drops_the_competitors(self):
+        # P16: the inverse rule. Library names the review listed (all kept) and the competitor names (all dropped).
+        library = ["FileHelpers_ParseAndDiscard", "ReadAllRows_FileHelpers", "ReadFirstColumn_FileHelpers",
+                   "WriteString_FileHelpers", "WriteFile_FileHelpers", "ReadAllRows_Class", "ReadAllRows_Struct",
+                   "ReadAllRows_Modern", "ReadAllRows_ModernClass", "ReadAllRows_ModernStruct", "Modern_ParseAndDiscard",
+                   "WriteString", "WriteStream_Null", "Engine_ReadAsync_Path", "SliceAllFields_SpanSlicer", "ReadFile"]
+        competitors = ["Sylvan_ParseAndDiscard", "CsvHelper_ParseAndDiscard", "ReadAllRows_Sylvan", "ReadAllRows_CsvHelper",
+                       "ReadAllRows_Sep", "Sep_ParseAndDiscard", "WriteString_Sep", "WriteString_CsvHelper",
+                       "ReadFirstColumn_Sylvan", "ReadFirstColumn_CsvHelper", "FlameCsv_ParseAndDiscard",
+                       "ReadAllRows_FlameCsv", "RecordParser_ParseAndDiscard", "RecordParser_ReadAll",
+                       "ReadAllRows_RecordParser", "Cursively_ReadAll", "FlatFiles_ReadAll", "LumenWorks_ReadAll",
+                       "NReco_ReadAll", "TinyCsvParser_ReadAll", "Legacy_ParseAndDiscard", "ReadAllRows_Legacy"]
+        for name in library:
+            self.assertFalse(round_runs.is_competitor_method("Ns.Cls." + name), name)
+        for name in competitors:
+            self.assertTrue(round_runs.is_competitor_method("Ns.Cls." + name), name)
+        runner = self.Runner()
+        self.methods_of = lambda folder, glob: ["Ns.Cls." + n for n in library + competitors]
+        self.compare(runner)
+        off = [c for c in runner.cmds if "net11-ra-off" in c[1]][0]
+        self.assertEqual(off[off.index("--filter") + 1:off.index("--artifacts")], ["Ns.Cls." + n for n in library])
+        on = [c for c in runner.cmds if "net11-ra-on" in c[1]][0]
+        self.assertEqual(on[on.index("--filter") + 1:on.index("--artifacts")], ["*Components.UnquoteBenchmarks*"])
 
     def test_a_failed_launch_is_recorded_and_the_comparison_goes_on(self):
         runner = self.Runner(fail_config="net11-ra-on")
@@ -680,6 +715,11 @@ class RoundShRecordTests(unittest.TestCase):
         step5 = text[text.index('step="A/B runs"'):]
         for option in ("--base-commit", "--max-rows", "--env", "--compare", "--max-iterations", "--job", "--dry", "--resume"):
             self.assertIn("runs_args+=(%s" % option, step5)
+
+    def test_max_rows_below_the_smallest_rows_value_is_refused(self):
+        code, output = self.round_sh("--dry", "--max-rows", "9999")
+        self.assertEqual(code, 2)
+        self.assertIn("at least 10000", output)
 
     def test_compare_refuses_launches_and_the_base_pairs_need_a_base_commit(self):
         code, output = self.round_sh("--compare", "--launches", "7", filters="filters-compare.txt")

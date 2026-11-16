@@ -31,7 +31,7 @@ What the numbers are:
   per benchmark class, one row per method and parameter set (the libraries), the columns net10, net11-ra-on and
   net11-ra-off, each the median of the launch medians with the range over the launches. It is not an A/B: there is
   no verdict column, and the mode cell says so ("comparison, 3 launches, not B4"). A cell that the configuration did
-  not run (net11-ra-off runs only the FileHelpers* and ModernLibs* methods) shows "-".
+  not run (net11-ra-off skips the competitors' methods) shows "-".
 - The pairs base-net10 and base-net11 (round.sh --base-commit) fill the section "Against the base commit".
 
 Python standard library only.
@@ -895,8 +895,8 @@ def build(round_dir):
 COMPARE_CONFIGS = ("net10", "net11-ra-on", "net11-ra-off")
 COMPARE_NOTE = ("Library comparison, not an A/B: no verdict. Each cell is the median of the per-launch medians "
                 "BenchmarkDotNet reported (3 launches), with the range over the launches in parentheses. "
-                "net11-ra-off ran only the methods whose name starts with FileHelpers or ModernLibs, because the "
-                "other libraries do not change with the runtime-async switch: its other cells show \"-\".")
+                "net11-ra-off ran every method except the competitor libraries' (Sep, Sylvan, CsvHelper and so on), "
+                "because those libraries do not change with the runtime-async switch: their cells show \"-\".")
 
 
 def load_compare(round_dir):

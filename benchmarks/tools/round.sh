@@ -34,8 +34,8 @@
 #                      in machine.txt (for example --vm fh-amd-noavx2 --env DOTNET_EnableAVX2=0)
 #   --compare          the one-off library comparison, not an A/B (design 3.1, T50): for each of net10, net11-ra-on and
 #                      net11-ra-off, the benchmark program runs from that folder with the filter globs, 3 launches,
-#                      BenchmarkDotNet's default job (capped by --max-iterations); in net11-ra-off only the methods whose
-#                      name starts with FileHelpers or ModernLibs run. The pairs column of the filter file is ignored, no
+#                      BenchmarkDotNet's default job (capped by --max-iterations); in net11-ra-off every method runs
+#                      except the competitors' (COMPARE_COMPETITORS in round_runs.py). Only these three folders are built. The pairs column of the filter file is ignored, no
 #                      ab.py pair starts, no verdict. Results: raw/<round>/<vm>/compare/<configuration>/;
 #                      round-report.py --compare raw/<round> builds the tables. --launches is not accepted (always 3)
 #
@@ -121,8 +121,9 @@ else
 fi
 [[ "$round" =~ ^[A-Za-z0-9._-]+$ && "$vm" =~ ^[A-Za-z0-9._-]+$ ]] || {
     echo "error: round and VM names may only contain letters, digits, '.', '_' and '-'" >&2; exit 2; }
-[[ -z "$max_rows" || "$max_rows" =~ ^[1-9][0-9]*$ ]] || {
-    echo "error: --max-rows needs a positive integer" >&2; exit 2; }
+[[ -z "$max_rows" || ( "$max_rows" =~ ^[1-9][0-9]*$ && "$max_rows" -ge 10000 ) ]] || {
+    echo "error: --max-rows needs an integer of at least 10000 (the smallest Rows value; BenchRows would throw)" >&2
+    exit 2; }
 declare -A env_seen
 for item in "${env_vars[@]}"; do
     [[ "$item" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || { echo "error: --env '$item' is not NAME=VALUE" >&2; exit 2; }
@@ -270,9 +271,13 @@ fi
 
 # --- 3. builds, one at a time ------------------------------------------------------------------------------
 built=1
-built_names=(net10 net11-ra-on net11-ra-off pkg-net10 pkg-net11 control-net10 control-net11-ra-on control-net11-ra-off
-             aot/net10 aot/net11-ra-on aot/net11-ra-off aot/pkg-net10 aot/pkg-net11)
-[[ -z "$base_sha" ]] || built_names+=(base-net10 base-net11-ra-on)
+# --compare runs the three 4.10 folders only: it builds and checks no package, control, base or AOT folder.
+built_names=(net10 net11-ra-on net11-ra-off)
+if [[ $compare -eq 0 ]]; then
+    built_names+=(pkg-net10 pkg-net11 control-net10 control-net11-ra-on control-net11-ra-off
+                  aot/net10 aot/net11-ra-on aot/net11-ra-off aot/pkg-net10 aot/pkg-net11)
+    [[ -z "$base_sha" ]] || built_names+=(base-net10 base-net11-ra-on)
+fi
 for name in "${built_names[@]}"; do
     [[ -f "$bin/$name/variant.txt" ]] || built=0
 done
@@ -282,12 +287,14 @@ else
     step="build-variants.sh"
     echo "building the 4.10 configurations (log: $raw/build.log)"
     "$src/benchmarks/tools/build-variants.sh" "$bin" >> "$raw/build.log" 2>&1
-    step="build-baselines.sh"
-    echo "building the 4.9.1 package and control folders (log: $raw/build.log)"
-    "$src/benchmarks/tools/build-baselines.sh" "$bin" ${base_sha:+--base-commit "$base_sha"} >> "$raw/build.log" 2>&1
-    step="build-aot-variants.sh"
-    echo "publishing the Native AOT harness folders (log: $raw/build.log)"
-    "$src/benchmarks/tools/build-aot-variants.sh" "$bin/aot" >> "$raw/build.log" 2>&1
+    if [[ $compare -eq 0 ]]; then
+        step="build-baselines.sh"
+        echo "building the 4.9.1 package and control folders (log: $raw/build.log)"
+        "$src/benchmarks/tools/build-baselines.sh" "$bin" ${base_sha:+--base-commit "$base_sha"} >> "$raw/build.log" 2>&1
+        step="build-aot-variants.sh"
+        echo "publishing the Native AOT harness folders (log: $raw/build.log)"
+        "$src/benchmarks/tools/build-aot-variants.sh" "$bin/aot" >> "$raw/build.log" 2>&1
+    fi
 fi
 # After every build, the AOT publishes included: no build may leave a change in the clone.
 if [[ -n "$(git -C "$src" status --porcelain)" ]]; then
@@ -301,13 +308,15 @@ folders=(
     "net10|tfm=net10.0 runtime-async=off|10"
     "net11-ra-on|tfm=net11.0 runtime-async=on|11"
     "net11-ra-off|tfm=net11.0 runtime-async=off|11"
+)
+[[ $compare -eq 1 ]] || folders+=(
     "pkg-net10|tfm=net10.0 runtime-async=off|10"
     "pkg-net11|tfm=net10.0 runtime-async=off|11"
     "control-net10|tfm=net10.0 runtime-async=off|10"
     "control-net11-ra-on|tfm=net11.0 runtime-async=on|11"
     "control-net11-ra-off|tfm=net11.0 runtime-async=off|11"
 )
-[[ -z "$base_sha" ]] || folders+=("base-net10|tfm=net10.0 runtime-async=off|10" "base-net11-ra-on|tfm=net11.0 runtime-async=on|11")
+[[ -z "$base_sha" || $compare -eq 1 ]] || folders+=("base-net10|tfm=net10.0 runtime-async=off|10" "base-net11-ra-on|tfm=net11.0 runtime-async=on|11")
 declare -A library_sha
 verify="$bin/.tools/verify-variant/verify-variant.dll"
 checks_cwd="$work/checks-cwd"
@@ -354,11 +363,13 @@ done
 # will be measured (tested in test_round_runs.py), prints "VARIANT MISMATCH <dir>" and exits 1 on a mismatch, and
 # writes their variants.txt blocks.
 step="check aot folders"
-python3 -I "$src/benchmarks/tools/round_runs.py" --check-aot "$bin/aot" --checks-cwd "$checks_cwd" >> "$raw/variants.txt" \
-    || exit 1
+if [[ $compare -eq 0 ]]; then
+    python3 -I "$src/benchmarks/tools/round_runs.py" --check-aot "$bin/aot" --checks-cwd "$checks_cwd" >> "$raw/variants.txt" \
+        || exit 1
+fi
 
 step="library hashes"
-[[ "${library_sha[pkg-net10]}" == "${library_sha[pkg-net11]}" ]] \
+[[ $compare -eq 1 || "${library_sha[pkg-net10]}" == "${library_sha[pkg-net11]}" ]] \
     || mismatch "$bin/pkg-net11" "its ModernLibs.FileHelpers.dll differs from pkg-net10's (both must be the package DLL)"
 declare -A seen_sha
 for entry in "${folders[@]}"; do
@@ -381,7 +392,7 @@ for entry in "${folders[@]}"; do
         fi
     done
 done
-echo "checks passed: ${#folders[@]} folders, verify-variant, start-up lines, library hashes, --check-competitors, --check-prototypes; 5 AOT folders, variant.txt and --info"
+echo "checks passed: ${#folders[@]} folders, verify-variant, start-up lines, library hashes, --check-competitors, --check-prototypes$([[ $compare -eq 1 ]] || echo "; 5 AOT folders, variant.txt and --info")"
 
 # --- 5. A/B runs (round_runs.py; review-T12 Important 1: a failed run is recorded and the round goes on) ------
 step="A/B runs"

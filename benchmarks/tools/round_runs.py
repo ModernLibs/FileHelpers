@@ -61,7 +61,16 @@ BASE_PAIRS = ("base-net10", "base-net11")      # their A folders are built from 
 MAX_ROWS_VARIABLE = "FH_BENCH_MAX_ROWS"        # BenchRows.cs
 COMPARE_CONFIGS = ("net10", "net11-ra-on", "net11-ra-off")
 COMPARE_LAUNCHES = 3
-COMPARE_LIBRARY_PREFIXES = ("FileHelpers", "ModernLibs")   # the methods that run in net11-ra-off (see run_compare)
+# net11-ra-off runs every method except the competitors' (see run_compare). A competitor method has one of these names
+# as a "_"-separated part of its name: Sylvan_ParseAndDiscard, ReadAllRows_CsvHelper, WriteString_Sep, Legacy_ReadAll...
+COMPARE_COMPETITORS = frozenset({
+    "CsvHelper", "Cursively", "FlameCsv", "FlatFiles", "Legacy", "LumenWorks", "NReco", "RecordParser", "Sep",
+    "Sylvan", "TinyCsvParser"})
+
+
+def is_competitor_method(method):
+    """True for a competitor's benchmark method (its name, or the part after the last dot, has a competitor part)."""
+    return any(part in COMPARE_COMPETITORS for part in method.rsplit(".", 1)[-1].split("_"))
 # The BenchmarkDotNet folders ab.py does not know by name, with the variant line their processes print.
 EXPECT = {
     "pkg-net10": "tfm=net10.0 runtime-async=off",
@@ -410,8 +419,8 @@ def run_compare(raw, bin_dir, lines, launches, dry, job, max_iterations, resume,
 
     For each of net10, net11-ra-on and net11-ra-off, and each filter line (its pairs are ignored; group aot lines
     are skipped), the benchmark program of that folder runs `launches` times with the glob, BenchmarkDotNet's default
-    job (or --job, capped by --max-iterations). In net11-ra-off only the methods whose name starts with FileHelpers
-    or ModernLibs run: the other libraries do not change with the runtime-async switch, so their cells stay empty.
+    job (or --job, capped by --max-iterations). In net11-ra-off every method runs except the competitors' (COMPARE_COMPETITORS):
+    the other libraries do not change with the runtime-async switch, so their cells stay empty.
     Output: <raw>/compare/<config>/<line>/launch-<k>/ (the BenchmarkDotNet artifacts and console.log); with resume a
     launch folder that holds `done` for the same library DLL is kept. methods_of(folder, glob) -> the matching
     methods; runner(cmd, log, env) -> exit code. Returns (results, failed): a result is one config and line."""
@@ -431,12 +440,12 @@ def run_compare(raw, bin_dir, lines, launches, dry, job, max_iterations, resume,
                 continue
             methods = methods_of(config, line.glob)
             if config == "net11-ra-off":
-                methods = [m for m in methods if m.rsplit(".", 1)[-1].startswith(COMPARE_LIBRARY_PREFIXES)]
+                methods = [m for m in methods if not is_competitor_method(m)]
             if not methods:
                 with open(os.path.join(raw, "not-run.txt"), "a", encoding="utf-8") as f:
                     f.write("compare/%s\t%s\t%s\tno benchmark matches%s\n" % (
                         config, line.group, line.glob,
-                        " (net11-ra-off runs only FileHelpers* and ModernLibs* methods)" if config == "net11-ra-off"
+                        " (net11-ra-off skips the competitors' methods)" if config == "net11-ra-off"
                         else ""))
                 print("not run: %s %s (no benchmark matches)" % (config, line.glob), file=out, flush=True)
                 continue

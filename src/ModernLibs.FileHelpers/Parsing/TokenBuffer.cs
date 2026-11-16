@@ -66,25 +66,8 @@ internal sealed class TokenBuffer(int fieldCount)
             return RecordParsing.Unquote(inner, quote);
 
         var destination = _scratch.AsSpan(_scratchUsed);
-        int written = 0;
-        while (true)
-        {
-            int at = inner.IndexOf(quote);
-            if (at < 0)
-            {
-                inner.CopyTo(destination.Slice(written));
-                written += inner.Length;
-                break;
-            }
-
-            // Keep the quote, drop its double when one follows; a lone quote is kept as it is.
-            inner.Slice(0, at + 1).CopyTo(destination.Slice(written));
-            written += at + 1;
-            inner = inner.Slice(at + 1 < inner.Length && inner[at + 1] == quote ? at + 2 : at + 1);
-        }
-
-        var value = destination.Slice(0, written);
+        int written = RecordParsing.CopyUnquoted(inner, quote, destination);
         _scratchUsed += written;
-        return value;
+        return destination.Slice(0, written);
     }
 }

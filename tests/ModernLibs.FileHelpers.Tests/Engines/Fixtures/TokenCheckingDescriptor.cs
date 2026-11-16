@@ -87,10 +87,18 @@ internal sealed class RecyclableTokenCheckingDescriptor<T>(IRecyclableDescriptor
 {
     private readonly IRecyclableDescriptor<T> _inner = inner;
     private int _tryParseIntoCalls;
+    private int _parseIntoCalls;
 
     public int TryParseIntoCalls => Volatile.Read(ref _tryParseIntoCalls);
 
-    public void ParseInto(ReadOnlySpan<char> lines, int lineCount, T existing) => _inner.ParseInto(lines, lineCount, existing);
+    /// <summary>Calls of the legacy <see cref="ParseInto"/> by the runtime.</summary>
+    public int ParseIntoCalls => Volatile.Read(ref _parseIntoCalls);
+
+    public void ParseInto(ReadOnlySpan<char> lines, int lineCount, T existing)
+    {
+        Interlocked.Increment(ref _parseIntoCalls);
+        _inner.ParseInto(lines, lineCount, existing);
+    }
 
     public bool TryParseInto(ReadOnlySpan<char> record, in RecordTokens tokens, T existing)
     {

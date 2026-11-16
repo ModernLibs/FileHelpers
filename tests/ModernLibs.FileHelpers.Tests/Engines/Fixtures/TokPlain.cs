@@ -130,3 +130,43 @@ public sealed class TokDetail
     [FieldOrder(2)] public int Qty { get; set; }
     [FieldOrder(3), FieldOptional] public string? Text { get; set; }
 }
+
+/// <summary>
+/// An <see cref="INotifyRead{T}"/> record: the engine parses it through <c>ParseInto</c>, so the tokenized path calls
+/// <c>TryParseInto</c> (freeze F-12). The events of the last record are kept for <see cref="Show"/>.
+/// </summary>
+[DelimitedRecord(",")]
+public sealed class TokNotify : INotifyRead<TokNotify>
+{
+    [FieldHidden] private string _events = string.Empty;
+
+    [FieldOrder(1)] public int Id { get; set; }
+    [FieldOrder(2)] public string Name { get; set; } = string.Empty;
+    [FieldOrder(3), FieldOptional] public string? Note { get; set; }
+
+    public string Show() => string.Create(CultureInfo.InvariantCulture, $"{Id}|{Name}|{Note ?? "<null>"}|{_events}");
+
+    public void BeforeRead(BeforeReadEventArgs<TokNotify> e) => _events = "B:" + e.RecordLine[0];
+
+    public void AfterRead(AfterReadEventArgs<TokNotify> e) => _events += string.Create(CultureInfo.InvariantCulture, $",A:{Id}");
+}
+
+/// <summary>
+/// A hand-written descriptor with <c>fieldCount</c> string fields (the field cap test): <c>Parse</c> splits the
+/// record; it cannot format.
+/// </summary>
+internal sealed class WideDescriptor(int fieldCount) : IRecordDescriptor<string[]>
+{
+    private readonly FieldDescriptor[] _fields =
+        Enumerable.Range(0, fieldCount).Select(i => new FieldDescriptor("F" + i.ToString(CultureInfo.InvariantCulture), typeof(string), i)).ToArray();
+
+    public ReadOnlySpan<FieldDescriptor> Fields => _fields;
+
+    public RecordOptions Options => new() { Delimiter = "," };
+
+    public string[] Parse(ReadOnlySpan<char> lines, int lineCount) => lines.ToString().Split(',');
+
+    public void Format(string[] record, IBufferWriter<char> writer) => throw new NotSupportedException();
+
+    public string[] CreateDefaultInstance() => [];
+}

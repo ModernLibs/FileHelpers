@@ -22,14 +22,16 @@ internal sealed class MultiRecordType<T> : IMultiRecordType, IMultiRecordTypeRea
     private readonly MultiRecordSelector _selector;
     private readonly FileHelperEngine<T> _engine;
 
-    // The field ends of the record being parsed, when the record type is tokenized (one buffer per entry).
-    private readonly TokenBuffer? _tokens;
-
     public MultiRecordType(MultiRecordSelector selector, EnginePaths paths)
+        : this(selector, FileHelperRegistry<T>.Descriptor, paths)
+    {
+    }
+
+    /// <summary>An entry over <paramref name="descriptor"/> (tests: a checking descriptor).</summary>
+    internal MultiRecordType(MultiRecordSelector selector, IRecordDescriptor<T> descriptor, EnginePaths paths)
     {
         _selector = selector;
-        _engine = new FileHelperEngine<T>(FileHelperRegistry<T>.Descriptor, Encoding.UTF8, paths);
-        _tokens = _engine.Core.CreateTokenBuffer();
+        _engine = new FileHelperEngine<T>(descriptor, Encoding.UTF8, paths);
     }
 
     public ILogicalLineRules Rules => _engine.Core;
@@ -39,10 +41,15 @@ internal sealed class MultiRecordType<T> : IMultiRecordType, IMultiRecordTypeRea
 
     public bool Matches(ReadOnlySpan<char> line) => _selector(line);
 
-    /// <summary>Validates and parses one logical record of <typeparamref name="T"/> (no header/footer or filters).</summary>
-    public object Parse(ReadOnlySpan<char> line) => _engine.Core.Parse(line, recycle: false, tokens: _tokens)!;
+    /// <summary>
+    /// Validates and parses one logical record of <typeparamref name="T"/> (no header/footer or filters). The legacy
+    /// path: this public member holds no buffer, so it stays safe to call from several threads, as in 4.9.
+    /// </summary>
+    public object Parse(ReadOnlySpan<char> line) => _engine.Core.Parse(line, recycle: false)!;
 
-    public bool TryRead(ReadOnlySpan<char> record, int firstLineLength, bool allLinesEmpty, out object? result)
+    public TokenBuffer? CreateTokenBuffer() => _engine.Core.CreateTokenBuffer();
+
+    public bool TryRead(ReadOnlySpan<char> record, int firstLineLength, bool allLinesEmpty, TokenBuffer? tokens, out object? result)
     {
         var core = _engine.Core;
         if (core.IsFiltered(record[..firstLineLength], allLinesEmpty))
@@ -51,7 +58,7 @@ internal sealed class MultiRecordType<T> : IMultiRecordType, IMultiRecordTypeRea
             return false;
         }
 
-        result = core.Parse(record, recycle: false, tokens: _tokens);
+        result = core.Parse(record, recycle: false, tokens: tokens);
         return true;
     }
 

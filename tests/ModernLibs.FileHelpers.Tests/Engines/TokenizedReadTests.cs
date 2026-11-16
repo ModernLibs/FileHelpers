@@ -14,6 +14,7 @@
 using System.Globalization;
 using System.Reflection;
 using System.Text;
+using ModernLibs.FileHelpers.Parsing;
 using ModernLibs.FileHelpers.Tests.Compat;
 using ModernLibs.FileHelpers.Tests.Engines.Fixtures;
 using ModernLibs.FileHelpers.Tests.Fuzz.DiffFuzz;
@@ -362,28 +363,28 @@ public sealed class TokenizedReadTests
 
     /// <summary>
     /// F14: at T15 no generated descriptor implements <see cref="ITokenizedDescriptor{T}"/>, so both paths are the
-    /// legacy one here; the test pins the internal entries. T17 adds the <c>Tokenized == true</c> assertions.
+    /// legacy one here; the test pins the internal entries. The compared text holds records and errors only; the
+    /// <c>Tokenized</c> flags are asserted apart, so T17 flips only those expected values.
     /// </summary>
     [Test]
     public async Task MultiRecord_And_MasterDetail_Read_The_Same_Records_On_Both_Paths()
     {
         const string input = "M,1,first\r\nD,2,a\r\nD,3\r\nM,4,second\r\nD,5,b\r\nM,x,bad\r\nD,6\r\n";
 
-        static string ReadMulti(EnginePaths paths)
+        static (string Text, bool MasterTokenized, bool DetailTokenized) ReadMulti(EnginePaths paths)
         {
             var master = MultiRecordType.For<TokMaster>(line => !line.IsEmpty && line[0] == 'M', paths);
             var detail = MultiRecordType.For<TokDetail>(line => !line.IsEmpty && line[0] == 'D', paths);
             var engine = new MultiRecordEngine(master, detail) { ErrorMode = ErrorMode.SaveAndContinue };
             var text = new StringBuilder();
-            text.Append(((MultiRecordType<TokMaster>)master).Core.Tokenized).Append(((MultiRecordType<TokDetail>)detail).Core.Tokenized).Append('\n');
             foreach (object record in engine.ReadString(input))
                 text.Append(record switch { TokMaster m => Show(m), TokDetail d => Show(d), _ => "?" }).Append('\n');
             foreach (var error in engine.ErrorManager.Errors)
                 text.Append(CultureInfo.InvariantCulture, $"error:{error.LineNumber}:{error.ExceptionInfo?.Message}").Append('\n');
-            return text.ToString();
+            return (text.ToString(), ((MultiRecordType<TokMaster>)master).Core.Tokenized, ((MultiRecordType<TokDetail>)detail).Core.Tokenized);
         }
 
-        static string ReadMasterDetail(EnginePaths paths)
+        static (string Text, bool MasterTokenized, bool DetailTokenized) ReadMasterDetail(EnginePaths paths)
         {
             var engine = new MasterDetailEngine<TokMaster, TokDetail>(
                 line => !line.IsEmpty && line[0] == 'M' ? RecordAction.Master : RecordAction.Detail, paths)
@@ -391,7 +392,6 @@ public sealed class TokenizedReadTests
                 ErrorMode = ErrorMode.SaveAndContinue,
             };
             var text = new StringBuilder();
-            text.Append(engine.MasterCore.Tokenized).Append(engine.DetailCore.Tokenized).Append('\n');
             foreach (var group in engine.ReadString(input))
             {
                 text.Append(Show(group.Master)).Append('\n');
@@ -401,21 +401,170 @@ public sealed class TokenizedReadTests
 
             foreach (var error in engine.ErrorManager.Errors)
                 text.Append(CultureInfo.InvariantCulture, $"error:{error.LineNumber}:{error.ExceptionInfo?.Message}").Append('\n');
-            return text.ToString();
+            return (text.ToString(), engine.MasterCore.Tokenized, engine.DetailCore.Tokenized);
         }
 
-        string multi = ReadMulti(TokensPath);
-        await Assert.That(multi).IsEqualTo(ReadMulti(LegacyPath));
-        await Assert.That(multi).Contains("M M|4|second");
-        await Assert.That(multi).Contains("error:6:");
+        var multi = ReadMulti(TokensPath);
+        var multiLegacy = ReadMulti(LegacyPath);
+        await Assert.That(multi.Text).IsEqualTo(multiLegacy.Text);
+        await Assert.That(multi.Text).Contains("M M|4|second");
+        await Assert.That(multi.Text).Contains("error:6:");
+        await Assert.That(multi.MasterTokenized).IsFalse();      // T17: true
+        await Assert.That(multi.DetailTokenized).IsFalse();      // T17: true
+        await Assert.That(multiLegacy.MasterTokenized).IsFalse();
+        await Assert.That(multiLegacy.DetailTokenized).IsFalse();
 
-        string masterDetail = ReadMasterDetail(TokensPath);
-        await Assert.That(masterDetail).IsEqualTo(ReadMasterDetail(LegacyPath));
-        await Assert.That(masterDetail).Contains("  D D|5|b");
+        var masterDetail = ReadMasterDetail(TokensPath);
+        var masterDetailLegacy = ReadMasterDetail(LegacyPath);
+        await Assert.That(masterDetail.Text).IsEqualTo(masterDetailLegacy.Text);
+        await Assert.That(masterDetail.Text).Contains("  D D|5|b");
+        await Assert.That(masterDetail.MasterTokenized).IsFalse();   // T17: true
+        await Assert.That(masterDetail.DetailTokenized).IsFalse();   // T17: true
+        await Assert.That(masterDetailLegacy.MasterTokenized).IsFalse();
+        await Assert.That(masterDetailLegacy.DetailTokenized).IsFalse();
 
         await using var asyncEngine = new MasterDetailAsyncEngine<TokMaster, TokDetail>(_ => RecordAction.Master, LegacyPath);
         await Assert.That(asyncEngine.MasterCore.Tokenized).IsFalse();
         await Assert.That(asyncEngine.DetailCore.Tokenized).IsFalse();
+    }
+
+    // ---- Buffer ownership: multi-record entries are shareable (review T15 I1) ----------------------------------
+
+    /// <summary>A multi-record input of <paramref name="groups"/> master rows each followed by two detail rows.</summary>
+    private static string MultiInput(int groups, int seed)
+    {
+        var text = new StringBuilder();
+        for (int i = 0; i < groups; i++)
+        {
+            int id = (i * 7) + seed;
+            text.Append(CultureInfo.InvariantCulture, $"M,{id},name{id % 97}\r\nD,{id % 13},t{seed}\r\nD,{id % 5}\r\n");
+        }
+
+        return text.ToString();
+    }
+
+    private static string ShowAny(object record) => record switch { TokMaster m => Show(m), TokDetail d => Show(d), _ => "?" };
+
+    /// <summary>Entries over the checking descriptors (tokenized, values checked) and over the registered ones (legacy).</summary>
+    private static (IMultiRecordType[] Checked, IMultiRecordType[] Legacy, TokenCheckingDescriptor<TokMaster> Master, TokenCheckingDescriptor<TokDetail> Detail) SharedEntries()
+    {
+        MultiRecordSelector master = line => !line.IsEmpty && line[0] == 'M';
+        MultiRecordSelector detail = line => !line.IsEmpty && line[0] == 'D';
+        var masterDescriptor = TokenChecking.For<TokMaster>(',');
+        var detailDescriptor = TokenChecking.For<TokDetail>(',');
+        IMultiRecordType[] checkedEntries =
+        [
+            new MultiRecordType<TokMaster>(master, masterDescriptor, TokensPath),
+            new MultiRecordType<TokDetail>(detail, detailDescriptor, TokensPath),
+        ];
+        IMultiRecordType[] legacy = [MultiRecordType.For<TokMaster>(master, LegacyPath), MultiRecordType.For<TokDetail>(detail, LegacyPath)];
+        return (checkedEntries, legacy, masterDescriptor, detailDescriptor);
+    }
+
+    private static List<string> ReadAll(IMultiRecordType[] entries, string input) =>
+        new MultiRecordEngine(entries).ReadString(input).Select(ShowAny).ToList();
+
+    /// <summary>
+    /// Two async engines over the same entries read two files, one record of each in turn: each gets the records of
+    /// the legacy path. The token buffers belong to each read, not to the shared entries.
+    /// </summary>
+    [Test]
+    public async Task Engines_Sharing_MultiRecord_Entries_Read_Interleaved_Records_Correctly()
+    {
+        var (entries, legacy, master, detail) = SharedEntries();
+        await Assert.That(((MultiRecordType<TokMaster>)entries[0]).Core.Tokenized).IsTrue();
+        await Assert.That(((MultiRecordType<TokDetail>)entries[1]).Core.Tokenized).IsTrue();
+
+        string inputA = MultiInput(300, seed: 1), inputB = MultiInput(250, seed: 1000);
+        var a = new List<string>();
+        var b = new List<string>();
+        using var streamA = new MemoryStream(Encoding.UTF8.GetBytes(inputA));
+        using var streamB = new MemoryStream(Encoding.UTF8.GetBytes(inputB));
+        await using var readerA = new MultiRecordAsyncEngine(entries).ReadAsync(streamA).GetAsyncEnumerator();
+        await using var readerB = new MultiRecordAsyncEngine(entries).ReadAsync(streamB).GetAsyncEnumerator();
+        bool moreA = true, moreB = true;
+        while (moreA || moreB)
+        {
+            if (moreA && (moreA = await readerA.MoveNextAsync()))
+                a.Add(ShowAny(readerA.Current));
+            if (moreB && (moreB = await readerB.MoveNextAsync()))
+                b.Add(ShowAny(readerB.Current));
+        }
+
+        await Assert.That(a).IsEquivalentTo(ReadAll(legacy, inputA));
+        await Assert.That(b).IsEquivalentTo(ReadAll(legacy, inputB));
+        await Assert.That(a.Count).IsEqualTo(900);
+        await Assert.That(master.TryParseCalls).IsEqualTo(300 + 250);
+        await Assert.That(detail.TryParseCalls).IsEqualTo(2 * (300 + 250));
+    }
+
+    /// <summary>The same with two engines on two threads at the same time, many times over.</summary>
+    [Test]
+    public async Task Engines_Sharing_MultiRecord_Entries_Read_In_Parallel_Correctly()
+    {
+        var (entries, legacy, master, _) = SharedEntries();
+        string inputA = MultiInput(5_000, seed: 3), inputB = MultiInput(5_000, seed: 5000);
+        var expectedA = ReadAll(legacy, inputA);
+        var expectedB = ReadAll(legacy, inputB);
+
+        for (int round = 0; round < 4; round++)
+        {
+            var taskA = Task.Run(() => ReadAll(entries, inputA));
+            var taskB = Task.Run(() => ReadAll(entries, inputB));
+            await Assert.That(await taskA).IsEquivalentTo(expectedA);
+            await Assert.That(await taskB).IsEquivalentTo(expectedB);
+        }
+
+        await Assert.That(master.TryParseCalls).IsEqualTo(4 * 2 * 5_000);
+    }
+
+    // ---- INotifyRead<T>: the tokenized branch of ParseInto (freeze F-12, review T15 I2) -------------------------
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task NotifyRead_Records_Take_TryParseInto(bool recycle)
+    {
+        const string input = "1,A,n1\r\n2,B\r\n3,C,n3\r\n4,D\r\n";
+        static (List<string> Seen, int TryParse, int TryParseInto, int Parse, int ParseInto) Read(EnginePaths paths, bool recycle)
+        {
+            var checking = (RecyclableTokenCheckingDescriptor<TokNotify>)TokenChecking.For<TokNotify>(',');
+            var engine = Engine(checking, paths);
+            engine.RecycleRecords = recycle;
+            var seen = new List<string>();
+            engine.ReadString(input, r => seen.Add(r.Show()));
+            return (seen, checking.TryParseCalls, checking.TryParseIntoCalls, checking.ParseCalls, checking.ParseIntoCalls);
+        }
+
+        var tokenized = Read(TokensPath, recycle);
+        var legacy = Read(LegacyPath, recycle);
+        await Assert.That(tokenized.Seen).IsEquivalentTo(legacy.Seen);
+        await Assert.That(tokenized.Seen.Count).IsEqualTo(4);
+        await Assert.That(tokenized.Seen[1]).IsEqualTo("2|B||B:2,A:2");   // the events of record 2 only, no "n1"
+        await Assert.That(tokenized.TryParseInto).IsEqualTo(4);
+        await Assert.That(tokenized.ParseInto).IsEqualTo(0);
+        await Assert.That(tokenized.TryParse).IsEqualTo(0);
+        await Assert.That(tokenized.Parse).IsEqualTo(0);
+        await Assert.That(legacy.TryParseInto).IsEqualTo(0);
+        await Assert.That(legacy.ParseInto).IsEqualTo(4);
+    }
+
+    // ---- The field cap (review T15 M3) ---------------------------------------------------------------------------
+
+    [Test]
+    [Arguments(TokenBuffer.MaxFieldCount, true)]
+    [Arguments(TokenBuffer.MaxFieldCount + 1, false)]
+    public async Task Field_Cap_Decides_The_Path(int fieldCount, bool tokenized)
+    {
+        var core = new RecordReadCore<string[]>(new TokenCheckingDescriptor<string[]>(new WideDescriptor(fieldCount), ','), TokensPath);
+        await Assert.That(core.Tokenized).IsEqualTo(tokenized);
+        await Assert.That(core.CreateTokenBuffer() is not null).IsEqualTo(tokenized);
+
+        // A record with every field: read through TryParse at the cap, through the legacy parse above it.
+        string record = string.Join(',', Enumerable.Range(0, fieldCount).Select(i => i.ToString(CultureInfo.InvariantCulture)));
+        string[] parsed = core.Parse(record, recycle: false, default, core.CreateTokenBuffer());
+        await Assert.That(parsed.Length).IsEqualTo(fieldCount);
+        await Assert.That(parsed[^1]).IsEqualTo((fieldCount - 1).ToString(CultureInfo.InvariantCulture));
     }
 
     [Test]

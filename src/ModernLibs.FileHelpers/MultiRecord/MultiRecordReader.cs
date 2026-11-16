@@ -14,17 +14,24 @@ namespace ModernLibs.FileHelpers;
 internal sealed class MultiRecordReader : IDisposable
 {
     private readonly IMultiRecordType[] _types;
+
+    // The field ends of the record being parsed, per entry of _types (null when that type is not tokenized). Owned
+    // by this read, not by the entries, which the user may share between engines that read at the same time.
+    private readonly TokenBuffer?[] _tokens;
     private readonly ErrorManager _errors;
     private readonly LogicalLineAssembler _assembler = new();
     private readonly PendingLines _pending = new();
     private readonly Queue<object> _ready = new();
-    private IMultiRecordType? _pendingType;
+    private int _pendingType = -1;
     private int _lineNumber;
 
     public MultiRecordReader(IMultiRecordType[] types, ErrorManager errors)
     {
         _types = types;
         _errors = errors;
+        _tokens = new TokenBuffer?[types.Length];
+        for (int i = 0; i < types.Length; i++)
+            _tokens[i] = (types[i] as IMultiRecordTypeReader)?.CreateTokenBuffer();
     }
 
     /// <summary>
@@ -51,22 +58,23 @@ internal sealed class MultiRecordReader : IDisposable
 
     private void PushLine(ReadOnlySpan<char> line, LineEnding ending, int lineNumber)
     {
-        IMultiRecordType type;
+        int index;
         if (_assembler.InProgress)
         {
-            type = _pendingType!;
+            index = _pendingType;
         }
         else
         {
             if (line.IsEmpty)
                 return;
 
-            var selected = Select(line, lineNumber);
-            if (selected is null)
+            index = Select(line, lineNumber);
+            if (index < 0)
                 return;
-            type = selected;
-            _pendingType = selected;
+            _pendingType = index;
         }
+
+        var type = _types[index];
 
         var reader = type as IMultiRecordTypeReader;
         if (!_assembler.Push(line, ending, lineNumber, reader?.Rules ?? SingleLineRules.Instance, out var record))
@@ -76,7 +84,7 @@ internal sealed class MultiRecordReader : IDisposable
         {
             if (reader is null)
                 _ready.Enqueue(type.Parse(record));
-            else if (reader.TryRead(record, _assembler.FirstLineLength, _assembler.AllLinesEmpty, out var result))
+            else if (reader.TryRead(record, _assembler.FirstLineLength, _assembler.AllLinesEmpty, _tokens[index], out var result))
                 _ready.Enqueue(result!);
         }
         catch (Exception ex)
@@ -105,14 +113,15 @@ internal sealed class MultiRecordReader : IDisposable
 
     public void Dispose() => _assembler.Dispose();
 
-    private IMultiRecordType? Select(ReadOnlySpan<char> line, int lineNumber)
+    /// <summary>The index in <c>_types</c> of the first entry whose selector matches, or -1.</summary>
+    private int Select(ReadOnlySpan<char> line, int lineNumber)
     {
         try
         {
-            foreach (var candidate in _types)
+            for (int i = 0; i < _types.Length; i++)
             {
-                if (candidate.Matches(line))
-                    return candidate;
+                if (_types[i].Matches(line))
+                    return i;
             }
         }
         catch (Exception ex)
@@ -121,7 +130,7 @@ internal sealed class MultiRecordReader : IDisposable
             ReportError(lineNumber, line, new FileHelpersException("Selector failed to process correctly", ex));
         }
 
-        return null;
+        return -1;
     }
 
     /// <summary>

@@ -1,3 +1,5 @@
+using ModernLibs.FileHelpers.Parsing;
+
 namespace ModernLibs.FileHelpers;
 
 /// <summary>
@@ -11,8 +13,20 @@ internal interface IMultiRecordTypeReader
     ILogicalLineRules Rules { get; }
 
     /// <summary>
+    /// A token buffer for <see cref="TryRead"/>, owned by one read (<see cref="MultiRecordReader"/>); the entry itself
+    /// holds no read state, so entries can be shared by engines that read at the same time.
+    /// <see langword="null"/> when the record type is not tokenized.
+    /// </summary>
+    TokenBuffer? CreateTokenBuffer();
+
+    /// <summary>
     /// Applies the type's record filters, validates and parses. Returns <see langword="false"/> when the record is
     /// filtered out; throws on layout or conversion errors.
     /// </summary>
-    bool TryRead(ReadOnlySpan<char> record, int firstLineLength, bool allLinesEmpty, out object? result);
+    /// <param name="record">The logical record.</param>
+    /// <param name="firstLineLength">The length of its first physical line.</param>
+    /// <param name="allLinesEmpty">Every physical line of the record is empty.</param>
+    /// <param name="tokens">The read's buffer from <see cref="CreateTokenBuffer"/> for this type.</param>
+    /// <param name="result">The record, when the method returns <see langword="true"/>.</param>
+    bool TryRead(ReadOnlySpan<char> record, int firstLineLength, bool allLinesEmpty, TokenBuffer? tokens, out object? result);
 }

@@ -53,7 +53,7 @@ public static class RecordParsing
             return inner;
 
         var result = new char[inner.Length - pairs];
-        CopyUnquoted(inner, quote, result);
+        _ = CopyUnquoted(inner, quote, result);
         return result;
     }
 
@@ -69,7 +69,7 @@ public static class RecordParsing
         if (pairs == 0)
             return CreateString(inner);
 
-        return string.Create(inner.Length - pairs, new UnquoteState(inner, quote), static (destination, state) => CopyUnquoted(state.Source, state.Quote, destination));
+        return string.Create(inner.Length - pairs, new UnquoteState(inner, quote), static (destination, state) => _ = CopyUnquoted(state.Source, state.Quote, destination));
     }
 
     private readonly ref struct UnquoteState(ReadOnlySpan<char> source, char quote)
@@ -106,19 +106,25 @@ public static class RecordParsing
         return pairs;
     }
 
-    private static void CopyUnquoted(ReadOnlySpan<char> source, char quote, Span<char> destination)
+    /// <summary>
+    /// Copies <paramref name="source"/> to <paramref name="destination"/> with each doubled <paramref name="quote"/>
+    /// collapsed (a lone one is kept); returns the chars written. <paramref name="destination"/> holds at least
+    /// <c>source.Length</c> chars minus the pairs. Also the unescape of <c>TokenBuffer</c>'s scratch (T15).
+    /// </summary>
+    internal static int CopyUnquoted(ReadOnlySpan<char> source, char quote, Span<char> destination)
     {
+        int written = 0;
         while (true)
         {
             int at = source.IndexOf(quote);
             if (at < 0)
             {
-                source.CopyTo(destination);
-                return;
+                source.CopyTo(destination.Slice(written));
+                return written + source.Length;
             }
 
-            source.Slice(0, at + 1).CopyTo(destination);
-            destination = destination.Slice(at + 1);
+            source.Slice(0, at + 1).CopyTo(destination.Slice(written));
+            written += at + 1;
             int skip = at + 1 < source.Length && source[at + 1] == quote ? at + 2 : at + 1;
             source = source.Slice(skip);
         }

@@ -36,6 +36,8 @@ public sealed class GeneratedCodeContractTests
 
     private static readonly Type TokensIn = typeof(RecordTokens).MakeByRefType();
 
+    private static readonly Type WriterRef = typeof(RecordWriter).MakeByRefType();
+
     private static readonly (string Member, Func<bool> Exists)[] Contract =
     [
         // IRecordDescriptor<T> (Emitter:61, :487, :1307, :90, :1408, :98)
@@ -144,6 +146,28 @@ public sealed class GeneratedCodeContractTests
         Method(typeof(RecordParsing), "ConvertError", typeof(ConvertException), SpanOfChar, SpanOfChar, typeof(Type), typeof(string), typeof(string), typeof(Exception)),
         Method(typeof(RecordParsing), "NullValueNotFound", typeof(NullValueNotFoundException), SpanOfChar, SpanOfChar, typeof(string), typeof(string)),
         Method(typeof(RecordParsing), "ConverterFailure", typeof(ConvertException), SpanOfChar, SpanOfChar, typeof(Type), typeof(string), typeof(string), typeof(Exception)),
+
+        // 4.10: the write contract (T22 freeze), bound by the Format bodies of T23 (DescriptorEmitter.Generate,
+        // EmitLegacyFormat, EmitFormatBody, EmitFieldWrite, EmitConverterLoop).
+        ("IRecordWriterDescriptor<T>.Format(T, ref RecordWriter), an IRecordDescriptor<T>", () =>
+            HasMethod(typeof(IRecordWriterDescriptor<Rec>), "Format", typeof(void), typeof(Rec), WriterRef)
+            && typeof(IRecordDescriptor<Rec>).IsAssignableFrom(typeof(IRecordWriterDescriptor<Rec>))),
+        ("RecordFormatting.Format<T>(IRecordWriterDescriptor<T>, T, IBufferWriter<char>)", () =>
+            typeof(RecordFormatting).GetMethods(Any).Any(m =>
+                m is { Name: "Format", IsPublic: true, IsGenericMethodDefinition: true }
+                && m.ReturnType == typeof(void)
+                && m.GetGenericArguments() is [var t]
+                && m.GetParameters().Select(p => p.ParameterType).SequenceEqual([typeof(IRecordWriterDescriptor<>).MakeGenericType(t), t, typeof(IBufferWriter<char>)]))),
+        Property(typeof(RecordWriter), "Position", typeof(int)),
+        Property(typeof(RecordWriter), "FreeSpan", typeof(Span<char>)),
+        Method(typeof(RecordWriter), "Advance", typeof(void), typeof(int)),
+        Method(typeof(RecordWriter), "Grow", typeof(void), typeof(object)),
+        Method(typeof(RecordWriter), "Reserve", typeof(void), typeof(int)),
+        Method(typeof(RecordWriter), "Write", typeof(void), typeof(char)),
+        Method(typeof(RecordWriter), "Write", typeof(void), SpanOfChar),
+        Method(typeof(RecordWriter), "WriteNewLine", typeof(void)),
+        Method(typeof(RecordWriter), "Quote", typeof(void), typeof(int), typeof(char), typeof(bool), typeof(bool), typeof(string), typeof(string)),
+        Method(typeof(RecordWriter), "Pad", typeof(void), typeof(int), typeof(int), typeof(int), typeof(char), typeof(bool), typeof(string)),
     ];
 
     [Test]
@@ -154,7 +178,7 @@ public sealed class GeneratedCodeContractTests
         var missing = Contract.Where(c => !c.Exists()).Select(c => c.Member).ToArray();
 
         // Assert
-        await Assert.That(Contract.Length).IsBetween(50, 60);
+        await Assert.That(Contract.Length).IsBetween(60, 70);
         await Assert.That(string.Join("\n", missing)).IsEqualTo(string.Empty);
     }
 

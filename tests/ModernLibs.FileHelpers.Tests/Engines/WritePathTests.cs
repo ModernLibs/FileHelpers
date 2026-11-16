@@ -22,8 +22,10 @@ namespace ModernLibs.FileHelpers.Tests.Engines;
 /// The write-path choice of the engines (T22, design 5.2): a descriptor that implements
 /// <see cref="IRecordWriterDescriptor{T}"/> is formatted through <see cref="RecordWriter"/> unless
 /// <see cref="EnginePaths.LegacyWriter"/> is set; 4.8 and 4.9 descriptors keep the 4.9 path. Every engine writes the
-/// same text on both paths. The 4.10 descriptors are test fixtures here (<see cref="WriterCheckingDescriptor{T}"/>
-/// around the descriptors of the current generator); the generator emits the interface from T23 on.
+/// same text on both paths. The counting tests wrap the descriptors of the current generator in a
+/// <see cref="WriterCheckingDescriptor{T}"/>; since T23 those descriptors implement the interface themselves, and
+/// <see cref="Generated_Descriptors_Take_The_Record_Writer_On_Every_Engine"/> checks that the engines made by the public
+/// constructors choose their record writer.
 /// </summary>
 [Category("Engines")]
 public sealed class WritePathTests
@@ -63,6 +65,22 @@ public sealed class WritePathTests
         }
 
         await Assert.That(descriptor.WriterFormatCalls).IsEqualTo(0);
+    }
+
+    /// <summary>
+    /// T23 (preflight F14): for every <c>Compat49Matrix</c> shape the generated descriptor implements
+    /// <see cref="IRecordWriterDescriptor{T}"/>, and every engine made by a public constructor or factory over it (plain,
+    /// asynchronous, multi-record, master-detail) chose the record writer; with <see cref="EnginePaths.LegacyWriter"/>
+    /// none did. The write tests above count the calls through a <see cref="WriterCheckingDescriptor{T}"/>; here no
+    /// fixture stands between the engine and the generated code, so <see cref="WritePathProbe"/> reads the choice.
+    /// </summary>
+    [Test]
+    public async Task Generated_Descriptors_Take_The_Record_Writer_On_Every_Engine()
+    {
+        var results = Compat49Matrix.Twins(new PublicEnginesChoice()).ToList();
+
+        await Assert.That(results.Count).IsEqualTo(19);
+        await Assert.That(string.Join("\n", results.SelectMany(r => r))).IsEqualTo(string.Empty);
     }
 
     /// <summary>
@@ -388,6 +406,36 @@ public sealed class WritePathTests
 
     private static string Escape(string? s) =>
         s is null ? "<null>" : s.Replace("\r", "\\r", StringComparison.Ordinal).Replace("\n", "\\n", StringComparison.Ordinal);
+
+    /// <summary>One shape of <see cref="Generated_Descriptors_Take_The_Record_Writer_On_Every_Engine"/>: returns the failed checks.</summary>
+    private sealed class PublicEnginesChoice : Compat49Matrix.ITwinVisitor<string[]>
+    {
+        public string[] Visit<T>(string name)
+        {
+            var failures = new List<string>();
+            void Require(bool condition, string what)
+            {
+                if (!condition)
+                    failures.Add($"{name}: {what}");
+            }
+
+            var descriptor = FileHelperRegistry<T>.Descriptor;
+            Require(descriptor is IRecordWriterDescriptor<T>, "the generated descriptor does not implement IRecordWriterDescriptor<T>");
+
+            using var asyncEngine = new FileHelperAsyncEngine<T>();
+            Require(WritePathProbe.UsesRecordWriter(new FileHelperEngine<T>()), "new FileHelperEngine<T>() has no record writer");
+            Require(WritePathProbe.UsesRecordWriter(asyncEngine), "new FileHelperAsyncEngine<T>() has no record writer");
+            Require(WritePathProbe.UsesRecordWriter((MultiRecordType<T>)MultiRecordType.For<T>(static _ => true)), "MultiRecordType.For<T> has no record writer");
+            Require(WritePathProbe.UsesRecordWriter(new MasterDetailEngine<T, T>(MasterFirst)), "new MasterDetailEngine<T, T>() has no record writer");
+
+            using var legacyAsync = new FileHelperAsyncEngine<T>(descriptor, LegacyWriterPaths);
+            Require(!WritePathProbe.UsesRecordWriter(new FileHelperEngine<T>(descriptor, Encoding.UTF8, LegacyWriterPaths)), "the LegacyWriter FileHelperEngine has a record writer");
+            Require(!WritePathProbe.UsesRecordWriter(legacyAsync), "the LegacyWriter FileHelperAsyncEngine has a record writer");
+            Require(!WritePathProbe.UsesRecordWriter((MultiRecordType<T>)MultiRecordType.For<T>(static _ => true, LegacyWriterPaths)), "the LegacyWriter MultiRecordType has a record writer");
+            Require(WritePathProbe.UsesLegacyWriter(new MasterDetailEngine<T, T>(MasterFirst, LegacyWriterPaths)), "the LegacyWriter MasterDetailEngine has a record writer");
+            return [.. failures];
+        }
+    }
 
     /// <summary>One shape of <see cref="Same_Text_On_Every_Engine"/>: returns the differences found.</summary>
     private sealed class SameTextOnEveryEngine(string newLine, string directory) : Compat49Matrix.ITwinVisitor<string[]>

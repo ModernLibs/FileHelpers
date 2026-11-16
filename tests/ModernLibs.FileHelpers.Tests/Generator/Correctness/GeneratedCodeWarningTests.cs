@@ -134,6 +134,11 @@ public sealed class GeneratedCodeWarningTests
                 [FieldValueDiscarded] public int G; [FieldHidden] public int H; [FieldNotInFile] public string I = ""; [FieldOptional] public string? J;
             }
             [DelimitedRecord("\t")] public class Tabs { [FieldFixedLength(4), FieldAlign(AlignMode.Left, '.')] public string A = ""; public int B; }
+            [DelimitedRecord(",")] public class QuotedPadded
+            {
+                [FieldQuoted(QuoteMode.OptionalForWrite)] public string Q = ""; [FieldFixedLength(6), FieldAlign(AlignMode.Right, '0')] public int P;
+                [FieldQuoted(QuoteMode.AlwaysQuoted)] public decimal? N; [FieldFixedLength(3), FieldAlign(AlignMode.Center)] public long? C;
+            }
             """,
             // Converters: kinds with arguments, culture, custom ConverterBase, ISpanConverter (direct and nullable underlying).
             """

@@ -235,7 +235,8 @@ public static class Program
     /// <paramref name="iterations"/> shape-aware inputs per shape through each of them and through
     /// <c>ParallelReadFile</c> without an exception; the default engine must read them as the forced legacy path does.
     /// The engines over a descriptor with a record writer, made with <see cref="EnginePaths.FromSwitches"/>, must write
-    /// through the legacy <c>Format</c> only (T22). Exit code 1 on the first failed check.
+    /// through the legacy <c>Format</c> only (T22), and the engines the public constructors make over the generated
+    /// descriptors must have chosen the legacy write path (T23). Exit code 1 on the first failed check.
     /// </summary>
     private static int RunPathsSwitch(int iterations)
     {
@@ -348,14 +349,25 @@ public static class Program
             return failures.ToArray();
         }
 
+        private static RecordAction Master(ReadOnlySpan<char> line) => RecordAction.Master;
+
         /// <summary>
-        /// T22: engines made with <see cref="EnginePaths.FromSwitches"/> over a descriptor that has a record writer (a
-        /// <see cref="WriterCheckingDescriptor{T}"/> around the generated one) write the valid records of the shape
-        /// through the legacy <c>Format</c> only. Returns the number of records written.
+        /// T22, T23: for the valid records of the shape (at least one), <see cref="CheckPublicEngines{T}"/>, then
+        /// engines made with <see cref="EnginePaths.FromSwitches"/> over a <see cref="WriterCheckingDescriptor{T}"/>
+        /// must call the legacy <c>Format</c> only. Returns the number of records the legacy <c>Format</c> wrote there.
         /// </summary>
         private static int CheckLegacyWriter<T>(List<string> failures, string name)
         {
             var records = new FileHelperEngine<T> { ErrorMode = ErrorMode.SaveAndContinue }.ReadString(Compat49Inputs.For(name).First());
+            if (records.Length == 0)
+            {
+                failures.Add($"{name}: the first matrix input gave no record to write");
+                return 0;
+            }
+
+            MasterDetails<T, T>[] groups = [new MasterDetails<T, T>(records[0], records[1..])];
+            CheckPublicEngines(failures, name, records, groups);
+
             var descriptor = new WriterCheckingDescriptor<T>(FileHelperRegistry<T>.Descriptor);
             var paths = EnginePaths.FromSwitches;
             try
@@ -363,31 +375,90 @@ public static class Program
                 new FileHelperEngine<T>(descriptor, Encoding.UTF8, paths).WriteString(records);
                 new FileHelperEngine<T>(descriptor, Encoding.UTF8, paths).WriteStreamAsync(new StringWriter(), records).GetAwaiter().GetResult();
                 using (var asyncEngine = new FileHelperAsyncEngine<T>(descriptor, paths))
-                {
-                    asyncEngine.BeginWriteString();
-                    asyncEngine.WriteNext(records);
-                    asyncEngine.EndWriteString();
-                }
-
+                    WriteNext(asyncEngine, records);
                 new MultiRecordEngine(new MultiRecordType<T>(static _ => true, descriptor, paths)).WriteString(records.Cast<object>());
-                if (records.Length > 0)
-                {
-                    new MasterDetailEngine<T, T>(static _ => RecordAction.Master, descriptor, descriptor, paths)
-                        .WriteString([new MasterDetails<T, T>(records[0], records[1..])]);
-                }
+                new MasterDetailEngine<T, T>(Master, descriptor, descriptor, paths).WriteString(groups);
             }
             catch (Exception ex)
             {
                 failures.Add($"{name}: a write threw {ex.GetType().Name}: {ex.Message}");
             }
 
-            if (records.Length == 0 || descriptor.WriterFormatCalls != 0 || descriptor.LegacyFormatCalls != 5 * records.Length)
+            if (descriptor.WriterFormatCalls != 0 || descriptor.LegacyFormatCalls != 5 * records.Length)
             {
                 failures.Add($"{name}: with DisableRecordWriter the writes called the record writer {descriptor.WriterFormatCalls} times "
                     + $"and the legacy Format {descriptor.LegacyFormatCalls} times for {records.Length} records on 5 engine kinds");
             }
 
             return descriptor.LegacyFormatCalls;
+        }
+
+        /// <summary>
+        /// T23: the engines that the public constructors and factories make over the generated descriptor (which
+        /// implements <see cref="IRecordWriterDescriptor{T}"/> since T23) chose the legacy write path
+        /// (<see cref="WritePathProbe"/>), and each writes <paramref name="records"/> as the same engine kind forced onto
+        /// the record writer does.
+        /// </summary>
+        private static void CheckPublicEngines<T>(List<string> failures, string name, T[] records, MasterDetails<T, T>[] groups)
+        {
+            var generated = FileHelperRegistry<T>.Descriptor;
+            var recordWriterPaths = EnginePaths.FromSwitches with { LegacyWriter = false };
+            if (generated is not IRecordWriterDescriptor<T>)
+                failures.Add($"{name}: the generated descriptor does not implement IRecordWriterDescriptor<T>");
+
+            var engine = new FileHelperEngine<T>();
+            var entry = (MultiRecordType<T>)MultiRecordType.For<T>(static _ => true);
+            var masterDetail = new MasterDetailEngine<T, T>(Master);
+            using (var asyncEngine = new FileHelperAsyncEngine<T>())
+            {
+                if (WritePathProbe.UsesRecordWriter(engine) || WritePathProbe.UsesRecordWriter(asyncEngine)
+                    || WritePathProbe.UsesRecordWriter(entry) || !WritePathProbe.UsesLegacyWriter(masterDetail))
+                {
+                    failures.Add($"{name}: with DisableRecordWriter an engine made by a public constructor chose the record writer");
+                }
+
+                void Same(string kind, Func<string> legacy, Func<string> recordWriter)
+                {
+                    try
+                    {
+                        string expected = recordWriter();
+                        if (!string.Equals(legacy(), expected, StringComparison.Ordinal))
+                            failures.Add($"{name}: {kind} with DisableRecordWriter writes unlike the record writer");
+                    }
+                    catch (Exception ex)
+                    {
+                        failures.Add($"{name}: {kind}: a write threw {ex.GetType().Name}: {ex.Message}");
+                    }
+                }
+
+                Same("FileHelperEngine.WriteString", () => engine.WriteString(records),
+                    () => new FileHelperEngine<T>(generated, Encoding.UTF8, recordWriterPaths).WriteString(records));
+                Same("FileHelperEngine.WriteStreamAsync", () => WriteAsync(engine, records),
+                    () => WriteAsync(new FileHelperEngine<T>(generated, Encoding.UTF8, recordWriterPaths), records));
+                Same("FileHelperAsyncEngine.WriteNext", () => WriteNext(asyncEngine, records), () =>
+                {
+                    using var recordWriter = new FileHelperAsyncEngine<T>(generated, recordWriterPaths);
+                    return WriteNext(recordWriter, records);
+                });
+                Same("MultiRecordEngine.WriteString", () => new MultiRecordEngine(entry).WriteString(records.Cast<object>()),
+                    () => new MultiRecordEngine(new MultiRecordType<T>(static _ => true, generated, recordWriterPaths)).WriteString(records.Cast<object>()));
+                Same("MasterDetailEngine.WriteString", () => masterDetail.WriteString(groups),
+                    () => new MasterDetailEngine<T, T>(Master, generated, generated, recordWriterPaths).WriteString(groups));
+            }
+        }
+
+        private static string WriteAsync<T>(FileHelperEngine<T> engine, T[] records)
+        {
+            var writer = new StringWriter();
+            engine.WriteStreamAsync(writer, records).GetAwaiter().GetResult();
+            return writer.ToString();
+        }
+
+        private static string WriteNext<T>(FileHelperAsyncEngine<T> engine, T[] records)
+        {
+            engine.BeginWriteString();
+            engine.WriteNext(records);
+            return engine.EndWriteString();
         }
 
         /// <summary><paramref name="text"/> repeated past two chunks, read by <c>ParallelReadFile</c> and sequentially; returns its length.</summary>

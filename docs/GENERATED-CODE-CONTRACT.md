@@ -136,8 +136,8 @@ at" names the emitter method in `DescriptorEmitter.cs`.
 | `RecordParsing.ConverterFailure(ReadOnlySpan<char>, ReadOnlySpan<char>, Type, string, string, Exception)` | `EmitFieldConversion` (custom converters) |
 
 The legacy `Parse` and `ParseInto` are still emitted in full; they serve every record the tokenized path gives
-back. The read side of a 4.10 descriptor no longer uses `ArrayPool<char>`, `Unsafe` or `MemoryMarshal`; the write
-helpers still rent from `ArrayPool<char>`.
+back. The read side of a 4.10 descriptor no longer uses `ArrayPool<char>`, `Unsafe` or `MemoryMarshal`; from T23
+the write side uses none of them either (write contract below).
 
 Tests: `RecordTokensTests` (member semantics), `RecordTokenizerTests` (the vector and the `IndexOf` paths against
 `string.Split`, at vector block edges), `TokenizedReadTests` (every engine reads the same records and errors on
@@ -213,13 +213,35 @@ engines), with or without write events; without an `AfterWriteRecord` handler an
 `ModernLibs.FileHelpers.DisableRecordWriter` makes them call the legacy `Format` instead. 4.8 and 4.9
 descriptors do not implement the interface and keep the 4.9 path.
 
-Members added to `IRecordWriterDescriptor<T>` after 4.10.0 come with a default implementation. The generator
-emits the interface from T23 on; until then only test fixtures implement it.
+Members added to `IRecordWriterDescriptor<T>` after 4.10.0 come with a default implementation.
+
+From T23 every generated descriptor implements the interface (after its other interfaces) and binds to the members
+above as follows; the 4.9 helpers `__WriteText`, `__WriteQuoted`, `__WriteQuotedField`, `__WritePadded` and
+`__Format`, the `stackalloc` buffer per field and `ArrayPool<char>` are no longer emitted, nor is the call of
+`RecordFormatting.WriteFieldNewLine`.
+
+| Member | Bound at |
+|---|---|
+| `IRecordWriterDescriptor<T>` in the interface list of every descriptor | `Generate` |
+| `RecordFormatting.Format<T>`: the whole body of the legacy `Format(T, IBufferWriter<char>)` is `global::ModernLibs.FileHelpers.RecordFormatting.Format(this, record, writer);` | `EmitLegacyFormat` |
+| `Reserve(int)`: first statement of a fixed-length record, with the sum of the field widths | `EmitFormatBody` |
+| `Write(char)` for a one-char delimiter, `Write(ReadOnlySpan<char>)` for a longer one (a string literal) and for a `string` field (`MemoryExtensions.AsSpan(record.Name)`, empty for `null`) | `EmitDelimiterWrite`, `EmitFieldWrite` |
+| `WriteNewLine()` before a `[FieldInNewLine]` field (after its delimiter) | `EmitFormatBody` |
+| `Position`, read into `int __s{i}` before a quoted, fixed-length or `[FieldAlign]` field only | `EmitFieldWrite` |
+| `FreeSpan`, `Grow(object)`, `Advance(int)`: the converter loop above, with the converter expression (`.Instance` of a built-in converter or the `static readonly` field of the generated holder) as receiver and as argument of `Grow`; for a `Nullable<T>` field the loop and `Advance` are inside `if (record.X is { } __nv{i}) { ... }` | `EmitConverterLoop`, `EmitFieldWrite` |
+| `Quote(int, char, bool, bool, string, string)` after a quoted field, with the arguments of 4.9's `__WriteQuotedField`; `Pad(int, int, int, char, bool, string)` after a fixed-length or `[FieldAlign]` field, with those of `__WritePadded`. Both run for a `null` value too. | `EmitFieldWrite` |
+
+The converter is called directly (`converter.TryFormat(...)`), not through a generic constraint as in 4.9, so its
+`TryFormat` must be callable on the converter type: an explicit-only interface implementation of `TryFormat` does
+not compile (the read side has called `TryParse` this way since 4.8).
 
 Tests: `RecordWriterTests` (each member against the 4.9 helpers copied in `LegacyEmittedWriteCopies`),
 `WritePathTests` (every engine writes the same text on the new and the legacy path, with a checking descriptor on
-the `Compat49Matrix` shapes, events and custom newlines; 4.8 and 4.9 descriptors still get a
-`RentedBufferWriter` with `NewLine` set) and the fuzz target `paths-switch` (the switch).
+the `Compat49Matrix` shapes, events and custom newlines; the engines of the public constructors choose the record
+writer of a generated descriptor; 4.8 and 4.9 descriptors still get a `RentedBufferWriter` with `NewLine` set),
+`WriterEmissionTests` (the emitted text), `Compat49Tests` (the 4.9.1 descriptors against the generated ones and
+Golden49; the record writer against the legacy writer on the matrix), `GeneratedCodeContractTests` and the fuzz
+target `paths-switch` (the switch).
 
 ## Behaviour that old descriptors rely on
 

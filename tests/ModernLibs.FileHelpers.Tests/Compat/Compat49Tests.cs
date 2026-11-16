@@ -89,6 +89,44 @@ public sealed class Compat49Tests
         foreach (string name in names)
             await Assert.That(Compat49Inputs.For(name).Count()).IsEqualTo(Compat49Inputs.Kinds.Length);
         await Assert.That(Compat49Matrix.Paths().Select(p => p.Name)).IsEquivalentTo(names.Concat(Compat49Matrix.PathOnlyShapes));
+        await Assert.That(Compat49Matrix.WritePaths().Select(p => p.Name)).IsEquivalentTo(names);
+    }
+
+    /// <summary>
+    /// The current descriptor of each shape writes alike on the default engine (its record writer) and on the forced
+    /// legacy writer (T23): the records read from every matrix input and each hand-made record of
+    /// <see cref="Compat49WriteCases"/>, through <c>WriteString</c> and <c>WriteStreamAsync</c>, with
+    /// <c>NewLineForWrite</c> <c>"\r\n"</c>, <c>"\n"</c> and <c>"|\n"</c>, without and with write events; exceptions
+    /// and partial output included. In a 4.10 descriptor the legacy <c>Format</c> is the one-line adapter to the new
+    /// one, so this test compares the field formatting with itself and checks the engine plumbing of the two paths
+    /// (record terminators, <c>[FieldInNewLine]</c> line breaks, events, the pending block of <c>WriteStreamAsync</c>).
+    /// Field formatting old against new is <see cref="Descriptor_From_4_9_1_Matches_The_Current_One"/>: the 4.9.1
+    /// descriptors of Generated49 against the current ones, and both against Golden49.
+    /// </summary>
+    [Test]
+    [DisplayName("The record writer and the legacy writer write the matrix alike: $name")]
+    [MethodDataSource(typeof(Compat49Matrix), nameof(Compat49Matrix.WritePaths))]
+    public async Task New_Writer_And_Legacy_Writer_Agree_On_The_Matrix(
+        string name, Func<string, string, bool, string> roundTripDefault, Func<string, string, bool, string> roundTripLegacyWriter, bool recordWriter)
+    {
+        await Assert.That(recordWriter).IsTrue().Because($"{name}: the generated descriptor implements IRecordWriterDescriptor<T>");
+
+        int index = 0;
+        foreach (string input in Compat49Inputs.For(name))
+        {
+            foreach (string newLine in (string[])["\r\n", "\n", "|\n"])
+            {
+                foreach (bool events in (bool[])[false, true])
+                {
+                    string legacy = roundTripLegacyWriter(input, newLine, events);
+                    await Assert.That(roundTripDefault(input, newLine, events)).IsEqualTo(legacy)
+                        .Because($"{name} input {index} ({Compat49Inputs.Kinds[index]}), newline {newLine.Replace("\r", "\\r", StringComparison.Ordinal).Replace("\n", "\\n", StringComparison.Ordinal)}, events {events}");
+                    await Assert.That(legacy).Contains("written:").Because(name);
+                }
+            }
+
+            index++;
+        }
     }
 
     /// <summary>

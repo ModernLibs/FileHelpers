@@ -23,6 +23,7 @@ internal static class DescriptorEmitter
     private const string Memory = "global::System.MemoryExtensions.";
     private const string Parsing = "global::ModernLibs.FileHelpers.RecordParsing.";
     private const string ConverterHolder = "__Conv";
+    private const string RecordWriterType = "global::ModernLibs.FileHelpers.RecordWriter";
 
     /// <summary>
     /// The <c>[GeneratedCode]</c> line above both emitted classes. The version is the generator assembly's
@@ -88,6 +89,9 @@ internal static class DescriptorEmitter
             : $" : global::ModernLibs.FileHelpers.IRecordDescriptor<{fqType}>";
         if (tokenized)
             implements += $", global::ModernLibs.FileHelpers.ITokenizedDescriptor<{fqType}>";
+
+        // IRecordWriterDescriptor<T> (design 5.1, T22 freeze): every record formats straight into a RecordWriter.
+        implements += $", global::ModernLibs.FileHelpers.IRecordWriterDescriptor<{fqType}>";
         string descriptorName = $"__{model.TypeName}Descriptor";
 
         sb.AppendLine(GeneratedCodeAttribute);
@@ -122,10 +126,11 @@ internal static class DescriptorEmitter
             }
         }
 
-        // The write side follows every read body; its helpers come after Format.
+        // The write side follows every read body: the legacy Format is the adapter to the RecordWriter one.
+        EmitLegacyFormat(sb, fqType);
+        sb.AppendLine();
         EmitFormatBody(sb, model, fqType, plans);
         sb.AppendLine();
-        EmitWriteHelpers(sb);
 
         sb.AppendLine("    public global::System.ReadOnlySpan<global::ModernLibs.FileHelpers.FieldDescriptor> Fields =>");
         sb.AppendLine("        new global::System.ReadOnlySpan<global::ModernLibs.FileHelpers.FieldDescriptor>(_fields);");
@@ -1261,108 +1266,51 @@ internal static class DescriptorEmitter
     // ---------------------------------------------------------------------------------------------
 
     /// <summary>
-    /// Write helpers shared by all fields. <c>__Format</c> formats through the field's converter into a
-    /// stack buffer and grows into pooled arrays when the value does not fit, so long values are never
-    /// silently written as empty or cut by a fixed scratch size.
+    /// The legacy <c>Format(T, IBufferWriter&lt;char&gt;)</c>: one call of the runtime adapter, which runs the
+    /// <c>Format(T, ref RecordWriter)</c> below (design 5.1). Kept for callers of the 4.9 contract and for the
+    /// <c>DisableRecordWriter</c> switch.
     /// </summary>
-    private static void EmitWriteHelpers(StringBuilder sb)
+    private static void EmitLegacyFormat(StringBuilder sb, string fqType)
     {
-        sb.AppendLine("""
-                private static void __WriteText(global::System.Buffers.IBufferWriter<char> writer, global::System.ReadOnlySpan<char> text)
-                {
-                    if (text.IsEmpty) return;
-                    text.CopyTo(writer.GetSpan(text.Length));
-                    writer.Advance(text.Length);
-                }
-
-                private static void __WriteQuoted(global::System.Buffers.IBufferWriter<char> writer, global::System.ReadOnlySpan<char> text, char quote)
-                {
-                    // Indexed loops: foreach over a span needs C# 13 against .NET 10, whose span enumerator implements interfaces.
-                    int count = global::System.MemoryExtensions.Count(text, quote);
-                    int total = text.Length + count + 2;
-                    var dest = writer.GetSpan(total);
-                    dest[0] = quote;
-                    int pos = 1;
-                    for (int i = 0; i < text.Length; i++)
-                    {
-                        char c = text[i];
-                        dest[pos++] = c;
-                        if (c == quote) dest[pos++] = quote;
-                    }
-                    dest[pos] = quote;
-                    writer.Advance(total);
-                }
-
-                private static void __WriteQuotedField(global::System.Buffers.IBufferWriter<char> writer, global::System.ReadOnlySpan<char> text, char quote, bool always, bool multilineWrite, string separator, string field)
-                {
-                    bool newLine = global::System.MemoryExtensions.IndexOfAny(text, '\r', '\n') >= 0;
-                    if (newLine && !multilineWrite)
-                        throw new global::ModernLibs.FileHelpers.BadUsageException("One value for the field " + field + " has a new line inside. To allow this value to be written you must add a FieldQuoted attribute with the multiline option set.");
-                    if (always || newLine || global::System.MemoryExtensions.IndexOf(text, separator, global::System.StringComparison.Ordinal) >= 0)
-                        __WriteQuoted(writer, text, quote);
-                    else
-                        __WriteText(writer, text);
-                }
-
-                private static void __WritePadded(global::System.Buffers.IBufferWriter<char> writer, global::System.ReadOnlySpan<char> text, int width, int align, char pad, bool overflowError, string field)
-                {
-                    if (text.Length > width)
-                    {
-                        if (overflowError)
-                            throw new global::System.InvalidOperationException($"Field '{field}' exceeds fixed length {width} (actual: {text.Length} characters).");
-                        text = text.Slice(0, width);
-                    }
-                    var dest = writer.GetSpan(width);
-                    int padding = width - text.Length;
-                    int left = align == 2 ? padding : align == 1 ? padding / 2 : 0;
-                    dest.Slice(0, left).Fill(pad);
-                    text.CopyTo(dest.Slice(left));
-                    dest.Slice(left + text.Length, padding - left).Fill(pad);
-                    writer.Advance(width);
-                }
-
-                private static global::System.ReadOnlySpan<char> __Format<TConverter, TValue>(TConverter converter, TValue value, global::System.Span<char> buffer, ref char[]? rented)
-                    where TConverter : global::ModernLibs.FileHelpers.Converters.ISpanConverter<TValue>
-                {
-                    int written;
-                    while (!converter.TryFormat(value, buffer, out written))
-                    {
-                        if (buffer.Length >= 0x100000)
-                            throw new global::System.FormatException("The field value could not be formatted by " + converter.GetType().Name + ".");
-                        int size = buffer.Length * 2;
-                        if (rented is not null)
-                            global::System.Buffers.ArrayPool<char>.Shared.Return(rented);
-                        rented = global::System.Buffers.ArrayPool<char>.Shared.Rent(size);
-                        buffer = rented;
-                    }
-                    return buffer.Slice(0, written);
-                }
-
-            """);
+        sb.AppendLine($"    public void Format({fqType} record, global::System.Buffers.IBufferWriter<char> writer)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        global::ModernLibs.FileHelpers.RecordFormatting.Format(this, record, writer);");
+        sb.AppendLine("    }");
     }
 
     /// <summary>
-    /// Emits the Format body. Every field (including <c>[FieldValueDiscarded]</c>, which 3.x
-    /// writes like any other field) is formatted through its converter plan and written raw,
-    /// quoted, aligned ([FieldAlign]) or padded to its fixed width.
+    /// Emits <c>Format(T, ref RecordWriter)</c> (design 5.1, T22 freeze). Every field (including
+    /// <c>[FieldValueDiscarded]</c>, which 3.x writes like any other field) is written straight into the writer: a
+    /// string with one <c>Write</c>, a converted value by the converter into <c>FreeSpan</c>. A quoted, fixed-length or
+    /// aligned field is then quoted or padded in place from the <c>Position</c> read before it. A fixed-length record
+    /// reserves its width first.
     /// </summary>
     private static void EmitFormatBody(StringBuilder sb, RecordModel model, string fqType, ConverterPlan?[] plans)
     {
-        sb.AppendLine($"    public void Format({fqType} record, global::System.Buffers.IBufferWriter<char> writer)");
+        sb.AppendLine($"    public void Format({fqType} record, ref {RecordWriterType} writer)");
         sb.AppendLine("    {");
 
         bool isFixed = string.Equals(model.RecordKind, "FixedLength", StringComparison.Ordinal);
         var fields = model.Fields;
+        if (isFixed)
+        {
+            // A capacity hint: the record is written without growth when the free space holds its width.
+            int width = 0;
+            foreach (var field in fields)
+                width += FixedWidth(field);
+            sb.AppendLine($"        writer.Reserve({width});");
+        }
+
         for (int i = 0; i < fields.Length; i++)
         {
             var field = fields[i];
             // 3.x: each field is followed by its own [FieldDelimiter] (or the record delimiter), except the last.
             if (!isFixed && i > 0)
-                EmitDelimiterWrite(sb, fields[i - 1].Delimiter ?? model.Delimiter, i);
+                EmitDelimiterWrite(sb, fields[i - 1].Delimiter ?? model.Delimiter);
             // 3.x: a [FieldInNewLine] field is written after a line break (after the delimiter when delimited);
-            // the runtime writes the engine's NewLineForWrite.
+            // the writer writes the engine's NewLineForWrite.
             if (field.IsInNewLine)
-                sb.AppendLine("        global::ModernLibs.FileHelpers.RecordFormatting.WriteFieldNewLine(writer);");
+                sb.AppendLine("        writer.WriteNewLine();");
             // 3.x quotes an OptionalForWrite value that contains the field's own delimiter.
             string separatorAfter = field.Delimiter ?? model.Delimiter;
             EmitFieldWrite(sb, field, i, plans[i], isFixed, separatorAfter);
@@ -1371,74 +1319,68 @@ internal static class DescriptorEmitter
         sb.AppendLine("    }");
     }
 
-    private static void EmitDelimiterWrite(StringBuilder sb, string delimiter, int i)
+    /// <summary>The width a fixed-length field is padded to (4.9: 1 when the attribute gives none).</summary>
+    private static int FixedWidth(FieldModel field) => field.FixedLength > 0 ? field.FixedLength : 1;
+
+    private static void EmitDelimiterWrite(StringBuilder sb, string delimiter)
     {
-        if (delimiter.Length == 1)
-        {
-            sb.AppendLine($"        {{ writer.GetSpan(1)[0] = {CharLiteral(delimiter[0])}; writer.Advance(1); }}");
-            return;
-        }
-        sb.AppendLine($"        __WriteText(writer, {Literal(delimiter)}); // delimiter before field {i}");
+        string text = delimiter.Length == 1 ? CharLiteral(delimiter[0]) : Literal(delimiter);
+        sb.AppendLine($"        writer.Write({text});");
     }
 
     private static void EmitFieldWrite(StringBuilder sb, FieldModel field, int i, ConverterPlan? plan, bool isFixed, string separatorAfter)
     {
         string value = $"record.{field.Identifier}";
-        sb.AppendLine("        {");
+        string pad = field.AlignChar.HasValue ? CharLiteral(field.AlignChar.Value) : "' '";
+        string name = Literal(field.Name);
+
+        // The 4.9 order of the cases: fixed-length padding, then quoting, then [FieldAlign] padding of a delimited field.
+        // 3.x: AlwaysQuoted / OptionalForRead always quote; the optional-for-write modes quote values that contain the
+        // separator or a line break. A line break needs a multiline mode that allows writing.
+        string? after;
+        if (isFixed)
+            after = $"writer.Pad(__s{i}, {FixedWidth(field)}, {field.AlignMode ?? 0}, {pad}, {Bool(field.OverflowMode == 1)}, {name});";
+        else if (field.IsQuoted)
+            after = $"writer.Quote(__s{i}, {CharLiteral(field.QuoteChar)}, {Bool(field.QuoteMode is 0 or 1)}, {Bool(field.QuoteMultiline is 0 or 2)}, {Literal(separatorAfter)}, {name});";
+        else if (field.AlignMode.HasValue && field.FixedLength > 0)
+            after = $"writer.Pad(__s{i}, {field.FixedLength}, {field.AlignMode.Value}, {pad}, false, {name});";
+        else
+            after = null;
+
+        if (after is not null)
+            sb.AppendLine($"        int __s{i} = writer.Position;");
 
         if (plan is null)
         {
-            sb.AppendLine($"            var __t{i} = {Memory}AsSpan({value});");
+            sb.AppendLine($"        writer.Write({Memory}AsSpan({value}));");
+        }
+        else if (plan.UnwrapNullable)
+        {
+            sb.AppendLine($"        if ({value} is {{ }} __nv{i})");
+            sb.AppendLine("        {");
+            EmitConverterLoop(sb, plan, $"__nv{i}", i, "            ");
+            sb.AppendLine("        }");
         }
         else
         {
-            sb.AppendLine($"            global::System.Span<char> __b{i} = stackalloc char[64];");
-            sb.AppendLine($"            char[]? __r{i} = null;");
-            sb.AppendLine($"            scoped global::System.ReadOnlySpan<char> __t{i};");
-            if (plan.UnwrapNullable)
-            {
-                sb.AppendLine($"            if ({value} is {{ }} __nv{i})");
-                sb.AppendLine($"                __t{i} = __Format({plan.Expression}, __nv{i}, __b{i}, ref __r{i});");
-                sb.AppendLine("            else");
-                sb.AppendLine($"                __t{i} = default;");
-            }
-            else
-            {
-                string arg = field.IsValueType ? value : value + "!";
-                sb.AppendLine($"            __t{i} = __Format({plan.Expression}, {arg}, __b{i}, ref __r{i});");
-            }
+            EmitConverterLoop(sb, plan, field.IsValueType ? value : value + "!", i, "        ");
         }
 
-        string pad = field.AlignChar.HasValue ? CharLiteral(field.AlignChar.Value) : "' '";
-        string name = Literal(field.Name);
-        if (isFixed)
-        {
-            int width = field.FixedLength > 0 ? field.FixedLength : 1;
-            sb.AppendLine($"            __WritePadded(writer, __t{i}, {width}, {field.AlignMode ?? 0}, {pad}, {Bool(field.OverflowMode == 1)}, {name});");
-        }
-        else if (field.IsQuoted)
-        {
-            // 3.x: AlwaysQuoted / OptionalForRead always quote; the optional-for-write modes quote values that
-            // contain the separator or a line break. A line break needs a multiline mode that allows writing.
-            bool always = field.QuoteMode is 0 or 1;
-            bool multilineWrite = field.QuoteMultiline is 0 or 2;
-            sb.AppendLine($"            __WriteQuotedField(writer, __t{i}, {CharLiteral(field.QuoteChar)}, {Bool(always)}, {Bool(multilineWrite)}, {Literal(separatorAfter)}, {name});");
-        }
-        else if (field.AlignMode.HasValue && field.FixedLength > 0)
-        {
-            sb.AppendLine($"            __WritePadded(writer, __t{i}, {field.FixedLength}, {field.AlignMode.Value}, {pad}, false, {name});");
-        }
-        else
-        {
-            sb.AppendLine($"            __WriteText(writer, __t{i});");
-        }
+        if (after is not null)
+            sb.AppendLine($"        {after}");
+    }
 
-        if (plan is not null)
-        {
-            sb.AppendLine($"            if (__r{i} is not null)");
-            sb.AppendLine($"                global::System.Buffers.ArrayPool<char>.Shared.Return(__r{i});");
-        }
-        sb.AppendLine("        }");
+    /// <summary>
+    /// The converter call of the T22 freeze: the converter formats into <c>FreeSpan</c>, <c>Grow</c> after each
+    /// <see langword="false"/>, then <c>Advance</c>. The converter expression is a static readonly field or a built-in
+    /// <c>.Instance</c>, so evaluating it again in the loop is cheap and gives the same converter.
+    /// </summary>
+    private static void EmitConverterLoop(StringBuilder sb, ConverterPlan plan, string argument, int i, string indent)
+    {
+        sb.AppendLine($"{indent}int __n{i};");
+        sb.AppendLine($"{indent}while (!{plan.Expression}.TryFormat({argument}, writer.FreeSpan, out __n{i}))");
+        sb.AppendLine($"{indent}    writer.Grow({plan.Expression});");
+        sb.AppendLine($"{indent}writer.Advance(__n{i});");
     }
 
     // ---------------------------------------------------------------------------------------------

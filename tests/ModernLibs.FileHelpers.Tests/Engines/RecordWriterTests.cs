@@ -106,6 +106,43 @@ public sealed class RecordWriterTests
         await Assert.That(error).IsEqualTo("throw:BadUsageException:" + NewLineMessage + "|committed:");
     }
 
+    /// <summary>
+    /// G3 (T23): the block copies of <see cref="RecordWriter.Quote"/> on long text, with quote chars at the start, at
+    /// the end, in runs and far apart, against the 4.9 helper.
+    /// </summary>
+    [Test]
+    public async Task Quote_Block_Copies_Equal_The_4_9_Helper_On_Long_Text()
+    {
+        string run = new('q', 300);
+        string[] texts =
+        [
+            "\"" + run, run + "\"", "\"" + run + "\"", "\"\"\"" + run + "\"\"" + run, run + "\"" + run + "\"" + run,
+            new string('"', 200), "a" + new string('"', 199), run + "," + run, run,
+        ];
+
+        foreach (string text in texts)
+        {
+            foreach (int initialSize in (int[])[1, text.Length + 2, 4096])
+            {
+                string expected = Expect("c", "b|", () =>
+                {
+                    var buffer = new ArrayBufferWriter<char>();
+                    LegacyEmittedWriteCopies.WriteQuotedField(buffer, text, '"', true, true, ",", "Name");
+                    return buffer.WrittenSpan.ToString();
+                });
+                string actual = Run("c", initialSize, (ref RecordWriter w) =>
+                {
+                    w.Write('b');
+                    int start = w.Position;
+                    w.Write(text.AsSpan());
+                    w.Quote(start, '"', true, true, ",", "Name");
+                    w.Write('|');
+                });
+                await Assert.That(actual).IsEqualTo(expected).Because($"length {text.Length}, initial size {initialSize}");
+            }
+        }
+    }
+
     [Test]
     public async Task Pad_Equals_The_4_9_Helper()
     {

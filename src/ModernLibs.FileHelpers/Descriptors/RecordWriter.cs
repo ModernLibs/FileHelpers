@@ -176,7 +176,9 @@ public ref struct RecordWriter
         if (added > _span.Length - _position)
             GrowFree(added);
 
-        // The quoted text is longer, so each char moves right: copy from the end. T23 (G3) replaces this loop.
+        // The quoted text is longer, so the text moves right in place: without a quote char it shifts by one; otherwise
+        // the blocks between quote chars are copied from the end, each quote char written twice (G3). Every destination
+        // lies right of the text not yet copied; CopyTo handles the overlap of a block with its own destination.
         Span<char> target = _span.Slice(fieldStart, length + added);
         if (quotes == 0)
         {
@@ -184,13 +186,19 @@ public ref struct RecordWriter
         }
         else
         {
-            int to = length + quotes;
-            for (int from = length - 1; from >= 0; from--)
+            int to = length + quotes + 1;
+            int end = length;
+            while (true)
             {
-                char c = target[from];
-                target[to--] = c;
-                if (c == quote)
-                    target[to--] = quote;
+                int at = target[..end].LastIndexOf(quote);
+                int block = end - at - 1;
+                to -= block;
+                target.Slice(at + 1, block).CopyTo(target[to..]);
+                if (at < 0)
+                    break;
+                target[--to] = quote;
+                target[--to] = quote;
+                end = at;
             }
         }
 

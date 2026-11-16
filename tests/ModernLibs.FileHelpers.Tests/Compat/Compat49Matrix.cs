@@ -76,6 +76,17 @@ internal static class Compat49Matrix
         yield return Visit<Compat49NotEmptyTwin, TResult>(visitor);
     }
 
+    /// <summary>
+    /// For each shape, the current descriptor (the twin) read and written back by <see cref="RoundTripWith{T}"/> on two
+    /// write paths: the default engine (<c>new FileHelperEngine&lt;T&gt;()</c>: the record writer of the generated
+    /// descriptor) and the forced legacy writer (<see cref="EnginePaths.LegacyWriter"/>: the legacy <c>Format</c>,
+    /// which in a 4.10 descriptor is the adapter <see cref="RecordFormatting.Format{T}"/>) (T23). Each function takes
+    /// the input, <c>NewLineForWrite</c> and whether write events are attached. <c>RecordWriter</c> is whether the
+    /// registered descriptor implements <see cref="IRecordWriterDescriptor{T}"/>.
+    /// </summary>
+    public static IEnumerable<(string Name, Func<string, string, bool, string> RoundTripDefault, Func<string, string, bool, string> RoundTripLegacyWriter, bool RecordWriter)> WritePaths() =>
+        Twins(WriteRoundTrips.Instance);
+
     /// <summary>A generic action on the twin record type of one shape (<see cref="Twins{TResult}"/>).</summary>
     internal interface ITwinVisitor<out TResult>
     {
@@ -129,6 +140,21 @@ internal static class Compat49Matrix
         {
             var (readDefault, readScalar, readLegacy, tokenized) = PathReadsOf(FileHelperRegistry<T>.Descriptor, static () => new FileHelperEngine<T>());
             return (name, readDefault, readScalar, readLegacy, tokenized);
+        }
+    }
+
+    private sealed class WriteRoundTrips : ITwinVisitor<(string, Func<string, string, bool, string>, Func<string, string, bool, string>, bool)>
+    {
+        public static readonly WriteRoundTrips Instance = new();
+
+        public (string, Func<string, string, bool, string>, Func<string, string, bool, string>, bool) Visit<T>(string name)
+        {
+            var descriptor = FileHelperRegistry<T>.Descriptor;
+            var legacyWriter = EnginePaths.FromSwitches with { LegacyWriter = true };
+            return (name,
+                (input, newLine, events) => RoundTripWith(input, newLine, events, static () => new FileHelperEngine<T>()),
+                (input, newLine, events) => RoundTripWith(input, newLine, events, () => new FileHelperEngine<T>(descriptor, Encoding.UTF8, legacyWriter)),
+                descriptor is IRecordWriterDescriptor<T>);
         }
     }
 
@@ -236,6 +262,51 @@ internal static class Compat49Matrix
             var writer = new FileHelperEngine<T> { NewLineForWrite = "\r\n" };
             Run(text, "written-extra:" + label + ":", () => Line(text, "written-extra:" + label + ":", Escape(writer.WriteString([create()]))));
         }
+
+        return Canonical(text, typeof(T));
+    }
+
+    /// <summary>
+    /// Reads <paramref name="input"/> with an engine made by <paramref name="create"/> and writes the records back with
+    /// <c>WriteString</c> and <c>WriteStreamAsync</c> (which formats straight into its pending block when no
+    /// <c>AfterWriteRecord</c> handler is attached), then writes each hand-made record of
+    /// <see cref="Compat49WriteCases"/> both ways, each with a new engine. <paramref name="events"/> attaches a
+    /// <c>BeforeWriteRecord</c> and an <c>AfterWriteRecord</c> handler that log the record number and the line (prefix
+    /// <c>event:</c>). The text an asynchronous write wrote before an exception is kept (<c>async:partial:</c>).
+    /// </summary>
+    internal static string RoundTripWith<T>(string input, string newLine, bool events, Func<FileHelperEngine<T>> create)
+    {
+        var text = new StringBuilder();
+        FileHelperEngine<T> Engine()
+        {
+            var engine = create();
+            engine.ErrorMode = ErrorMode.SaveAndContinue;
+            engine.NewLineForWrite = newLine;
+            if (events)
+            {
+                engine.BeforeWriteRecord += (_, e) => Line(text, "event:before:", e.RecordNumber.ToString(CultureInfo.InvariantCulture));
+                engine.AfterWriteRecord += (_, e) => Line(text, "event:after:", Escape(e.RecordLine));
+            }
+
+            return engine;
+        }
+
+        void Write(string prefix, FileHelperEngine<T> engine, T[] records)
+        {
+            Run(text, prefix, () => Line(text, prefix, Escape(engine.WriteString(records))));
+            var writer = new StringWriter();
+            Run(text, prefix + "async:", () => engine.WriteStreamAsync(writer, records).GetAwaiter().GetResult());
+            Line(text, prefix + "async:partial:", Escape(writer.ToString()));
+        }
+
+        var reading = Engine();
+        T[] read = [];
+        Run(text, "read:", () => read = reading.ReadString(input));
+        AppendState(text, string.Empty, reading);
+        Write("written:", reading, read);
+
+        foreach (var (label, make) in Compat49WriteCases.For<T>(ShapeName(typeof(T))))
+            Write("written-extra:" + label + ":", Engine(), [make()]);
 
         return Canonical(text, typeof(T));
     }

@@ -77,8 +77,13 @@ public sealed class TokenizerSelectionTests
         await Assert.That(RecordTokenizer.QuotedLoopFor(vectors: false)).IsEqualTo(TokenizerLoop.IndexOfHop);
     }
 
+    /// <summary>
+    /// The loops an engine's core passes to the tokenizer (<c>RecordReadCore.TokenizerLoops</c>, mapped from its
+    /// <see cref="EnginePaths.ScalarTokenizer"/> flag): <see cref="TokenizerLoop.IndexOfHop"/> for both with the flag,
+    /// the defaults without it. It checks the selection the reads use, not a loop observed during a read.
+    /// </summary>
     [Test]
-    public async Task ScalarTokenizer_Reads_Use_IndexOfHop()
+    public async Task ScalarTokenizer_Engine_Selects_IndexOfHop()
     {
         var scalar = new FileHelperEngine<TokPlain>(new TokPlainDescriptor(), Encoding.UTF8, ScalarPaths);
         var vector = new FileHelperEngine<TokPlain>(new TokPlainDescriptor(), Encoding.UTF8, DefaultPaths);

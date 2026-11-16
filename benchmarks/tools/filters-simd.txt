@@ -24,11 +24,12 @@ quoted     v410-net10,v410-net11,ra,base-net10,base-net11       *MultilineBenchm
 # 4.9.1 builds have no such switch (their side reads as FileHelpers_ParseAndDiscard does).
 quoted     v410-net10,v410-net11,base-net10,base-net11          *QuotedFieldsBenchmarks.FileHelpers_ParseAndDiscard_ScanOnly
 
-# 25-column, long-line and wide reads
-read25     v410-net10,v410-net11,ra                             *DelimitedParseBenchmarks.FileHelpers_ParseAndDiscard
+# 25-column, long-line and wide reads. The three parse-and-discard lines also run against the base commit (ruling
+# P23): T21 inlines the plain tokenizer dispatch into RecordReadCore, and only the base pairs isolate that change.
+read25     v410-net10,v410-net11,ra,base-net10,base-net11       *DelimitedParseBenchmarks.FileHelpers_ParseAndDiscard
 read25     v410-net10,v410-net11,ra                             *OptimizedParseBenchmarks.ReadFile
-read-other v410-net10,v410-net11,ra                             *LongLineBenchmarks.ReadFile_ParseAndDiscard
-read-other v410-net10,v410-net11,ra                             *WideRecordBenchmarks.ReadFile_ParseAndDiscard
+read-other v410-net10,v410-net11,ra,base-net10,base-net11       *LongLineBenchmarks.ReadFile_ParseAndDiscard
+read-other v410-net10,v410-net11,ra,base-net10,base-net11       *WideRecordBenchmarks.ReadFile_ParseAndDiscard
 
 # Exception path: a conversion error in every 100th row, ErrorMode.SaveAndContinue
 exception  v410-net10,ra                                        *EngineAsyncBenchmarks.Engine_ReadAsync_Path_ExceptionEvery100

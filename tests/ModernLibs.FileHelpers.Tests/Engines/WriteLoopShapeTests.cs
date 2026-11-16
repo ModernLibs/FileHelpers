@@ -20,6 +20,7 @@ public sealed class WriteLoopShapeTests
     [Test]
     [Arguments("WriteRecordText")]
     [Arguments("AppendPendingRecord")]
+    [Arguments("WriteRecordInPlace")]
     public async Task PerRecord_Write_Method_Is_Not_Inlined(string name)
     {
         var method = typeof(FileHelperEngine<RcStruct>).GetMethod(

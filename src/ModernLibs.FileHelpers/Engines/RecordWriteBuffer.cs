@@ -7,7 +7,7 @@ namespace ModernLibs.FileHelpers;
 /// throws leaves nothing. Only growth is virtual.
 /// </summary>
 /// <remarks>
-/// Internal and not frozen (T22 freeze, section 3): a later task may add implementations, for example over the
+/// Internal and not frozen (T22 freeze, section 3). Implementations: <see cref="RentedBufferWriter"/>, and the
 /// chunks of <see cref="PooledStringWriter"/> (T24).
 /// </remarks>
 internal abstract class RecordWriteBuffer
@@ -38,7 +38,26 @@ internal abstract class RecordWriteBuffer
         descriptor.Format(record, ref writer);
 
         // Position throws InvalidOperationException when the descriptor replaced the writer with default.
-        int length = writer.Position;
+        Commit(writer.Position);
+    }
+
+    /// <summary>
+    /// Formats <paramref name="record"/> followed by <paramref name="terminator"/> after the committed text and commits
+    /// both when <see cref="IRecordWriterDescriptor{T}.Format(T, ref RecordWriter)"/> returns, as one contiguous text
+    /// (P5: <see cref="PooledStringWriter.RecordBuffer"/>). When it throws, the committed text is unchanged.
+    /// </summary>
+    internal void FormatLine<T>(IRecordWriterDescriptor<T> descriptor, T record, string terminator)
+    {
+        var writer = new RecordWriter(this, Storage.AsSpan(Committed));
+        descriptor.Format(record, ref writer);
+
+        // Write throws InvalidOperationException when the descriptor replaced the writer with default.
+        writer.Write(terminator.AsSpan());
+        Commit(writer.Position);
+    }
+
+    private void Commit(int length)
+    {
         if ((uint)length > (uint)(Storage.Length - Committed))
             throw new InvalidOperationException("The record writer does not belong to this buffer.");
         Committed += length;

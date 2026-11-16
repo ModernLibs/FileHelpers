@@ -817,8 +817,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
 
         TotalRecords = 0;
         using var sw = WriteFraming.OpenAppender(filePath, Encoding, NewLineForWrite);
-        int initialSize = Math.Max(4096, _descriptor.Fields.Length * 64);
-        using var buf = new RentedBufferWriter(initialSize);
+        using var buf = new RentedBufferWriter(InitialBufferSize);
 
         if (!WriteRecordText(sw, record, recordNumber: 1, buf))
             return;
@@ -1241,7 +1240,10 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     /// per session, emits optional <see cref="HeaderText"/>, formats each record into it (through
     /// <see cref="IRecordWriterDescriptor{T}"/> when the descriptor has it, otherwise through
     /// <see cref="IRecordDescriptor{T}.Format(T, IBufferWriter{char})"/>) followed by
-    /// <see cref="NewLineForWrite"/>, and emits optional <see cref="FooterText"/>.
+    /// <see cref="NewLineForWrite"/>, and emits optional <see cref="FooterText"/>. Into a
+    /// <see cref="PooledStringWriter"/> (<c>WriteString</c>), a record writer without an <see cref="AfterWriteRecord"/>
+    /// handler and <see cref="INotifyWrite{T}"/> formats each record straight into the string chunk instead (P5,
+    /// <see cref="WriteRecordsInPlace"/>).
     /// </summary>
     // MA0051: single write pipeline kept together for readability.
 #pragma warning disable MA0051
@@ -1249,21 +1251,25 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     {
         TotalRecords = 0;
 
-        // Initial buffer size: at least 4096 chars, or 64 chars per field for wide records.
-        int initialSize = Math.Max(4096, _descriptor.Fields.Length * 64);
-        using var buf = new RentedBufferWriter(initialSize);
-
         // Header (write pipeline only).
         if (includeHeaderFooter)
             WriteFraming.WriteFrame(writer, HeaderText, NewLineForWrite);
 
         int count = 0;
-        foreach (var record in records)
+        if (writer is PooledStringWriter chunks && _writerDescriptor is not null && AfterWriteRecord is null && !_implementsNotifyWrite)
         {
-            if (!WriteRecordText(writer, record, count + 1, buf))
-                continue;
-            writer.Write(NewLineForWrite); // The engine, not the descriptor, writes the record terminator.
-            count++;
+            count = WriteRecordsInPlace(chunks, records);
+        }
+        else
+        {
+            using var buf = new RentedBufferWriter(InitialBufferSize);
+            foreach (var record in records)
+            {
+                if (!WriteRecordText(writer, record, count + 1, buf))
+                    continue;
+                writer.Write(NewLineForWrite); // The engine, not the descriptor, writes the record terminator.
+                count++;
+            }
         }
 
         // Footer.
@@ -1273,6 +1279,62 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
         TotalRecords = count;
     }
 #pragma warning restore MA0051
+
+    /// <summary>The initial size of the record buffer: at least 4096 chars, or 64 chars per field for wide records.</summary>
+    private int InitialBufferSize => Math.Max(4096, _descriptor.Fields.Length * 64);
+
+    /// <summary>
+    /// The record loop of <see cref="WriteCore"/> into a <see cref="PooledStringWriter"/> (P5): each record and its
+    /// terminator are formatted straight into the string chunk by <see cref="WriteRecordInPlace"/>.
+    /// </summary>
+    private int WriteRecordsInPlace(PooledStringWriter target, IEnumerable<T> records)
+    {
+        RentedBufferWriter? buf = null; // Only for records after an AfterWriteRecord handler was added during the write.
+        try
+        {
+            int count = 0;
+            foreach (var record in records)
+            {
+                if (WriteRecordInPlace(target, record, count + 1, ref buf))
+                    count++;
+            }
+
+            return count;
+        }
+        finally
+        {
+            buf?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Raises <see cref="BeforeWriteRecord"/> and formats <paramref name="record"/> and <see cref="NewLineForWrite"/>
+    /// into the current chunk of <paramref name="target"/>; <see langword="false"/> when the event skipped it. Both are
+    /// committed only when <c>Format</c> returns, so a record that throws adds nothing. When a handler added
+    /// <see cref="AfterWriteRecord"/> during the write, the record takes the path of <see cref="WriteRecordText"/>.
+    /// </summary>
+    // .NET 11 Tier1 inlines this into the write loop and then stops inlining the writer's Write (dotnet/runtime#137552).
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private bool WriteRecordInPlace(PooledStringWriter target, T record, int recordNumber, ref RentedBufferWriter? buf)
+    {
+        if (!RaiseBeforeWrite(record, recordNumber))
+            return false;
+
+        if (AfterWriteRecord is null)
+        {
+            RecordWriteBuffer chunk = target.RecordBuffer;
+            chunk.NewLine = NewLineForWrite;
+            chunk.FormatLine(_writerDescriptor!, record, NewLineForWrite);
+            target.RecordsFormattedInPlace++;
+            return true;
+        }
+
+        buf ??= new RentedBufferWriter(InitialBufferSize);
+        string? eventLine = FormatAndRaiseAfterWrite(record, recordNumber, buf);
+        target.Write(eventLine is not null ? eventLine.AsSpan() : buf.WrittenSpan);
+        target.Write(NewLineForWrite.AsSpan()); // The engine, not the descriptor, writes the record terminator.
+        return true;
+    }
 
     /// <summary>Characters <see cref="WriteCoreAsync"/> buffers before it writes them as one block.</summary>
     private const int AsyncFlushThreshold = 16 * 1024;
@@ -1286,8 +1348,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
         cancellationToken.ThrowIfCancellationRequested();
         TotalRecords = 0;
 
-        int initialSize = Math.Max(4096, _descriptor.Fields.Length * 64);
-        using var buf = new RentedBufferWriter(initialSize);
+        using var buf = new RentedBufferWriter(InitialBufferSize);
         using var pending = new RentedBufferWriter(2 * AsyncFlushThreshold);
 
         WriteFraming.WriteFrame(pending, HeaderText, NewLineForWrite);

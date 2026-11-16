@@ -198,6 +198,10 @@ public sealed class GeneratedCodeWarningTests
         foreach (string mode in (string[])["AlwaysQuoted", "OptionalForRead", "OptionalForWrite", "OptionalForBoth"])
             shapes.Add(QuotedShapes(mode));
 
+        // The tokenized bodies (T17): every QuoteMode with trim and not-empty, custom converters on a recyclable record.
+        shapes.Add(TokenizedEmissionTests.QuotedShape);
+        shapes.Add(TokenizedEmissionTests.RecyclableShape);
+
         var source = new StringBuilder();
         source.AppendLine("using System;");
         source.AppendLine("using System.Diagnostics.CodeAnalysis;");

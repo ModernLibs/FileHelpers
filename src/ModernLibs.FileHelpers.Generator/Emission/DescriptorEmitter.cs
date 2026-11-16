@@ -21,6 +21,7 @@ internal static class DescriptorEmitter
 {
     private const string Converters = "global::ModernLibs.FileHelpers.Converters.";
     private const string Memory = "global::System.MemoryExtensions.";
+    private const string Parsing = "global::ModernLibs.FileHelpers.RecordParsing.";
     private const string ConverterHolder = "__Conv";
 
     /// <summary>
@@ -76,9 +77,17 @@ internal static class DescriptorEmitter
         // IRecyclableDescriptor<T> (ParseInto) needs every stored member to have a regular setter.
         bool supportsParseInto = isReferenceType && !model.UseConstructor && AllStoredFieldsSettable(fields);
 
+        // ITokenizedDescriptor<T> (design 4.4): delimited records with one line per record and at least one field,
+        // with or without quoted fields (freeze F-10). The runtime decides per record type whether it calls it.
+        bool tokenized = string.Equals(model.RecordKind, "Delimited", StringComparison.Ordinal)
+            && ExpectedLineCount(fields) == 1
+            && fields.Length > 0;
+
         string implements = supportsParseInto
             ? $" : global::ModernLibs.FileHelpers.IRecyclableDescriptor<{fqType}>"
             : $" : global::ModernLibs.FileHelpers.IRecordDescriptor<{fqType}>";
+        if (tokenized)
+            implements += $", global::ModernLibs.FileHelpers.ITokenizedDescriptor<{fqType}>";
         string descriptorName = $"__{model.TypeName}Descriptor";
 
         sb.AppendLine(GeneratedCodeAttribute);
@@ -93,9 +102,6 @@ internal static class DescriptorEmitter
         EmitConverterHolder(sb, plans);
         EmitTrimCharSets(sb, model);
 
-        EmitConversionErrorHelpers(sb, model);
-        EmitWriteHelpers(sb);
-
         EmitParseBody(sb, model, fqType, plans);
         sb.AppendLine();
 
@@ -105,8 +111,21 @@ internal static class DescriptorEmitter
             sb.AppendLine();
         }
 
+        if (tokenized)
+        {
+            EmitTryParseBody(sb, model, fqType, plans, into: false);
+            sb.AppendLine();
+            if (supportsParseInto)
+            {
+                EmitTryParseBody(sb, model, fqType, plans, into: true);
+                sb.AppendLine();
+            }
+        }
+
+        // The write side follows every read body; its helpers come after Format.
         EmitFormatBody(sb, model, fqType, plans);
         sb.AppendLine();
+        EmitWriteHelpers(sb);
 
         sb.AppendLine("    public global::System.ReadOnlySpan<global::ModernLibs.FileHelpers.FieldDescriptor> Fields =>");
         sb.AppendLine("        new global::System.ReadOnlySpan<global::ModernLibs.FileHelpers.FieldDescriptor>(_fields);");
@@ -425,16 +444,15 @@ internal static class DescriptorEmitter
 
     /// <summary>
     /// Emits the shared parse prologue (line-count check, multi-line split, fixed-length validation,
-    /// quoted-buffer rentals, field splitting, quote strip, trim, not-empty validation and conversions).
-    /// Returns true when the caller must close a try/finally for quote rentals.
+    /// field splitting, quote strip, trim, not-empty validation and conversions). Quoted values are unescaped by
+    /// <c>RecordParsing.Unquote</c> and <c>UnquoteToString</c> (design 4.6): no pooled buffer, no try/finally.
     /// </summary>
-    private static bool EmitParsePrologue(StringBuilder sb, RecordModel model, ConverterPlan?[] plans)
+    private static void EmitParsePrologue(StringBuilder sb, RecordModel model, ConverterPlan?[] plans)
     {
         var fields = model.Fields;
         int expectedLineCount = ExpectedLineCount(fields);
         bool hasMultiLine = expectedLineCount > 1;
         bool isDelimited = string.Equals(model.RecordKind, "Delimited", StringComparison.Ordinal);
-        bool hasQuotedField = HasAnyQuotedField(fields);
 
         // Multi-line records: one physical line per [FieldInNewLine] field plus the first line.
         sb.AppendLine($"        const int __expectedLines = {expectedLineCount}; // 1 + {expectedLineCount - 1} FieldInNewLine fields");
@@ -453,18 +471,6 @@ internal static class DescriptorEmitter
         if (!isDelimited)
             EmitFixedLengthModeValidation(sb, fields, model.FixedMode, hasMultiLine);
 
-        // Each quoted field may rent a char[] for unescaping; returned in finally.
-        if (hasQuotedField)
-        {
-            for (int i = 0; i < fields.Length; i++)
-            {
-                if (fields[i].IsQuoted)
-                    sb.AppendLine($"        char[]? __qRent{i} = null;");
-            }
-            sb.AppendLine("        try");
-            sb.AppendLine("        {");
-        }
-
         if (isDelimited)
             EmitDelimitedFieldSplitting(sb, model, hasMultiLine);
         else
@@ -475,7 +481,7 @@ internal static class DescriptorEmitter
         // trimmed quoted fields are trimmed first so blanks around the quotes do not prevent unquoting.
         if (!isDelimited)
             EmitFieldTrimPass(sb, fields, quotedOnly: true);
-        EmitFieldQuotedStripPass(sb, fields, isDelimited);
+        EmitFieldQuotedStripPass(sb, fields, plans, isDelimited);
         EmitFieldTrimPass(sb, fields);
         EmitFieldNotEmptyValidation(sb, fields);
 
@@ -484,24 +490,8 @@ internal static class DescriptorEmitter
         for (int i = 0; i < fields.Length; i++)
         {
             if (fields[i].IsValueDiscarded) continue;
-            EmitFieldConversion(sb, fields[i], i, plans[i]);
+            EmitFieldConversion(sb, fields[i], i, plans[i], model.TypeName, tokenized: false);
         }
-
-        return hasQuotedField;
-    }
-
-    private static void EmitQuotedFinally(StringBuilder sb, EquatableArray<FieldModel> fields)
-    {
-        sb.AppendLine("        }");
-        sb.AppendLine("        finally");
-        sb.AppendLine("        {");
-        for (int i = 0; i < fields.Length; i++)
-        {
-            if (!fields[i].IsQuoted) continue;
-            sb.AppendLine($"            if (__qRent{i} is not null)");
-            sb.AppendLine($"                global::System.Buffers.ArrayPool<char>.Shared.Return(__qRent{i});");
-        }
-        sb.AppendLine("        }");
     }
 
     private static void EmitParseBody(StringBuilder sb, RecordModel model, string fqType, ConverterPlan?[] plans)
@@ -511,16 +501,14 @@ internal static class DescriptorEmitter
 
         if (model.Fields.Length == 0)
         {
-            EmitConstruction(sb, model, fqType);
+            EmitConstruction(sb, model, fqType, "return ");
             sb.AppendLine("    }");
             return;
         }
 
-        bool hasQuoted = EmitParsePrologue(sb, model, plans);
+        EmitParsePrologue(sb, model, plans);
         sb.AppendLine();
-        EmitConstruction(sb, model, fqType);
-        if (hasQuoted)
-            EmitQuotedFinally(sb, model.Fields);
+        EmitConstruction(sb, model, fqType, "return ");
         sb.AppendLine("    }");
     }
 
@@ -532,25 +520,93 @@ internal static class DescriptorEmitter
         var fields = model.Fields;
         if (fields.Length > 0)
         {
-            bool hasQuoted = EmitParsePrologue(sb, model, plans);
+            EmitParsePrologue(sb, model, plans);
             sb.AppendLine();
-            for (int i = 0; i < fields.Length; i++)
-            {
-                if (fields[i].IsValueDiscarded) continue; // [FieldValueDiscarded]: read, never stored
-                sb.AppendLine($"        existing.{fields[i].Identifier} = __v{i};");
-            }
-            if (hasQuoted)
-                EmitQuotedFinally(sb, fields);
+            EmitMemberAssignments(sb, fields);
         }
         sb.AppendLine("    }");
     }
 
+    /// <summary>Assigns every converted value to its member of <c>existing</c>; discarded members are never assigned.</summary>
+    private static void EmitMemberAssignments(StringBuilder sb, EquatableArray<FieldModel> fields)
+    {
+        for (int i = 0; i < fields.Length; i++)
+        {
+            if (fields[i].IsValueDiscarded) continue; // [FieldValueDiscarded]: read, never stored
+            sb.AppendLine($"        existing.{fields[i].Identifier} = __v{i};");
+        }
+    }
+
     /// <summary>
-    /// Constructs the record. Constructor arguments are emitted in PARAMETER order as named
-    /// arguments (bound by parameter name, never by column position); members that are not bound to the
-    /// constructor are set through an object initializer. Discarded members are never assigned.
+    /// <c>ITokenizedDescriptor&lt;T&gt;.TryParse</c> (<paramref name="into"/> false) or <c>TryParseInto</c> (design 4.4):
+    /// (1) the quote checks of the fields that require a quote on read, the only place that gives the record back,
+    /// before any value is read or converted (freeze F-4); (2) the values from the tokens; (3) the trim, not-empty
+    /// and conversion passes of the legacy body; (4) construction or member assignment. The tokens hold the layout:
+    /// no delimiter, no quote char, no try/finally.
     /// </summary>
-    private static void EmitConstruction(StringBuilder sb, RecordModel model, string fqType)
+    private static void EmitTryParseBody(StringBuilder sb, RecordModel model, string fqType, ConverterPlan?[] plans, bool into)
+    {
+        var fields = model.Fields;
+        sb.AppendLine(into
+            ? $"    public bool TryParseInto(global::System.ReadOnlySpan<char> lines, in global::ModernLibs.FileHelpers.RecordTokens tokens, {fqType} existing)"
+            : $"    public bool TryParse(global::System.ReadOnlySpan<char> lines, in global::ModernLibs.FileHelpers.RecordTokens tokens, out {fqType} result)");
+        sb.AppendLine("    {");
+
+        // 1. AlwaysQuoted and OptionalForWrite need a quoted value. An absent trailing field (index >= Count) is not
+        //    checked: the legacy code reads it as empty.
+        string giveBack = into ? "return false;" : "{ result = default!; return false; }";
+        bool anyCheck = false;
+        for (int i = 0; i < fields.Length; i++)
+        {
+            var field = fields[i];
+            if (!field.IsQuoted || field.QuoteMode is not (0 or 2)) continue;
+            sb.AppendLine($"        if (tokens.Count > {i} && !tokens.IsQuoted({i})) {giveBack}");
+            anyCheck = true;
+        }
+        if (anyCheck) sb.AppendLine();
+
+        // 2. The values the later passes read (a plain string field reads tokens.GetString in its conversion).
+        for (int i = 0; i < fields.Length; i++)
+        {
+            if (fields[i].IsValueDiscarded || IsPlainString(fields[i], plans[i])) continue;
+            sb.AppendLine($"        var __f{i} = tokens.GetValue({i});");
+        }
+
+        // 3. The passes of the legacy body.
+        EmitFieldTrimPass(sb, fields);
+        EmitFieldNotEmptyValidation(sb, fields);
+        sb.AppendLine();
+        for (int i = 0; i < fields.Length; i++)
+        {
+            if (fields[i].IsValueDiscarded) continue;
+            EmitFieldConversion(sb, fields[i], i, plans[i], model.TypeName, tokenized: true);
+        }
+
+        // 4. Construction, or the members after all conversions.
+        sb.AppendLine();
+        if (into)
+            EmitMemberAssignments(sb, fields);
+        else
+            EmitConstruction(sb, model, fqType, "result = ");
+        sb.AppendLine("        return true;");
+        sb.AppendLine("    }");
+    }
+
+    /// <summary>
+    /// A <c>string</c> field that is stored as read: no conversion, no <c>[FieldTrim]</c>, no <c>[FieldNotEmpty]</c>.
+    /// Its string comes straight from the field text: <c>tokens.GetString</c>, or <c>UnquoteToString</c> in the
+    /// quoted branch of the legacy body, with no span local in between.
+    /// </summary>
+    private static bool IsPlainString(FieldModel field, ConverterPlan? plan) =>
+        plan is null && field.ValueKind == FieldValueKind.String && (field.TrimMode ?? 0) == 0 && !field.IsNotEmpty && !field.IsValueDiscarded;
+
+    /// <summary>
+    /// Constructs the record into <paramref name="assign"/> (<c>"return "</c> or <c>"result = "</c>). Constructor
+    /// arguments are emitted in PARAMETER order as named arguments (bound by parameter name, never by column
+    /// position); members that are not bound to the constructor are set through an object initializer. Discarded
+    /// members are never assigned.
+    /// </summary>
+    private static void EmitConstruction(StringBuilder sb, RecordModel model, string fqType, string assign)
     {
         var fields = model.Fields;
         var initializers = new List<string>();
@@ -585,11 +641,11 @@ internal static class DescriptorEmitter
 
         if (initializers.Count == 0)
         {
-            sb.AppendLine(model.UseConstructor ? $"        return {ctor};" : $"        return {ctor}();");
+            sb.AppendLine(model.UseConstructor ? $"        {assign}{ctor};" : $"        {assign}{ctor}();");
             return;
         }
 
-        sb.AppendLine($"        return {ctor}");
+        sb.AppendLine($"        {assign}{ctor}");
         sb.AppendLine("        {");
         for (int i = 0; i < initializers.Count; i++)
             sb.AppendLine($"            {initializers[i]}{(i < initializers.Count - 1 ? "," : string.Empty)}");
@@ -599,9 +655,10 @@ internal static class DescriptorEmitter
     /// <summary>
     /// Emits the conversion of one field into the local <c>__v{i}</c>. Empty / whitespace input for converted fields follows the
     /// FileHelpers 3.x null-value rules (<see cref="GetEmptyFieldStatement"/>); every other failure raises
-    /// <c>ConvertException</c> — never a silent default.
+    /// <c>ConvertException</c> — never a silent default. The same code serves the legacy and the tokenized bodies
+    /// (<paramref name="tokenized"/>); the only difference is how a plain string field gets its string.
     /// </summary>
-    private static void EmitFieldConversion(StringBuilder sb, FieldModel field, int i, ConverterPlan? plan)
+    private static void EmitFieldConversion(StringBuilder sb, FieldModel field, int i, ConverterPlan? plan, string recordTypeName, bool tokenized)
     {
         string fieldVar = $"__f{i}";
         string target = $"__v{i}";
@@ -610,14 +667,20 @@ internal static class DescriptorEmitter
 
         if (plan is null)
         {
-            // string: no conversion, no failure mode.
-            sb.AppendLine($"        {field.FullTypeName} {target} = new string({fieldVar});");
+            // string: no conversion, no failure mode. A plain string field reads its string from the tokens; in the
+            // legacy body a quoted one already got it in the quoted branch of the strip pass.
+            if (tokenized && IsPlainString(field, plan))
+                sb.AppendLine($"        {field.FullTypeName} {target} = tokens.GetString({i});");
+            else if (!tokenized && field.IsQuoted && IsPlainString(field, plan))
+                return;
+            else
+                sb.AppendLine($"        {field.FullTypeName} {target} = {Parsing}CreateString({fieldVar});");
             return;
         }
 
         sb.AppendLine($"        {field.FullTypeName} {target};");
 
-        string emptyStatement = GetEmptyFieldStatement(field, i, target);
+        string emptyStatement = GetEmptyFieldStatement(field, i, target, recordTypeName);
 
         if (plan.Origin == ConverterOrigin.BuiltIn && IsNumericKind(field.ValueKind))
         {
@@ -628,7 +691,7 @@ internal static class DescriptorEmitter
             sb.AppendLine($"        else if ({Memory}IsWhiteSpace({fieldVar}))");
             sb.AppendLine($"            {emptyStatement}");
             sb.AppendLine("        else");
-            sb.AppendLine($"            throw __ConvertError(lines, {fieldVar}, {typeOfExpr}, {nameLit}, null, null);");
+            sb.AppendLine($"            throw {Parsing}ConvertError(lines, {fieldVar}, {typeOfExpr}, {nameLit}, null, null);");
             return;
         }
 
@@ -639,7 +702,7 @@ internal static class DescriptorEmitter
             sb.AppendLine($"        else if ({plan.Expression}.TryParse({fieldVar}, out {plan.ValueType} __p{i}))");
             sb.AppendLine($"            {target} = __p{i};");
             sb.AppendLine("        else");
-            sb.AppendLine($"            throw __ConvertError(lines, {fieldVar}, {typeOfExpr}, {nameLit}, null, null);");
+            sb.AppendLine($"            throw {Parsing}ConvertError(lines, {fieldVar}, {typeOfExpr}, {nameLit}, null, null);");
             return;
         }
 
@@ -670,10 +733,10 @@ internal static class DescriptorEmitter
         sb.AppendLine($"{pad}        }}");
         sb.AppendLine($"{pad}        catch (global::System.Exception __ex{i}) when (__ex{i} is not global::ModernLibs.FileHelpers.BadUsageException)");
         sb.AppendLine($"{pad}        {{");
-        sb.AppendLine($"{pad}            throw __ConverterFailure(lines, {fieldVar}, {typeOfExpr}, {nameLit}, {Literal(converterName)}, __ex{i});");
+        sb.AppendLine($"{pad}            throw {Parsing}ConverterFailure(lines, {fieldVar}, {typeOfExpr}, {nameLit}, {Literal(converterName)}, __ex{i});");
         sb.AppendLine($"{pad}        }}");
         sb.AppendLine($"{pad}        if (!__ok{i})");
-        sb.AppendLine($"{pad}            throw __ConvertError(lines, {fieldVar}, {typeOfExpr}, {nameLit}, null, null);");
+        sb.AppendLine($"{pad}            throw {Parsing}ConvertError(lines, {fieldVar}, {typeOfExpr}, {nameLit}, null, null);");
         if (emptyCondition is not null)
             sb.AppendLine("        }");
     }
@@ -689,7 +752,7 @@ internal static class DescriptorEmitter
     /// reads as null, a non-nullable value type raises <c>NullValueNotFoundException</c>, and a reference
     /// type reads as null.
     /// </summary>
-    private static string GetEmptyFieldStatement(FieldModel field, int fieldIdx, string target)
+    private static string GetEmptyFieldStatement(FieldModel field, int fieldIdx, string target, string recordTypeName)
     {
         if (field.NullValueExpression is not null)
             return $"{target} = {field.NullValueExpression};";
@@ -697,7 +760,7 @@ internal static class DescriptorEmitter
             return $"{target} = null;";
         if (!field.IsValueType)
             return $"{target} = default!;";
-        return $"throw __NullValueNotFound(lines, __f{fieldIdx}, {Literal(field.Name)});";
+        return $"throw {Parsing}NullValueNotFound(lines, __f{fieldIdx}, {Literal(field.Name)}, {Literal(recordTypeName)});";
     }
 
     /// <summary>
@@ -903,7 +966,7 @@ internal static class DescriptorEmitter
             sb.AppendLine("            {");
             sb.AppendLine($"                int __qsQ{i} = {Memory}IndexOf({src}.Slice(__qsPos{i}), {qLit});");
             sb.AppendLine($"                if (__qsQ{i} < 0)");
-            sb.AppendLine($"                    throw new {Bad}(-1, __Column(lines, {src}), {Literal($"The field '{field.Name}' has an unclosed quoted string. Check that every opening {q} has a closing {q} (use {q}{q} for a quote inside the value) or allow multiline values in [FieldQuoted].")});");
+            sb.AppendLine($"                    throw new {Bad}(-1, {Parsing}Column(lines, {src}), {Literal($"The field '{field.Name}' has an unclosed quoted string. Check that every opening {q} has a closing {q} (use {q}{q} for a quote inside the value) or allow multiline values in [FieldQuoted].")});");
             sb.AppendLine($"                __qsPos{i} += __qsQ{i};");
             sb.AppendLine($"                if (__qsPos{i} + 1 < __qsLen{i} && {src}[__qsPos{i} + 1] == {qLit}) {{ __qsPos{i} += 2; continue; }}");
             sb.AppendLine($"                __qsPos{i}++;");
@@ -920,7 +983,7 @@ internal static class DescriptorEmitter
                     sb.AppendLine($"                __qsPos{i}++;");
                 }
                 sb.AppendLine($"            if (__qsPos{i} < __qsLen{i} && !({atDelimiter}))");
-                sb.AppendLine($"                throw new {Bad}(-1, __Column(lines, {src}), {Literal($"The field '{field.Name}' is quoted but the quote char {q} is not just before the separator (You can use [FieldTrim] to avoid this error).")});");
+                sb.AppendLine($"                throw new {Bad}(-1, {Parsing}Column(lines, {src}), {Literal($"The field '{field.Name}' is quoted but the quote char {q} is not just before the separator (You can use [FieldTrim] to avoid this error).")});");
                 sb.AppendLine($"            __qhas{i + 1} = __qsPos{i} < __qsLen{i};");
                 sb.AppendLine($"            __qrem{i + 1} = __qhas{i + 1} ? {src}.Slice(__qsPos{i} + {delim.Length}) : global::System.ReadOnlySpan<char>.Empty;");
             }
@@ -942,8 +1005,8 @@ internal static class DescriptorEmitter
                     sb.AppendLine("            {");
                 }
                 sb.AppendLine($"{indent}if ({Memory}StartsWith({Memory}TrimStart({src}), {Literal(q)}, global::System.StringComparison.Ordinal))");
-                sb.AppendLine($"{indent}    throw new {Bad}(-1, __Column(lines, {src}), {Literal($"The field '{field.Name}' has spaces before the quote char {q}. Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.")});");
-                sb.AppendLine($"{indent}throw new {Bad}(-1, __Column(lines, {src}), {Literal($"The field '{field.Name}' does not begin with the quote char {q}. You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.")});");
+                sb.AppendLine($"{indent}    throw new {Bad}(-1, {Parsing}Column(lines, {src}), {Literal($"The field '{field.Name}' has spaces before the quote char {q}. Use [FieldTrim(TrimMode.Left)] or [FieldTrim(TrimMode.Both)] to allow them.")});");
+                sb.AppendLine($"{indent}throw new {Bad}(-1, {Parsing}Column(lines, {src}), {Literal($"The field '{field.Name}' does not begin with the quote char {q}. You can use [FieldQuoted(QuoteMode.OptionalForRead)] to allow unquoted values.")});");
                 if (alwaysPresent)
                 {
                     sb.AppendLine("        }");
@@ -1098,8 +1161,12 @@ internal static class DescriptorEmitter
         }
     }
 
-    /// <summary>Strips the outer quote wrapper and unescapes doubled quotes (pooled buffer when needed).</summary>
-    private static void EmitFieldQuotedStripPass(StringBuilder sb, EquatableArray<FieldModel> fields, bool isDelimited)
+    /// <summary>
+    /// Strips the outer quote wrapper and unescapes doubled quotes with <c>RecordParsing.Unquote</c> (a new array
+    /// only when the value has a doubled quote). A plain string field (<see cref="IsPlainString"/>) gets its string
+    /// here: <c>UnquoteToString</c> in the quoted branch, <c>CreateString</c> otherwise.
+    /// </summary>
+    private static void EmitFieldQuotedStripPass(StringBuilder sb, EquatableArray<FieldModel> fields, ConverterPlan?[] plans, bool isDelimited)
     {
         for (int i = 0; i < fields.Length; i++)
         {
@@ -1107,48 +1174,27 @@ internal static class DescriptorEmitter
             if (!field.IsQuoted) continue;
 
             string qLit = CharLiteral(field.QuoteChar);
+            bool plainString = IsPlainString(field, plans[i]);
             sb.AppendLine();
             sb.AppendLine($"        // [FieldQuoted] strip + unescape for field '{field.Name}'.");
+            if (plainString)
+                sb.AppendLine($"        {field.FullTypeName} __v{i};");
             sb.AppendLine(isDelimited
                 ? $"        if (__fq{i})"
                 : $"        if (__f{i}.Length >= 2 && __f{i}[0] == {qLit} && __f{i}[__f{i}.Length - 1] == {qLit})");
             sb.AppendLine("        {");
             sb.AppendLine($"            var __qInner{i} = __f{i}.Slice(1, __f{i}.Length - 2);");
-            sb.AppendLine($"            bool __hasDoubled{i} = false;");
-            sb.AppendLine($"            for (int __si{i} = 0; __si{i} < __qInner{i}.Length - 1; __si{i}++)");
-            sb.AppendLine("            {");
-            sb.AppendLine($"                if (__qInner{i}[__si{i}] == {qLit} && __qInner{i}[__si{i} + 1] == {qLit})");
-            sb.AppendLine("                {");
-            sb.AppendLine($"                    __hasDoubled{i} = true;");
-            sb.AppendLine("                    break;");
-            sb.AppendLine("                }");
-            sb.AppendLine("            }");
-            sb.AppendLine($"            if (!__hasDoubled{i})");
-            sb.AppendLine("            {");
-            sb.AppendLine($"                __f{i} = __qInner{i};");
-            sb.AppendLine("            }");
-            sb.AppendLine("            else");
-            sb.AppendLine("            {");
-            sb.AppendLine("                // Rented buffer, returned in the finally block after the value is materialised.");
-            sb.AppendLine($"                var __qBuf{i} = global::System.Buffers.ArrayPool<char>.Shared.Rent(__qInner{i}.Length);");
-            sb.AppendLine($"                __qRent{i} = __qBuf{i};");
-            sb.AppendLine($"                int __qLen{i} = 0;");
-            sb.AppendLine($"                for (int __qi{i} = 0; __qi{i} < __qInner{i}.Length; __qi{i}++)");
-            sb.AppendLine("                {");
-            sb.AppendLine($"                    char __qc{i} = __qInner{i}[__qi{i}];");
-            sb.AppendLine($"                    if (__qc{i} == {qLit} && __qi{i} + 1 < __qInner{i}.Length && __qInner{i}[__qi{i} + 1] == {qLit})");
-            sb.AppendLine("                    {");
-            sb.AppendLine($"                        __qBuf{i}[__qLen{i}++] = {qLit};");
-            sb.AppendLine($"                        __qi{i}++;");
-            sb.AppendLine("                    }");
-            sb.AppendLine("                    else");
-            sb.AppendLine("                    {");
-            sb.AppendLine($"                        __qBuf{i}[__qLen{i}++] = __qc{i};");
-            sb.AppendLine("                    }");
-            sb.AppendLine("                }");
-            sb.AppendLine($"                __f{i} = new global::System.ReadOnlySpan<char>(__qBuf{i}, 0, __qLen{i});");
-            sb.AppendLine("            }");
+            sb.AppendLine(plainString
+                ? $"            __v{i} = {Parsing}UnquoteToString(__qInner{i}, {qLit});"
+                : $"            __f{i} = {Parsing}Unquote(__qInner{i}, {qLit});");
             sb.AppendLine("        }");
+            if (plainString)
+            {
+                sb.AppendLine("        else");
+                sb.AppendLine("        {");
+                sb.AppendLine($"            __v{i} = {Parsing}CreateString(__f{i});");
+                sb.AppendLine("        }");
+            }
         }
     }
 
@@ -1170,6 +1216,7 @@ internal static class DescriptorEmitter
         for (int i = 0; i < fields.Length; i++)
         {
             if (quotedOnly && !fields[i].IsQuoted) continue;
+            if (fields[i].IsValueDiscarded) continue; // never converted or validated
             string method = fields[i].TrimMode switch
             {
                 1 => "Trim",
@@ -1201,57 +1248,9 @@ internal static class DescriptorEmitter
             sb.AppendLine($"        // [FieldNotEmpty] validation for field '{field.Name}'.");
             sb.AppendLine($"        if (__f{i}.IsEmpty || {Memory}IsWhiteSpace(__f{i}))");
             sb.AppendLine("        {");
-            sb.AppendLine($"            throw __ConvertError(lines, __f{i}, typeof({field.UnderlyingTypeName}), {Literal(field.Name)}, \"The value is empty and must be populated.\", null);");
+            sb.AppendLine($"            throw {Parsing}ConvertError(lines, __f{i}, typeof({field.UnderlyingTypeName}), {Literal(field.Name)}, \"The value is empty and must be populated.\", null);");
             sb.AppendLine("        }");
         }
-    }
-
-    /// <summary>
-    /// Helpers that raise <c>ConvertException</c> / <c>NullValueNotFoundException</c> from parse bodies.
-    /// <c>__Column</c> gives the 1-based column of a field from its offset inside the record span (-1 when the
-    /// value is not part of it, for example an unescaped copy). An empty value has no characters to overlap, so
-    /// its position is compared directly; the engines use the column to find the physical line of a field in
-    /// a multi-line record.
-    /// </summary>
-    private static void EmitConversionErrorHelpers(StringBuilder sb, RecordModel model)
-    {
-        sb.AppendLine("    private static int __Column(global::System.ReadOnlySpan<char> lines, global::System.ReadOnlySpan<char> value)");
-        sb.AppendLine("    {");
-        sb.AppendLine($"        if ({Memory}Overlaps(lines, value, out int offset))");
-        sb.AppendLine("            return offset + 1;");
-        sb.AppendLine("        if (!value.IsEmpty)");
-        sb.AppendLine("            return -1;");
-        sb.AppendLine("        nint bytes = global::System.Runtime.CompilerServices.Unsafe.ByteOffset(");
-        sb.AppendLine("            ref global::System.Runtime.InteropServices.MemoryMarshal.GetReference(lines),");
-        sb.AppendLine("            ref global::System.Runtime.InteropServices.MemoryMarshal.GetReference(value));");
-        sb.AppendLine("        return bytes >= 0 && bytes <= (nint)lines.Length * sizeof(char) ? (int)(bytes / sizeof(char)) + 1 : -1;");
-        sb.AppendLine("    }");
-        sb.AppendLine();
-        sb.AppendLine("    private static global::ModernLibs.FileHelpers.ConvertException __ConvertError(global::System.ReadOnlySpan<char> lines, global::System.ReadOnlySpan<char> value, global::System.Type type, string field, string? extra, global::System.Exception? inner) =>");
-        sb.AppendLine("        new(new string(value), type, field, -1, __Column(lines, value), extra, inner);");
-        sb.AppendLine();
-        sb.AppendLine("    private static global::ModernLibs.FileHelpers.NullValueNotFoundException __NullValueNotFound(global::System.ReadOnlySpan<char> lines, global::System.ReadOnlySpan<char> value, string field) =>");
-        sb.AppendLine($"        new(-1, __Column(lines, value), \"No value found for the value type field: '\" + field + \"' Class: '{EscapeString(model.TypeName)}'. You must use the [FieldNullValue] attribute because this is a value type and can't be null or use a Nullable Type instead of the current type.\");");
-        sb.AppendLine();
-
-        bool hasCustomConverter = false;
-        foreach (var field in model.Fields)
-        {
-            if (field.ConverterKind == GeneratorConverterKind.None && field.ConverterTypeName is not null)
-            {
-                hasCustomConverter = true;
-                break;
-            }
-        }
-        if (!hasCustomConverter) return;
-
-        sb.AppendLine("    private static global::ModernLibs.FileHelpers.ConvertException __ConverterFailure(global::System.ReadOnlySpan<char> lines, global::System.ReadOnlySpan<char> value, global::System.Type type, string field, string converter, global::System.Exception ex)");
-        sb.AppendLine("    {");
-        sb.AppendLine("        if (ex is global::ModernLibs.FileHelpers.ConvertException convert)");
-        sb.AppendLine("            return __ConvertError(lines, value, type, field, convert.MessageExtra, convert);");
-        sb.AppendLine("        return __ConvertError(lines, value, type, field, \"Your custom converter: \" + converter + \" throws an \" + ex.GetType().Name + \" with the message: \" + ex.Message, ex);");
-        sb.AppendLine("    }");
-        sb.AppendLine();
     }
 
     // ---------------------------------------------------------------------------------------------

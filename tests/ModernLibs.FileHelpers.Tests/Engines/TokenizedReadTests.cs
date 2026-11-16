@@ -254,9 +254,9 @@ public sealed class TokenizedReadTests
         await Assert.That(Tokenized<TokNewLine>(',')).IsFalse();
         await Assert.That(Tokenized<TokFixed>(',')).IsFalse();
 
-        // The registered (4.10 generated, not yet tokenized) descriptor.
+        // The registered descriptor: generated with ITokenizedDescriptor<T> from T17 on.
         var core = new RecordReadCore<TokPlain>(FileHelperRegistry<TokPlain>.Descriptor, TokensPath);
-        await Assert.That(core.Tokenized).IsFalse();
+        await Assert.That(core.Tokenized).IsTrue();
     }
 
     [Test]
@@ -362,9 +362,9 @@ public sealed class TokenizedReadTests
     }
 
     /// <summary>
-    /// F14: at T15 no generated descriptor implements <see cref="ITokenizedDescriptor{T}"/>, so both paths are the
-    /// legacy one here; the test pins the internal entries. The compared text holds records and errors only; the
-    /// <c>Tokenized</c> flags are asserted apart, so T17 flips only those expected values.
+    /// F14: the generated descriptors implement <see cref="ITokenizedDescriptor{T}"/> from T17 on, so the multi-record
+    /// and master-detail entries take the tokenized path on the default paths. The compared text holds records and
+    /// errors only; the <c>Tokenized</c> flags are asserted apart.
     /// </summary>
     [Test]
     public async Task MultiRecord_And_MasterDetail_Read_The_Same_Records_On_Both_Paths()
@@ -409,8 +409,8 @@ public sealed class TokenizedReadTests
         await Assert.That(multi.Text).IsEqualTo(multiLegacy.Text);
         await Assert.That(multi.Text).Contains("M M|4|second");
         await Assert.That(multi.Text).Contains("error:6:");
-        await Assert.That(multi.MasterTokenized).IsFalse();      // T17: true
-        await Assert.That(multi.DetailTokenized).IsFalse();      // T17: true
+        await Assert.That(multi.MasterTokenized).IsTrue();
+        await Assert.That(multi.DetailTokenized).IsTrue();
         await Assert.That(multiLegacy.MasterTokenized).IsFalse();
         await Assert.That(multiLegacy.DetailTokenized).IsFalse();
 
@@ -418,8 +418,8 @@ public sealed class TokenizedReadTests
         var masterDetailLegacy = ReadMasterDetail(LegacyPath);
         await Assert.That(masterDetail.Text).IsEqualTo(masterDetailLegacy.Text);
         await Assert.That(masterDetail.Text).Contains("  D D|5|b");
-        await Assert.That(masterDetail.MasterTokenized).IsFalse();   // T17: true
-        await Assert.That(masterDetail.DetailTokenized).IsFalse();   // T17: true
+        await Assert.That(masterDetail.MasterTokenized).IsTrue();
+        await Assert.That(masterDetail.DetailTokenized).IsTrue();
         await Assert.That(masterDetailLegacy.MasterTokenized).IsFalse();
         await Assert.That(masterDetailLegacy.DetailTokenized).IsFalse();
 

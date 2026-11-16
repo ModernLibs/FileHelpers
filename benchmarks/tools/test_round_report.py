@@ -495,6 +495,28 @@ class T59Tests(unittest.TestCase):
         self.assertIn("converter call shapes for the write path: Format_WriterDirectCall against Format_GenericHelper", markdown)
         self.assertIn("converter call shapes for the write path: Format_DirectCall against Format_GenericHelper", markdown)
 
+    def test_the_t22_reopening_row_and_the_g5_row(self):
+        cls = NS + "Components.ConverterCallShapeBenchmarks."
+        rows = [bench(cls + m, scaled(1_000), scaled(1_000 * f)) for m, f in
+                (("Format_GenericHelper", 1.0), ("Format_GenericWriter", 1.0), ("Format_WriterDirectCall", 1.1))]
+        write(os.path.join(self.vm, "runtime-410", "050-component-x.json"),
+              doc("/w/bin/net10", "/w/bin/net11-ra-on", "*Components.ConverterCallShapeBenchmarks*", rows))
+        slice_ns = NS + "Components.FixedSliceBenchmarks."
+        rows = [bench(slice_ns + m, scaled(1_000), scaled(1_000 * f)) for m, f in
+                (("Slice_MathMin", 1.0), ("Slice_Direct", 0.9))]
+        write(os.path.join(self.vm, "runtime-410", "051-component-y.json"),
+              doc("/w/bin/net10", "/w/bin/net11-ra-on", "*FixedSliceBenchmarks*", rows))
+        markdown = round_report.build(self.round)
+        row = [l for l in markdown.splitlines()
+               if "Format_WriterDirectCall against Format_GenericWriter" in l and "net11-ra-on" in l]
+        self.assertEqual(len(row), 1)
+        self.assertIn("1.100", row[0])
+        self.assertIn("converter call shapes for the write path: Format_WriterDirectCall against Format_GenericHelper",
+                      markdown)                                             # the existing row is unchanged
+        g5 = [l for l in markdown.splitlines() if "FixedSliceBenchmarks.Slice_Direct against Slice_MathMin" in l]
+        self.assertEqual(len(g5), 2)                                        # net10 and net11-ra-on
+        self.assertTrue(any("0.900" in l for l in g5))
+
     def test_the_base_commit_pairs_have_their_own_section(self):
         glob = "*QuotedFieldsBenchmarks.FileHelpers_ParseAndDiscard"
         write(os.path.join(self.vm, "base-net10", "003-quoted-x.json"), doc(

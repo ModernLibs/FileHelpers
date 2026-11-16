@@ -90,6 +90,9 @@ PATTERN_CHOICES = [
      ["Scan_SpanCreate"]),
     ("2: converter call shapes for the write path", "ConverterCallShapeBenchmarks", "Format_GenericHelper",
      ["Format_GenericWriter", "Format_DirectCall", "Format_WriterDirectCall"]),
+    # Ruling P11/K9 (T22 freeze): the reopening rule reads this row, Format_WriterDirectCall / Format_GenericWriter
+    # at least 1.03 by B4 on both runtimes.
+    ("2 (T22 reopening rule)", "ConverterCallShapeBenchmarks", "Format_GenericWriter", ["Format_WriterDirectCall"]),
     ("3: \"any match first\" block test in the tokenizer", "TokenizerBenchmarks", "Tokenizer_SinglePassVector",
      ["Tokenizer_SinglePassVector_AnyMatchFirst"]),
 ]
@@ -99,6 +102,7 @@ COMPONENTS = [
      ["Tokenizer_SinglePassScalar", "Tokenizer_SinglePassVector", "Tokenizer_SinglePassVector_AnyMatchFirst"]),
     ("UnquoteBenchmarks", "Unquote_Current", ["Unquote_IndexOf"]),
     ("CreateStringBenchmarks", "CreateString_New", ["CreateString_Cached"]),
+    ("FixedSliceBenchmarks", "Slice_MathMin", ["Slice_Direct"]),     # gate G5 (T30) reads this row
     ("FormatOneRecordBenchmarks", "FormatRecord_Current", ["FormatRecord_SingleSpan"]),
 ]
 METHOD_CLASSES = {cls for _, cls, _, _ in PATTERN_CHOICES} | {cls for cls, _, _ in COMPONENTS} | {

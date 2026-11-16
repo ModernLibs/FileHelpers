@@ -266,6 +266,124 @@ public sealed class WriterEmissionTests
             + "    }\n");
     }
 
+    /// <summary>The converters of the two user-converter tests.</summary>
+    private const string UserConverters = """
+        public struct Money { public long Cents; }
+        public sealed class ExplicitMoney : ISpanConverter<Money>
+        {
+            public bool TryParse(ReadOnlySpan<char> s, out Money v) { v = new Money { Cents = long.Parse(s, System.Globalization.CultureInfo.InvariantCulture) }; return true; }
+            bool ISpanConverter<Money>.TryFormat(Money v, Span<char> d, out int w) => v.Cents.TryFormat(d, out w, "'m'0", System.Globalization.CultureInfo.InvariantCulture);
+        }
+        public struct ExplicitMoneyStruct : ISpanConverter<Money>
+        {
+            public bool TryParse(ReadOnlySpan<char> s, out Money v) { v = new Money { Cents = long.Parse(s, System.Globalization.CultureInfo.InvariantCulture) }; return true; }
+            bool ISpanConverter<Money>.TryFormat(Money v, Span<char> d, out int w) => v.Cents.TryFormat(d, out w, "'s'0", System.Globalization.CultureInfo.InvariantCulture);
+        }
+        public sealed class PublicMoney : ISpanConverter<Money>
+        {
+            public bool TryParse(ReadOnlySpan<char> s, out Money v) { v = new Money { Cents = long.Parse(s, System.Globalization.CultureInfo.InvariantCulture) }; return true; }
+            public bool TryFormat(Money v, Span<char> d, out int w) => v.Cents.TryFormat(d, out w, "'p'0", System.Globalization.CultureInfo.InvariantCulture);
+        }
+        """;
+
+    /// <summary>
+    /// T23 fix round 1 (I1, Ruling P24): a converter whose <c>TryFormat</c> implements <c>ISpanConverter&lt;T&gt;</c>
+    /// only explicitly (a class and a struct, also on a nullable field) compiled with 4.9, which called it through a
+    /// constrained generic helper. It still compiles, through the emitted <c>__TryFormat</c>, and writes what 4.9
+    /// wrote: the value of each converter, quoted where the field is quoted, empty for null. A converter with a public
+    /// <c>TryFormat</c> keeps the direct call, and no helper is emitted.
+    /// </summary>
+    [Test]
+    public async Task Explicit_TryFormat_Uses_The_Constrained_Helper()
+    {
+        const string shape = """
+            [DelimitedRecord(",")] public class ExplicitConverted
+            {
+                [FieldConverter(typeof(ExplicitMoney))] public Money A;
+                [FieldConverter(typeof(ExplicitMoneyStruct)), FieldQuoted(QuoteMode.AlwaysQuoted)] public Money B;
+                [FieldConverter(typeof(ExplicitMoney))] public Money? C;
+                [FieldConverter(typeof(PublicMoney))] public Money D;
+            }
+            public static class Probe
+            {
+                public static string Run()
+                {
+                    var engine = new FileHelperEngine<ExplicitConverted> { NewLineForWrite = "\n" };
+                    return engine.WriteString(new[]
+                    {
+                        new ExplicitConverted { A = new Money { Cents = 1 }, B = new Money { Cents = 2 }, C = new Money { Cents = 3 }, D = new Money { Cents = 4 } },
+                        new ExplicitConverted { A = new Money { Cents = 5 }, B = new Money { Cents = 60 }, C = null, D = new Money { Cents = 0 } },
+                    });
+                }
+            }
+            """;
+        string text = await Generate(shape + UserConverters);
+        string body = WriterFormat(text, "ExplicitConverted");
+
+        await Assert.That(body).Contains("while (!__TryFormat<global::ExplicitMoney, global::Money>(__Conv.__conv_field0, record.A, writer.FreeSpan, out __n0))");
+        await Assert.That(body).Contains("while (!__TryFormat<global::ExplicitMoneyStruct, global::Money>(__Conv.__conv_field1, record.B, writer.FreeSpan, out __n1))");
+        await Assert.That(body).Contains("while (!__TryFormat<global::ExplicitMoney, global::Money>(__Conv.__conv_field2, __nv2, writer.FreeSpan, out __n2))");
+        await Assert.That(body).Contains("while (!__Conv.__conv_field3.TryFormat(record.D, writer.FreeSpan, out __n3))");
+        await Assert.That(Regex.Count(text, @"private static bool __TryFormat<TConverter, TValue>\(", RegexOptions.None, Timeout)).IsEqualTo(1);
+        await Assert.That(text).Contains("        where TConverter : global::ModernLibs.FileHelpers.Converters.ISpanConverter<TValue>\n        => converter.TryFormat(value, destination, out charsWritten);\n");
+        await Assert.That(GeneratorHarness.Execute(Usings + shape + UserConverters)).IsEqualTo("m1,\"s2\",m3,p4\nm5,\"s60\",,p0\n");
+
+        const string publicShape = """
+            [DelimitedRecord(",")] public class PublicConverted { [FieldConverter(typeof(PublicMoney))] public Money A; [FieldConverter(typeof(PublicMoney))] public Money? B; }
+            """;
+        string publicText = await Generate(publicShape + UserConverters);
+        await Assert.That(publicText).DoesNotContain("__TryFormat");
+        await Assert.That(WriterFormat(publicText, "PublicConverted")).Contains("while (!__Conv.__conv_field1.TryFormat(__nv1, writer.FreeSpan, out __n1))");
+    }
+
+    /// <summary>
+    /// T23 fix round 1 (I2, Ruling P24): 4.9 gave a user converter a 64-char buffer for its first <c>TryFormat</c>;
+    /// <c>Reserve(64)</c> before the loop keeps that. A converter that copies up to 64 chars without a length test
+    /// (wrong by the interface contract, but it worked in 4.9) writes every record, whatever the free space after the
+    /// field before it. Built-in converters get no <c>Reserve</c>.
+    /// </summary>
+    [Test]
+    public async Task User_Converter_Gets_64_Free_Chars_First()
+    {
+        const string shape = """
+            [DelimitedRecord(",")] public class Unchecked
+            {
+                public string Fill = "";
+                [FieldConverter(typeof(SixtyConverter))] public int Code;
+            }
+            public sealed class SixtyConverter : ISpanConverter<int>
+            {
+                private static readonly string Sixty = new string('x', 60);
+                public bool TryParse(ReadOnlySpan<char> s, out int v) { v = s.Length; return true; }
+                public bool TryFormat(int v, Span<char> d, out int w) { Sixty.AsSpan(0, v).CopyTo(d); w = v; return true; }
+            }
+            public static class Probe
+            {
+                public static string Run()
+                {
+                    var records = new System.Collections.Generic.List<Unchecked>();
+                    for (int i = 3990; i < 4110; i++)
+                        records.Add(new Unchecked { Fill = new string('f', i), Code = 60 });
+                    var engine = new FileHelperEngine<Unchecked> { NewLineForWrite = "\n" };
+                    string text = engine.WriteString(records);
+                    var sb = new System.IO.StringWriter();
+                    engine.WriteStreamAsync(sb, records).GetAwaiter().GetResult();
+                    int expected = 0;
+                    for (int i = 3990; i < 4110; i++)
+                        expected += i + 1 + 60 + 1;
+                    return text.Length == expected && sb.ToString() == text ? "ok" : "length " + text.Length + " expected " + expected;
+                }
+            }
+            """;
+        // The engine buffer starts at 4096 chars: a fill of 4036 chars or more leaves less than 60 free after it. The
+        // converter field is last, so no later field grows the buffer before the next record.
+        await Assert.That(GeneratorHarness.Execute(Usings + shape)).IsEqualTo("ok");
+
+        string body = WriterFormat(await Generate(shape), "Unchecked");
+        await Assert.That(body).Contains("        writer.Reserve(64);\n        int __n1;\n        while (!__Conv.__conv_field1.TryFormat(");
+        await Assert.That(Regex.Count(body, @"writer\.Reserve\(64\);", RegexOptions.None, Timeout)).IsEqualTo(1);
+    }
+
     /// <summary>
     /// The custom converters of <c>RecyclableShape</c>: the cached converter field is the receiver and the argument
     /// of <c>Grow</c>; a <c>ConverterBase</c> value passes with <c>!</c>, as in 4.9.
@@ -278,7 +396,7 @@ public sealed class WriterEmissionTests
         await Assert.That(body).Contains(
             "        while (!__Conv.__conv_field0.TryFormat(record.Upper!, writer.FreeSpan, out __n0))\n"
             + "            writer.Grow(__Conv.__conv_field0);\n");
-        await Assert.That(body).Contains("        while (!__Conv.__conv_field1.TryFormat(record.Price, writer.FreeSpan, out __n1))\n");
+        await Assert.That(body).Contains("        writer.Reserve(64);\n        int __n1;\n        while (!__Conv.__conv_field1.TryFormat(record.Price, writer.FreeSpan, out __n1))\n");
         await Assert.That(body).Contains("        if (record.MaybePrice is { } __nv2)\n");
         await Assert.That(body).Contains("            while (!__Conv.__conv_field2.TryFormat(__nv2, writer.FreeSpan, out __n2))\n");
         await Assert.That(body).DoesNotContain("writer.Position");

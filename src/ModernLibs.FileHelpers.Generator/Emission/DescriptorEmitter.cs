@@ -131,6 +131,7 @@ internal static class DescriptorEmitter
         sb.AppendLine();
         EmitFormatBody(sb, model, fqType, plans);
         sb.AppendLine();
+        EmitConstrainedTryFormat(sb, plans);
 
         sb.AppendLine("    public global::System.ReadOnlySpan<global::ModernLibs.FileHelpers.FieldDescriptor> Fields =>");
         sb.AppendLine("        new global::System.ReadOnlySpan<global::ModernLibs.FileHelpers.FieldDescriptor>(_fields);");
@@ -226,13 +227,14 @@ internal static class DescriptorEmitter
     /// <summary>How a field is converted: the converter expression, its value type and an optional cached instance.</summary>
     private sealed class ConverterPlan
     {
-        public ConverterPlan(string expression, string valueType, bool unwrapNullable, string? declaration, ConverterOrigin origin)
+        public ConverterPlan(string expression, string valueType, bool unwrapNullable, string? declaration, ConverterOrigin origin, string? constrainedTypeArguments = null)
         {
             Expression = expression;
             ValueType = valueType;
             UnwrapNullable = unwrapNullable;
             Declaration = declaration;
             Origin = origin;
+            ConstrainedTypeArguments = constrainedTypeArguments;
         }
 
         /// <summary>Expression evaluating to the <c>ISpanConverter&lt;T&gt;</c> instance.</summary>
@@ -248,6 +250,12 @@ internal static class DescriptorEmitter
         public string? Declaration { get; }
 
         public ConverterOrigin Origin { get; }
+
+        /// <summary>
+        /// <c>TConverter, TValue</c> of <c>__TryFormat</c> when the converter's <c>TryFormat</c> is explicit or not
+        /// public, so the write code cannot call it on the converter type; null for the direct call.
+        /// </summary>
+        public string? ConstrainedTypeArguments { get; }
     }
 
     private enum ConverterOrigin
@@ -278,7 +286,8 @@ internal static class DescriptorEmitter
             {
                 string valueType = field.ConverterTargetsUnderlying ? field.UnderlyingTypeName : field.FullTypeName;
                 return new ConverterPlan(cached, valueType, field.ConverterTargetsUnderlying,
-                    $"{field.ConverterTypeName} __conv_field{index} = new({customArgs})", ConverterOrigin.SpanConverter);
+                    $"{field.ConverterTypeName} __conv_field{index} = new({customArgs})", ConverterOrigin.SpanConverter,
+                    field.ConstrainedTryFormat ? $"{field.ConverterTypeName}, {valueType}" : null);
             }
 
             string adapter = $"{Converters}ConverterBaseAdapter<{field.FullTypeName}>";
@@ -1375,12 +1384,43 @@ internal static class DescriptorEmitter
     /// <see langword="false"/>, then <c>Advance</c>. The converter expression is a static readonly field or a built-in
     /// <c>.Instance</c>, so evaluating it again in the loop is cheap and gives the same converter.
     /// </summary>
+    /// <remarks>
+    /// Two additions for custom converters (a user <c>ISpanConverter&lt;T&gt;</c>; T22 freeze, notes
+    /// of Ruling P24): <c>Reserve(64)</c> first keeps the 4.9 guarantee of at least 64 free chars for the first
+    /// <c>TryFormat</c>; a converter whose <c>TryFormat</c> is explicit or not public is called through
+    /// <c>__TryFormat</c>, the constrained generic helper (no cast, so a struct converter is not boxed).
+    /// </remarks>
     private static void EmitConverterLoop(StringBuilder sb, ConverterPlan plan, string argument, int i, string indent)
     {
+        string call = plan.ConstrainedTypeArguments is null
+            ? $"{plan.Expression}.TryFormat({argument}, writer.FreeSpan, out __n{i})"
+            : $"__TryFormat<{plan.ConstrainedTypeArguments}>({plan.Expression}, {argument}, writer.FreeSpan, out __n{i})";
+        if (plan.Origin == ConverterOrigin.SpanConverter)
+            sb.AppendLine($"{indent}writer.Reserve(64);");
         sb.AppendLine($"{indent}int __n{i};");
-        sb.AppendLine($"{indent}while (!{plan.Expression}.TryFormat({argument}, writer.FreeSpan, out __n{i}))");
+        sb.AppendLine($"{indent}while (!{call})");
         sb.AppendLine($"{indent}    writer.Grow({plan.Expression});");
         sb.AppendLine($"{indent}writer.Advance(__n{i});");
+    }
+
+    /// <summary>
+    /// <c>__TryFormat</c>, emitted only into a descriptor with a converter whose <c>TryFormat</c> the write code cannot
+    /// call on the converter type (<see cref="ConverterPlan.ConstrainedTypeArguments"/>): it calls it through the
+    /// interface constraint, as 4.9's <c>__Format</c> did.
+    /// </summary>
+    private static void EmitConstrainedTryFormat(StringBuilder sb, ConverterPlan?[] plans)
+    {
+        foreach (var plan in plans)
+        {
+            if (plan?.ConstrainedTypeArguments is null)
+                continue;
+
+            sb.AppendLine("    private static bool __TryFormat<TConverter, TValue>(TConverter converter, TValue value, global::System.Span<char> destination, out int charsWritten)");
+            sb.AppendLine("        where TConverter : global::ModernLibs.FileHelpers.Converters.ISpanConverter<TValue>");
+            sb.AppendLine("        => converter.TryFormat(value, destination, out charsWritten);");
+            sb.AppendLine();
+            return;
+        }
     }
 
     // ---------------------------------------------------------------------------------------------

@@ -215,31 +215,40 @@ descriptors do not implement the interface and keep the 4.9 path.
 
 Members added to `IRecordWriterDescriptor<T>` after 4.10.0 come with a default implementation.
 
-From T23 every generated descriptor implements the interface (after its other interfaces) and binds to the members
-above as follows; the 4.9 helpers `__WriteText`, `__WriteQuoted`, `__WriteQuotedField`, `__WritePadded` and
+From T23 every generated descriptor of a valid record implements the interface (after its other interfaces) and
+binds to the members above as follows. The descriptor generated for a record with FileHelpers errors (hidden with
+`[SuppressMessage]` or `RunAnalyzers=false`) implements `IRecordDescriptor<T>` only; every member of it throws, so
+the engines take the legacy path and throw the same `BadUsageException`. the 4.9 helpers `__WriteText`, `__WriteQuoted`, `__WriteQuotedField`, `__WritePadded` and
 `__Format`, the `stackalloc` buffer per field and `ArrayPool<char>` are no longer emitted, nor is the call of
 `RecordFormatting.WriteFieldNewLine`.
 
 | Member | Bound at |
 |---|---|
-| `IRecordWriterDescriptor<T>` in the interface list of every descriptor | `Generate` |
+| `IRecordWriterDescriptor<T>` in the interface list of every descriptor of a valid record | `Generate` |
 | `RecordFormatting.Format<T>`: the whole body of the legacy `Format(T, IBufferWriter<char>)` is `global::ModernLibs.FileHelpers.RecordFormatting.Format(this, record, writer);` | `EmitLegacyFormat` |
-| `Reserve(int)`: first statement of a fixed-length record, with the sum of the field widths | `EmitFormatBody` |
+| `Reserve(int)`: first statement of a fixed-length record, with the sum of the field widths; `Reserve(64)` before the converter loop of a custom `ISpanConverter<T>` field | `EmitFormatBody`, `EmitConverterLoop` |
 | `Write(char)` for a one-char delimiter, `Write(ReadOnlySpan<char>)` for a longer one (a string literal) and for a `string` field (`MemoryExtensions.AsSpan(record.Name)`, empty for `null`) | `EmitDelimiterWrite`, `EmitFieldWrite` |
 | `WriteNewLine()` before a `[FieldInNewLine]` field (after its delimiter) | `EmitFormatBody` |
 | `Position`, read into `int __s{i}` before a quoted, fixed-length or `[FieldAlign]` field only | `EmitFieldWrite` |
 | `FreeSpan`, `Grow(object)`, `Advance(int)`: the converter loop above, with the converter expression (`.Instance` of a built-in converter or the `static readonly` field of the generated holder) as receiver and as argument of `Grow`; for a `Nullable<T>` field the loop and `Advance` are inside `if (record.X is { } __nv{i}) { ... }` | `EmitConverterLoop`, `EmitFieldWrite` |
 | `Quote(int, char, bool, bool, string, string)` after a quoted field, with the arguments of 4.9's `__WriteQuotedField`; `Pad(int, int, int, char, bool, string)` after a fixed-length or `[FieldAlign]` field, with those of `__WritePadded`. Both run for a `null` value too. | `EmitFieldWrite` |
 
-The converter is called directly (`converter.TryFormat(...)`), not through a generic constraint as in 4.9, so its
-`TryFormat` must be callable on the converter type: an explicit-only interface implementation of `TryFormat` does
-not compile (the read side has called `TryParse` this way since 4.8).
+The converter is called directly (`converter.TryFormat(...)`). Two exceptions keep what custom converters had in
+4.9 (T22 freeze, notes of Ruling P24):
+
+- A custom `ISpanConverter<T>` whose `TryFormat` implements the interface only explicitly (or not publicly) is
+  called through `__TryFormat<TConverter, TValue>`, a private static helper with the interface constraint that is
+  emitted only into such a descriptor (no cast, so a struct converter is not boxed). Every converter that compiled
+  with 4.9 compiles with 4.10. (`TryParse` is called on the converter type, as since 4.8.)
+- A custom `ISpanConverter<T>` gets at least 64 free chars for its first `TryFormat`, as the 4.9 stack buffer gave:
+  the emitted loop calls `Reserve(64)` first. Built-in converters and `ConverterBaseAdapter<T>` start from
+  `FreeSpan` as it is.
 
 Tests: `RecordWriterTests` (each member against the 4.9 helpers copied in `LegacyEmittedWriteCopies`),
 `WritePathTests` (every engine writes the same text on the new and the legacy path, with a checking descriptor on
 the `Compat49Matrix` shapes, events and custom newlines; the engines of the public constructors choose the record
 writer of a generated descriptor; 4.8 and 4.9 descriptors still get a `RentedBufferWriter` with `NewLine` set),
-`WriterEmissionTests` (the emitted text), `Compat49Tests` (the 4.9.1 descriptors against the generated ones and
+`WriterEmissionTests` (the emitted text; an explicit `TryFormat`; a converter without a length test), `Compat49Tests` (the 4.9.1 descriptors against the generated ones and
 Golden49; the record writer against the legacy writer on the matrix), `GeneratedCodeContractTests` and the fuzz
 target `paths-switch` (the switch).
 

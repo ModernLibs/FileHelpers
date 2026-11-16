@@ -35,6 +35,7 @@ internal static class PrototypeCheck
             Console.WriteLine($"// Tokenizer_*: the four tokenizers give the same field ends on {CheckTokenizers(dir)} lines.");
             Console.WriteLine($"// Scan_SpanCreate: equals Scan_LoadUnsafe on {CheckScan(dir)} lines.");
             Console.WriteLine($"// Unquote_Helper, UnquoteToString_Helper and CreateString_Helper: {CheckReadHelpers()} setups compared every string with the reference.");
+            Console.WriteLine($"// Slice_Direct: equals Slice_MathMin (class and struct) on {CheckFixedSlices()} lines, and throws on a line of the wrong width.");
             return 0;
         }
         catch (Exception e)
@@ -185,6 +186,39 @@ internal static class PrototypeCheck
             setups++;
         }
         return setups;
+    }
+
+    /// <summary>
+    /// Slice_Direct and Slice_MathMin give the same twelve values, as class and as struct, on every seeded line; the
+    /// direct shape throws on a line that is too short or too long, where only the Math.Min shape slices it.
+    /// </summary>
+    private static int CheckFixedSlices()
+    {
+        string[] lines = FixedSliceBenchmarks.MakeLines();
+        foreach (var record in Enum.GetValues<FixedSliceRecord>())
+        {
+            for (int i = 0; i < lines.Length; i++)
+            {
+                int[] expected = FixedSliceBenchmarks.ParseMathMin(record, lines[i]);
+                int[] actual = FixedSliceBenchmarks.ParseDirect(record, lines[i]);
+                DataCheck.That(expected.AsSpan().SequenceEqual(actual), $"Slice_Direct ({record}) line {i} differs from Slice_MathMin");
+            }
+
+            foreach (string wrong in new[] { lines[0][..^1], lines[0] + "X" })
+            {
+                bool threw = false;
+                try
+                {
+                    FixedSliceBenchmarks.ParseDirect(record, wrong);
+                }
+                catch (InvalidOperationException)
+                {
+                    threw = true;
+                }
+                DataCheck.That(threw, $"Slice_Direct ({record}) accepted a line of {wrong.Length} characters");
+            }
+        }
+        return lines.Length;
     }
 
     /// <summary>Scan_SpanCreate and Scan_LoadUnsafe give the same result on every line of every dataset and on random lines.</summary>

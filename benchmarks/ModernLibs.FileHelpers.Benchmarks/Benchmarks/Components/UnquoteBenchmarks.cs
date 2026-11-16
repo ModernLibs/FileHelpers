@@ -23,13 +23,21 @@ public enum UnquoteSet
 /// scalar search for a doubled quote, then, when there is one, a scalar copy into a rented buffer, then
 /// <c>new string</c>. <see cref="Unquote_IndexOf"/> is the R3 helper of design 4.6 (<c>UnquoteToString</c>): an
 /// <c>IndexOf</c> test, and with a doubled quote one <c>string.Create</c> that copies the blocks between quotes, with
-/// no intermediate buffer. Both return the total length of the strings; each setup compares every string with
+/// no intermediate buffer. <see cref="UnquoteToString_Helper"/> is the shipped <c>RecordParsing.UnquoteToString</c>;
+/// <see cref="Unquote_Helper"/> is the shipped <c>RecordParsing.Unquote</c>, which returns a span and creates no
+/// string. Every method except <see cref="Unquote_Helper"/> returns the total length of the strings; that one returns
+/// the total length of the spans. Each setup compares every result with
 /// <c>Replace("\"\"", "\"")</c> of the input. <see cref="Values"/> selects all quoted values or only those with a doubled
 /// quote, so a result for doubled quotes alone can be read without the mix.
 /// <para>
 /// <c>UnquoteCurrent</c> has one <c>try/finally</c> per value; the generated parser has one per record for all its
 /// quoted fields. That costs <c>Unquote_Current</c> a little more than the emitted code pays, in favour of
 /// <c>Unquote_IndexOf</c>.
+/// </para>
+/// <para>
+/// Acceptance (freeze S1) for the string path is judged on <see cref="UnquoteToString_Helper"/> against
+/// <see cref="Unquote_Current"/>. <see cref="Unquote_Helper"/> is informative only: it does not create a string, so
+/// its ratio to <see cref="Unquote_Current"/> is not a like-for-like comparison.
 /// </para>
 /// </remarks>
 [MemoryDiagnoser]
@@ -132,7 +140,11 @@ public class UnquoteBenchmarks
         return length;
     }
 
-    /// <summary>The shipped R3 helper <see cref="RecordParsing.Unquote"/>, measured as the length of the returned span.</summary>
+    /// <summary>
+/// The shipped R3 helper <see cref="RecordParsing.Unquote"/>, measured as the length of the returned span. Informative
+/// only: it creates no string, so it is not comparable to <see cref="Unquote_Current"/>; S1 is judged on
+/// <see cref="UnquoteToString_Helper"/>.
+/// </summary>
     [Benchmark]
     public long Unquote_Helper()
     {

@@ -1,12 +1,9 @@
-// CA1707: Test names use underscores intentionally.
-#pragma warning disable CA1707
-
 using System.Buffers;
 
 namespace ModernLibs.FileHelpers.Tests.Descriptors;
 
 /// <summary>
-/// Verbatim copies of the code the 4.9 generator emits (taken from
+/// Copies, with the locals renamed, of the code the 4.9 generator emits (taken from
 /// <c>Generated49/Compat49QuoteAlways.DelimitedDescriptor.g.cs</c> and <c>Compat49ConverterBase.DelimitedDescriptor.g.cs</c>),
 /// the reference for the hidden read helpers of <see cref="RecordParsing"/>.
 /// </summary>

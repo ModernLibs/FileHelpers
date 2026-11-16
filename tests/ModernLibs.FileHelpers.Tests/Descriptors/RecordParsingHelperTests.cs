@@ -136,6 +136,7 @@ public sealed class RecordParsingHelperTests
         var list = new List<(string, object?, object?)>
         {
             ("Column", RecordParsing.Column(record, value), LegacyEmittedCopies.Column(record, value)),
+            ("Column absolute", RecordParsing.Column(record, value), k switch { 0 => 4, 1 => 12, 2 => 5, _ => -1 }),
         };
 
         var expected = LegacyEmittedCopies.ConvertError(record, value, typeof(int), "Id", "extra", inner);
@@ -165,9 +166,15 @@ public sealed class RecordParsingHelperTests
     [Test]
     public async Task NullValueNotFound_Has_The_Emitted_Text()
     {
-        var ex = RecordParsing.NullValueNotFound("a,b", "a,b".AsSpan(2), "Amount", "Order");
-        await Assert.That(ex.Message).Contains("No value found for the value type field: 'Amount' Class: 'Order'. You must use the [FieldNullValue] attribute because this is a value type and can't be null or use a Nullable Type instead of the current type.");
-        await Assert.That(ex.ColumnNumber).IsEqualTo(3);
+        // A value outside the record has column -1 and line -1, so Message has no "Column: C." prefix and is the text itself.
+        var ex = RecordParsing.NullValueNotFound("a,b", default, "Amount", "Order");
+        await Assert.That(ex.Message).IsEqualTo("No value found for the value type field: 'Amount' Class: 'Order'. You must use the [FieldNullValue] attribute because this is a value type and can't be null or use a Nullable Type instead of the current type.");
+        await Assert.That(ex.ColumnNumber).IsEqualTo(-1);
+
+        // Inside the record, the position prefix of FileHelpersException is added.
+        var inside = RecordParsing.NullValueNotFound("a,b", "a,b".AsSpan(2), "Amount", "Order");
+        await Assert.That(inside.ColumnNumber).IsEqualTo(3);
+        await Assert.That(inside.Message).StartsWith("Column: 3. No value found");
     }
 
     [Test]
@@ -185,6 +192,13 @@ public sealed class RecordParsingHelperTests
         await Assert.That(built.InnerException).IsSameReferenceAs(boom);
         var legacy = LegacyEmittedCopies.ConverterFailure(record, record.AsSpan(2), typeof(int), "Id", "MyConv", boom);
         await Assert.That(built.Message).IsEqualTo(legacy.Message);
+    }
+
+    [Test]
+    public async Task ConverterFailure_With_A_Null_Exception_Throws_ArgumentNullException()
+    {
+        await Assert.That(() => RecordParsing.ConverterFailure("a,b", "a,b".AsSpan(2), typeof(int), "Id", "MyConv", null!))
+            .Throws<ArgumentNullException>();
     }
 
     [Test]

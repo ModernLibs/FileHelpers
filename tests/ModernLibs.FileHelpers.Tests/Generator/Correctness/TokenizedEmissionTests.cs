@@ -146,8 +146,12 @@ public sealed class TokenizedEmissionTests
 
             int tries = Regex.Count(body!, @"\btry\b", RegexOptions.None, Timeout);
             int converterCatches = Regex.Count(body!, @"catch \(global::System\.Exception __ex\d+\) when \(__ex\d+ is not global::ModernLibs\.FileHelpers\.BadUsageException\)", RegexOptions.None, Timeout);
+            int converterCalls = Regex.Count(body!, @"\btry\s*\{\s*__ok\d+ = __Conv\.__conv_field\d+\.TryParse\(", RegexOptions.None, Timeout);
+            int failureThrows = Regex.Count(body!, @"\{\s*throw global::ModernLibs\.FileHelpers\.RecordParsing\.ConverterFailure\(lines, __f\d+, ", RegexOptions.None, Timeout);
             await Assert.That(tries).IsEqualTo(3);
+            await Assert.That(converterCalls).IsEqualTo(tries);
             await Assert.That(converterCatches).IsEqualTo(tries);
+            await Assert.That(failureThrows).IsEqualTo(tries);
         }
     }
 

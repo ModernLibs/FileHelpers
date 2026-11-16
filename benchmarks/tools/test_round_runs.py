@@ -672,6 +672,15 @@ class RoundShRecordTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("error: --resume: measured as 'comparison, 3 launches, not B4", output)
 
+    def test_the_runs_step_passes_every_option_to_round_runs(self):
+        # The fake dotnet stops the script at the build, so step 5 never runs here: check that it hands each option on
+        # (a missing --base-commit made round_runs.py refuse the base pairs after the builds, found by the T59 dry run).
+        with open(os.path.join(self.repo, "benchmarks", "tools", "round.sh"), encoding="utf-8") as f:
+            text = f.read()
+        step5 = text[text.index(step=A/B runs):]
+        for option in ("--base-commit", "--max-rows", "--env", "--compare", "--max-iterations", "--job", "--dry", "--resume"):
+            self.assertIn("runs_args+=(%s" % option, step5)
+
     def test_compare_refuses_launches_and_the_base_pairs_need_a_base_commit(self):
         code, output = self.round_sh("--compare", "--launches", "7", filters="filters-compare.txt")
         self.assertEqual(code, 2)

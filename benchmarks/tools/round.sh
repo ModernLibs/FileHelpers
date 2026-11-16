@@ -387,6 +387,7 @@ echo "checks passed: ${#folders[@]} folders, verify-variant, start-up lines, lib
 step="A/B runs"
 runs_args=(--raw "$raw" --bin "$bin" --src "$src" --filters "$raw/filters.txt" --launches "$launches"
            --checks-cwd "$checks_cwd")
+[[ -z "$base_sha" ]] || runs_args+=(--base-commit "$base_sha")
 [[ -z "$max_rows" ]] || runs_args+=(--max-rows "$max_rows")
 for item in "${env_vars[@]}"; do runs_args+=(--env "$item"); done
 [[ $compare -eq 0 ]] || runs_args+=(--compare)

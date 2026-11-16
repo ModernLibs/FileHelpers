@@ -88,5 +88,72 @@ public sealed class Compat49Tests
         await Assert.That(names.Distinct(StringComparer.Ordinal).Count()).IsEqualTo(19);
         foreach (string name in names)
             await Assert.That(Compat49Inputs.For(name).Count()).IsEqualTo(Compat49Inputs.Kinds.Length);
+        await Assert.That(Compat49Matrix.Paths().Select(p => p.Name)).IsEquivalentTo(names);
+    }
+
+    /// <summary>
+    /// The current descriptor of each shape reads every input of the matrix alike on the default engine (the
+    /// tokenized path when the record type is eligible), the scalar tokenizer and the forced legacy path: records,
+    /// errors, exceptions and engine state (T18). The inputs of <see cref="Compat49Inputs.PathOnly"/> add rows with
+    /// an empty middle field; they are compared path against path only.
+    /// </summary>
+    [Test]
+    [DisplayName("The tokenized, scalar and legacy paths read the matrix inputs alike: $name")]
+    [MethodDataSource(typeof(Compat49Matrix), nameof(Compat49Matrix.Paths))]
+    public async Task Tokenized_Scalar_And_Legacy_Paths_Agree_On_The_Matrix_Inputs(
+        string name, Func<string, string> readDefault, Func<string, string> readScalar, Func<string, string> readLegacy, bool tokenized)
+    {
+        var inputs = Compat49Inputs.For(name).Select((input, i) => (Kind: Compat49Inputs.Kinds[i], Input: input))
+            .Concat(Compat49Inputs.PathOnly(name).Select((input, i) => (Kind: "path-only-" + i, Input: input)))
+            .ToList();
+
+        foreach (var (kind, input) in inputs)
+        {
+            string legacy = readLegacy(input);
+            await Assert.That(readDefault(input)).IsEqualTo(legacy)
+                .Because($"{name} input {kind}: default path (tokenized: {tokenized}) against the legacy path");
+            await Assert.That(readScalar(input)).IsEqualTo(legacy)
+                .Because($"{name} input {kind}: scalar tokenizer against the legacy path");
+        }
+    }
+
+    /// <summary>
+    /// The eligibility rule of T15/T17 (design 4.5), computed from the descriptor's <c>Fields</c> and <c>Options</c>
+    /// alone: delimited, one line per record, a one-char record delimiter, no <c>[FieldDelimiter]</c>, no quoted
+    /// field. It must equal <c>Core.Tokenized</c> of the default engine for every shape; T20 widens the rule.
+    /// </summary>
+    [Test]
+    public async Task The_Matrix_Reaches_The_Tokenized_Path()
+    {
+        var eligible = Compat49Matrix.Twins(Eligibility.Instance).ToList();
+        var tokenized = Compat49Matrix.Paths().ToDictionary(p => p.Name, p => p.Tokenized, StringComparer.Ordinal);
+
+        foreach (var (name, isEligible) in eligible)
+        {
+            await Assert.That(tokenized[name]).IsEqualTo(isEligible).Because($"{name}: Core.Tokenized against the computed rule");
+
+            // Every tokenized shape gets one path-only input per middle field (an empty value of each field type).
+            if (isEligible)
+                await Assert.That(Compat49Inputs.PathOnly(name).Count()).IsEqualTo(Compat49Inputs.FieldCount(name) - 2).Because(name);
+        }
+
+        var names = eligible.Where(e => e.Eligible).Select(e => e.Name).ToList();
+        Console.WriteLine($"Tokenized shapes ({names.Count} of {eligible.Count}): {string.Join(", ", names)}");
+        await Assert.That(names).Contains("Compat49Plain25");
+    }
+
+    private sealed class Eligibility : Compat49Matrix.ITwinVisitor<(string Name, bool Eligible)>
+    {
+        public static readonly Eligibility Instance = new();
+
+        public (string Name, bool Eligible) Visit<T>(string name)
+        {
+            var descriptor = FileHelperRegistry<T>.Descriptor;
+            var options = descriptor.Options;
+            bool eligible = options.Delimiter is { Length: 1 } && options.LineCountPerLogicalRecord <= 1 && options.QuoteChar == '\0';
+            foreach (ref readonly var field in descriptor.Fields)
+                eligible &= !field.IsInNewLine && field.Delimiter is not { Length: > 0 } && field.QuoteChar == '\0';
+            return (name, eligible);
+        }
     }
 }

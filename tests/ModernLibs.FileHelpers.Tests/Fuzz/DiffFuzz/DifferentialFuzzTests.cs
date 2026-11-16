@@ -91,6 +91,71 @@ public sealed class DifferentialFuzzTests
         await Assert.That(result.WithError).IsGreaterThan(0);
     }
 
+    /// <summary>
+    /// Part 2 (T18): the current descriptor of each shape reads the shape-aware input alike on the default engine (the
+    /// tokenized path when the record type is eligible), the forced legacy path and the scalar tokenizer. The
+    /// <c>paths</c> target of the fuzz project runs the same loop with more inputs.
+    /// </summary>
+    [Test]
+    [MethodDataSource(typeof(Compat49Matrix), nameof(Compat49Matrix.Paths))]
+    public async Task Tokenized_And_Legacy_Paths_Agree_On_Shape_Aware_Input(
+        string name, Func<string, string> readDefault, Func<string, string> readScalar, Func<string, string> readLegacy, bool _)
+    {
+        var result = DifferentialLoop.RunShape(name, 2000, seed: 4910, readDefault, readLegacy, readScalar);
+
+        await Assert.That(result.Difference).IsNull();
+        await Assert.That(result.Inputs).IsEqualTo(2000);
+        await Assert.That(result.WithRecord).IsGreaterThan(0);
+    }
+
+    /// <summary>
+    /// The paths loop must see a difference that only the tokenized path makes: a wrapper around the generated
+    /// descriptor of <c>Compat49Plain25Twin</c> whose <c>TryParse</c> upper-cases <c>Authors</c>.
+    /// </summary>
+    [Test]
+    public async Task The_Paths_Loop_Finds_A_Seeded_Difference()
+    {
+        var seeded = new UpperAuthorsDescriptor();
+        var (readDefault, readScalar, readLegacy, tokenized) = Compat49Matrix.PathReadsOf<Compat49Plain25Twin>(
+            seeded, () => new FileHelperEngine<Compat49Plain25Twin>(seeded, System.Text.Encoding.UTF8, EnginePaths.FromSwitches));
+
+        var result = DifferentialLoop.RunShape("Compat49Plain25", 2000, seed: 4910, readDefault, readLegacy, readScalar);
+
+        await Assert.That(tokenized).IsTrue();
+        await Assert.That(result.Difference).IsNotNull();
+        await Assert.That(result.Inputs).IsLessThanOrEqualTo(2000);
+        await Assert.That(result.Difference!).Contains("Authors=\"ALICE\"");
+        await Assert.That(seeded.TryParseCalls).IsGreaterThan(0);
+    }
+
+    /// <summary>The generated descriptor of <see cref="Compat49Plain25Twin"/>, with <c>Authors</c> upper-cased by <see cref="TryParse"/>.</summary>
+    private sealed class UpperAuthorsDescriptor : ITokenizedDescriptor<Compat49Plain25Twin>
+    {
+        private readonly ITokenizedDescriptor<Compat49Plain25Twin> _inner =
+            (ITokenizedDescriptor<Compat49Plain25Twin>)FileHelperRegistry<Compat49Plain25Twin>.Descriptor;
+
+        public int TryParseCalls { get; private set; }
+
+        public ReadOnlySpan<FieldDescriptor> Fields => _inner.Fields;
+
+        public RecordOptions Options => _inner.Options;
+
+        public Compat49Plain25Twin Parse(ReadOnlySpan<char> lines, int lineCount) => _inner.Parse(lines, lineCount);
+
+        public void Format(Compat49Plain25Twin record, System.Buffers.IBufferWriter<char> writer) => _inner.Format(record, writer);
+
+        public Compat49Plain25Twin CreateDefaultInstance() => _inner.CreateDefaultInstance();
+
+        public bool TryParse(ReadOnlySpan<char> record, in RecordTokens tokens, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out Compat49Plain25Twin result)
+        {
+            TryParseCalls++;
+            if (!_inner.TryParse(record, tokens, out result))
+                return false;
+            result.Authors = result.Authors.ToUpperInvariant();
+            return true;
+        }
+    }
+
     [Test]
     public async Task Shape_Input_Is_Deterministic_And_Keeps_The_Valid_Rows_Around_One_Fuzzed_Row()
     {
@@ -199,6 +264,29 @@ public sealed class DifferentialFuzzTests
         await Assert.That(result.Difference).IsNotNull();
         await Assert.That(result.WithRecord).IsEqualTo(1);    // "b" only: "d" is the difference and is not counted
         await Assert.That(result.WithError).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Loop_Compares_The_Third_Read_With_B_Read_Once()
+    {
+        string[] inputs = ["a", "b", "c", "d"];
+        int at = 0, readsOfB = 0;
+        string ReadB(string s)
+        {
+            readsOfB++;
+            return string.Equals(s, "b", StringComparison.Ordinal) ? throw new FormatException("bad " + s) : "record:" + s + "\n";
+        }
+
+        string ReadC(string s) => string.Equals(s, "c", StringComparison.Ordinal) ? "other" : ReadB(s);
+
+        // A and B agree everywhere; C agrees with B on "a" and on "b" (the same exception), not on "c".
+        var result = DifferentialLoop.Run(4, () => inputs[at++], ReadB, ReadB, ReadC, baselineInput: null);
+        int readsOfBByC = 2;                                      // ReadC calls ReadB for "a" and "b"
+        await Assert.That(result.Inputs).IsEqualTo(3);
+        await Assert.That(result.Difference).IsNotNull();
+        await Assert.That(result.Difference!).StartsWith("The third read (C) differs from B");
+        await Assert.That(result.Difference).Contains("record:c");
+        await Assert.That(readsOfB).IsEqualTo((2 * 3) + readsOfBByC);   // A and B once per input, no replay read
     }
 
     [Test]

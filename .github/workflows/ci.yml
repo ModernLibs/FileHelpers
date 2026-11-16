@@ -189,14 +189,21 @@ jobs:
         run: python3 -I -m unittest discover -s benchmarks/tools -p "test_*.py"
 
   # Native AOT: publish the smoke app for each target (ILC warnings are trim/AOT incompatibilities in the
-  # library or the generated descriptors) and run the native binary.
+  # library or the generated descriptors) and run the native binary. One extra net11.0 leg (T18, design 4.7)
+  # publishes with -p:FhAotLegacy=true, which sets ModernLibs.FileHelpers.DisableTokenizedParse in the app's runtime
+  # configuration: the smoke checks then pass on the legacy read path, so the trimmer kept it. That the switch
+  # reaches the runtime is the fuzz target paths-switch's proof (fuzz.yml).
   aot-smoke:
-    name: aot-smoke (${{ matrix.tfm }})
+    name: aot-smoke (${{ matrix.tfm }}${{ matrix.legacy && ', legacy switch' || '' }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         tfm: [net10.0, net11.0]
+        legacy: [false]
+        include:
+          - tfm: net11.0
+            legacy: true
     defaults:
       run:
         shell: bash
@@ -223,17 +230,21 @@ jobs:
       - name: Publish (Native AOT)
         run: |
           set -euo pipefail
-          dotnet publish tests/ModernLibs.FileHelpers.Aot.Tests -c Release -f "${{ matrix.tfm }}" -r linux-x64 -o "out/${{ matrix.tfm }}" 2>&1 | tee publish.log
+          dotnet publish tests/ModernLibs.FileHelpers.Aot.Tests -c Release -f "${{ matrix.tfm }}" -r linux-x64 -o "out/${{ matrix.tfm }}" \
+            -p:FhAotLegacy=${{ matrix.legacy }} 2>&1 | tee publish.log
           if grep -Eq "(warning|error) IL" publish.log; then
             echo "::error::Native AOT publish reported IL warnings (${{ matrix.tfm }})."
             exit 1
           fi
 
       - name: Run native binary
+        env:
+          SWITCH: ${{ matrix.legacy && 'on' || 'off' }}
         run: |
           set -euo pipefail
           "./out/${{ matrix.tfm }}/ModernLibs.FileHelpers.Aot.Tests" | tee aot-run.log
           grep -Eq 'AOT smoke: 9 checks passed' aot-run.log
+          grep -Eqx "legacy-switch=$SWITCH" aot-run.log || { echo "::error::expected legacy-switch=$SWITCH"; exit 1; }
 
       # The Native AOT timing harness of the Step 0 round (T47, BENCHMARKS.md): publishes the 4.9.1 package build
       # and this build for the leg's runtime (the script stops on any ILxxxx diagnostic and checks the compiled-in
@@ -241,6 +252,7 @@ jobs:
       # to time when it differs. Numbers from a CI runner mean nothing (D1): --smoke, 1,000 rows, 3 iterations.
       # --allow-dirty because the steps above write out/ and logs into the checkout.
       - name: AOT timing harness (publish and short run)
+        if: ${{ !matrix.legacy }}
         run: |
           set -euo pipefail
           if [[ "${{ matrix.tfm }}" == net10.0 ]]; then pair=(pkg-net10 net10); else pair=(pkg-net11 net11-ra-on); fi

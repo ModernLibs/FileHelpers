@@ -6,6 +6,11 @@ using ModernLibs.FileHelpers.Aot.Tests;
 string nl = Environment.NewLine;
 int passed = 0;
 
+// The CI legacy leg publishes with -p:FhAotLegacy=true (the csproj sets the switch) and greps legacy-switch=on.
+Console.WriteLine(AppContext.TryGetSwitch("ModernLibs.FileHelpers.DisableTokenizedParse", out bool legacy) && legacy
+    ? "legacy-switch=on"
+    : "legacy-switch=off");
+
 static int Fail(int code, string what, string? got)
 {
     Console.Error.WriteLine($"AOT smoke FAILED check {code}: {what}; got: {got}");

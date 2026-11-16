@@ -7,7 +7,10 @@ namespace ModernLibs.FileHelpers.Tests.Compat;
 /// </summary>
 internal static class Compat49Inputs
 {
-    /// <summary>The rows of one shape. <see cref="Valid"/> may hold rows that some modes reject on purpose.</summary>
+    /// <summary>
+    /// The rows of one shape. <see cref="Valid"/> may hold rows that some modes reject on purpose.
+    /// <see cref="Delimiter"/> is the record delimiter (<c>'\0'</c>: fixed length), used by <see cref="PathOnly"/> only.
+    /// </summary>
     private sealed record Shape(
         int FieldCount,
         string[] Valid,
@@ -16,7 +19,8 @@ internal static class Compat49Inputs
         string[] Bad,
         string Unclosed,
         string? Header = null,
-        string? Footer = null);
+        string? Footer = null,
+        char Delimiter = ',');
 
     private const string Plain25Header =
         "Id,Version,Authors,Description,Tags,DownloadCount,ProjectUrl,LicenseUrl,IconUrl,Language,Framework," +
@@ -97,7 +101,8 @@ internal static class Compat49Inputs
             Short: "3;c",
             Long: "4;d;01/01/2026;1;x",
             Bad: ["5;e;13/01/2026;1", "6;f;01/01/2026;"],
-            Unclosed: "7;\"g;01/01/2026;1"),
+            Unclosed: "7;\"g;01/01/2026;1",
+            Delimiter: ';'),
 
         ["Compat49Ctor"] = new(
             3,
@@ -152,6 +157,33 @@ internal static class Compat49Inputs
         yield return File(s, [.. s.Valid, s.Short, s.Long, .. s.Bad, string.Empty, s.Unclosed, first]); // all together
     }
 
+    /// <summary>
+    /// Inputs read only by the three-path test (T18, ruling F16; never by the Golden49 test): for a delimited shape, the
+    /// first valid row with no quote char and no line break that splits into all its fields on the record delimiter,
+    /// once per middle field with that field empty, after the first valid row and before the valid rows. An empty
+    /// middle value reaches the empty-value code of every field type (value types, converters, strings) on the
+    /// tokenized path. None for the fixed-length shapes and for the shapes whose rows do not split that way.
+    /// </summary>
+    public static IEnumerable<string> PathOnly(string name)
+    {
+        var s = Shapes[name];
+        if (s.Delimiter == '\0')
+            yield break;
+
+        string? row = s.Valid.FirstOrDefault(r =>
+            !r.Contains('"', StringComparison.Ordinal) && !r.Contains('\r', StringComparison.Ordinal) && r.Split(s.Delimiter).Length == s.FieldCount);
+        if (row is null)
+            yield break;
+
+        string[] fields = row.Split(s.Delimiter);
+        for (int i = 1; i < fields.Length - 1; i++)
+        {
+            string[] emptied = (string[])fields.Clone();
+            emptied[i] = string.Empty;
+            yield return File(s, [s.Valid[0], string.Join(s.Delimiter, emptied), .. s.Valid]);
+        }
+    }
+
     /// <summary>The valid rows of the record shape <paramref name="name"/>, without line ends (some modes reject a few on purpose).</summary>
     public static IReadOnlyList<string> ValidRows(string name) => Shapes[name].Valid;
 
@@ -195,7 +227,8 @@ internal static class Compat49Inputs
         Short: Fixed("00004", "Carol", "1.00")[..15],
         Long: Fixed("00005", "Dan", "2.00") + "XYZ",
         Bad: [Fixed("0000x", "Bad", "1.00"), Fixed("00006", "Eve", "1,00"), "12"],
-        Unclosed: Fixed("00007", "\"open", "1.00"));
+        Unclosed: Fixed("00007", "\"open", "1.00"),
+        Delimiter: '\0');
 
     private static string Fixed(string id, string name, string amount) => id + name.PadRight(8) + amount.PadLeft(6);
 }

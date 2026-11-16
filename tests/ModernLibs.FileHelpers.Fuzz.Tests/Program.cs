@@ -1,6 +1,8 @@
 using System;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Text;
 using SharpFuzz;
 using ModernLibs.FileHelpers.Parsing;
@@ -14,33 +16,66 @@ public static class Program
 {
     public static int Main(string[] args)
     {
+        // Target "paths-switch" (Review Focus 8): the switches are set before any code reads them. RuntimeSwitches
+        // reads them once, when the class is first used, so these are the first statements, and Main itself names no
+        // library type: everything else runs in RunTarget, which the JIT compiles after these calls.
+        if (args.Length > 0 && string.Equals(args[0], PathsSwitchTarget, StringComparison.OrdinalIgnoreCase))
+        {
+            AppContext.SetSwitch("ModernLibs.FileHelpers.DisableTokenizedParse", true);
+            AppContext.SetSwitch("ModernLibs.FileHelpers.DisableVectorizedTokenizer", true);
+        }
+
+        return RunTarget(args);
+    }
+
+    private const string PathsSwitchTarget = "paths-switch";
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static int RunTarget(string[] args)
+    {
         if (args.Length == 0)
         {
             Console.WriteLine("Usage: ModernLibs.FileHelpers.Fuzz.Tests <target>");
-            Console.WriteLine("Targets: delimited, spanline, fixedlength, converters, extended [iterations], differential <iterations> [seed]");
+            Console.WriteLine("Targets: delimited, spanline, fixedlength, converters, extended [iterations],");
+            Console.WriteLine("  differential <iterations> [seed] [--shape NAME], paths <iterations> [seed] [--shape NAME],");
+            Console.WriteLine("  paths-switch <iterations>, --list-shapes");
             return 0;
         }
 
         var target = args[0].ToLowerInvariant();
+        if (string.Equals(target, "--list-shapes", StringComparison.Ordinal))
+        {
+            foreach (var shape in Compat49Matrix.All())
+                Console.WriteLine(shape.Name);
+            return 0;
+        }
+
         if (string.Equals(target, "extended", StringComparison.Ordinal))
         {
             int iterations = args.Length > 1 ? int.Parse(args[1], CultureInfo.InvariantCulture) : 10000;
             return ExtendedFuzzRunner.Run(iterations);
         }
 
-        if (string.Equals(target, "differential", StringComparison.Ordinal))
+        if (string.Equals(target, "differential", StringComparison.Ordinal) || string.Equals(target, "paths", StringComparison.Ordinal))
         {
-            int seed = DifferentialSeed;
-            if (args.Length < 2
-                || !int.TryParse(args[1], NumberStyles.None, CultureInfo.InvariantCulture, out int iterations)
-                || iterations < 1
-                || (args.Length > 2 && !int.TryParse(args[2], NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out seed)))
+            if (!TryParseLoopArguments(args, out int iterations, out int seed, out string? shape))
             {
-                Console.Error.WriteLine("Usage: ModernLibs.FileHelpers.Fuzz.Tests differential <iterations (1 or more)> [seed]");
+                Console.Error.WriteLine($"Usage: ModernLibs.FileHelpers.Fuzz.Tests {target} <iterations (1 or more)> [seed] [--shape NAME (see --list-shapes)]");
                 return 2;
             }
 
-            return RunDifferential(iterations, seed);
+            return string.Equals(target, "paths", StringComparison.Ordinal) ? RunPaths(iterations, seed, shape) : RunDifferential(iterations, seed, shape);
+        }
+
+        if (string.Equals(target, PathsSwitchTarget, StringComparison.Ordinal))
+        {
+            if (args.Length != 2 || !int.TryParse(args[1], NumberStyles.None, CultureInfo.InvariantCulture, out int iterations) || iterations < 1)
+            {
+                Console.Error.WriteLine("Usage: ModernLibs.FileHelpers.Fuzz.Tests paths-switch <iterations (1 or more)>");
+                return 2;
+            }
+
+            return RunPathsSwitch(iterations);
         }
 
         Action<Stream> fuzzAction = target switch
@@ -60,7 +95,7 @@ public static class Program
     private const int DifferentialSeed = 4910;
 
     /// <summary>
-    /// For every shape of <see cref="Compat49Matrix"/>, two passes of <see cref="DifferentialLoop"/> with
+    /// For every shape of <see cref="Compat49Matrix"/> (or the one <paramref name="onlyShape"/>), two passes of <see cref="DifferentialLoop"/> with
     /// <paramref name="iterations"/> inputs each, the 4.9.1 descriptor (A) against the current one (B):
     /// <list type="bullet">
     /// <item><c>record</c>: one generated record per input, the loop of
@@ -71,12 +106,15 @@ public static class Program
     /// Stops at the first difference (exit code 1). Prints, per shape and pass, the inputs that gave a record and an
     /// error (for <c>shape</c>: more than the valid rows alone).
     /// </summary>
-    private static int RunDifferential(int iterations, int seed)
+    private static int RunDifferential(int iterations, int seed, string? onlyShape)
     {
-        Console.WriteLine($"Differential fuzz: 4.9.1 descriptor against the current one, {iterations} inputs per shape and pass, seed {seed}");
+        Console.WriteLine($"Differential fuzz: 4.9.1 descriptor against the current one, {iterations} inputs per shape and pass, seed {seed}{ShapeNote(onlyShape)}");
 
         foreach (var (name, readOld, readNew, _, _) in Compat49Matrix.All())
         {
+            if (onlyShape is not null && !string.Equals(name, onlyShape, StringComparison.Ordinal))
+                continue;
+
             var records = new LineGenerator(seed);
             int fieldCount = Compat49Inputs.FieldCount(name);
             var recordPass = DifferentialLoop.Run(iterations, () => records.NextRecord(fieldCount), readOld, readNew);
@@ -104,6 +142,241 @@ public static class Program
 
         Console.WriteLine($"  {name} [{pass}]: {result.Inputs} equal; inputs with a record {result.WithRecord}, with an error {result.WithError}");
         return true;
+    }
+
+    private static string ShapeNote(string? onlyShape) => onlyShape is null ? string.Empty : ", shape " + onlyShape;
+
+    /// <summary><c>&lt;iterations&gt; [seed] [--shape NAME]</c> after the target name; the shape must be one of the matrix.</summary>
+    private static bool TryParseLoopArguments(string[] args, out int iterations, out int seed, out string? shape)
+    {
+        iterations = 0;
+        seed = DifferentialSeed;
+        shape = null;
+        var positional = new List<string>();
+        for (int i = 1; i < args.Length; i++)
+        {
+            if (string.Equals(args[i], "--shape", StringComparison.Ordinal))
+            {
+                if (shape is not null || i + 1 >= args.Length)
+                    return false;
+                shape = args[++i];
+            }
+            else
+            {
+                positional.Add(args[i]);
+            }
+        }
+
+        if (positional.Count is < 1 or > 2
+            || !int.TryParse(positional[0], NumberStyles.None, CultureInfo.InvariantCulture, out iterations)
+            || iterations < 1
+            || (positional.Count == 2 && !int.TryParse(positional[1], NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out seed)))
+        {
+            return false;
+        }
+
+        string? name = shape;
+        return name is null || Compat49Matrix.All().Any(c => string.Equals(c.Name, name, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Part 2 of the differential fuzz (T18): for every shape of <see cref="Compat49Matrix.Paths"/> (or the one
+    /// <paramref name="onlyShape"/>), <paramref name="iterations"/> <see cref="ShapeInput"/> inputs read by the current
+    /// descriptor on the default engine (A: the tokenized path when the record type is eligible), the forced legacy
+    /// path (B) and the scalar tokenizer (C), the loop of
+    /// <c>DifferentialFuzzTests.Tokenized_And_Legacy_Paths_Agree_On_Shape_Aware_Input</c>. Stops at the first
+    /// difference (exit code 1) and prints the input and both results. A run over every shape in which no shape takes
+    /// the tokenized path fails too: it would compare the legacy path with itself.
+    /// </summary>
+    private static int RunPaths(int iterations, int seed, string? onlyShape)
+    {
+        Console.WriteLine($"Paths fuzz: default path (A) and scalar tokenizer (C) against the legacy path (B), {iterations} inputs per shape, seed {seed}{ShapeNote(onlyShape)}");
+
+        var total = Stopwatch.StartNew();
+        int tokenizedShapes = 0;
+        foreach (var (name, readDefault, readScalar, readLegacy, tokenized) in Compat49Matrix.Paths())
+        {
+            if (onlyShape is not null && !string.Equals(name, onlyShape, StringComparison.Ordinal))
+                continue;
+
+            var watch = Stopwatch.StartNew();
+            var result = DifferentialLoop.RunShape(name, iterations, seed, readDefault, readLegacy, readScalar);
+            if (result.Difference is not null)
+            {
+                Console.WriteLine($"DIFFERENCE in {name} at input {result.Inputs} of seed {seed} (A: default path, tokenized {tokenized}; B: legacy path; C: scalar tokenizer)");
+                Console.WriteLine(result.Difference);
+                return 1;
+            }
+
+            if (tokenized)
+                tokenizedShapes++;
+            Console.WriteLine(
+                $"  {name} (tokenized: {tokenized}): {result.Inputs} equal; inputs with a record {result.WithRecord}, with an error {result.WithError}; {watch.Elapsed.TotalSeconds:F1} s");
+        }
+
+        if (onlyShape is null && tokenizedShapes == 0)
+        {
+            Console.WriteLine("FAILED: no shape takes the tokenized path (is ModernLibs.FileHelpers.DisableTokenizedParse set?)");
+            return 1;
+        }
+
+        Console.WriteLine($"Paths fuzz: no difference ({tokenizedShapes} tokenized shapes; {total.Elapsed.TotalSeconds:F1} s)");
+        return 0;
+    }
+
+    /// <summary>
+    /// Review Focus 8, in its own process: <see cref="Main"/> has set <c>DisableTokenizedParse</c> and
+    /// <c>DisableVectorizedTokenizer</c> before any library code ran. Checks that <see cref="RuntimeSwitches"/> sees
+    /// them, that no engine a public constructor or factory makes takes the tokenized path (plain, async,
+    /// multi-record, master-detail and its async twin, for every shape), and reads <paramref name="iterations"/>
+    /// shape-aware inputs per shape through each of them and through <c>ParallelReadFile</c> without an exception;
+    /// the default engine must read them as the forced legacy path does. Exit code 1 on the first failed check.
+    /// </summary>
+    private static int RunPathsSwitch(int iterations)
+    {
+        Console.WriteLine($"Paths switch: DisableTokenizedParse and DisableVectorizedTokenizer set at the start of Main; {iterations} inputs per shape");
+
+        var failures = new List<string>();
+        if (!RuntimeSwitches.DisableTokenizedParse)
+            failures.Add("RuntimeSwitches.DisableTokenizedParse is off");
+        if (!RuntimeSwitches.DisableVectorizedTokenizer)
+            failures.Add("RuntimeSwitches.DisableVectorizedTokenizer is off");
+        if (!EnginePaths.FromSwitches.LegacyParse || !EnginePaths.FromSwitches.ScalarTokenizer)
+            failures.Add($"EnginePaths.FromSwitches is {EnginePaths.FromSwitches}");
+
+        foreach (var (name, readDefault, readScalar, readLegacy, tokenized) in Compat49Matrix.Paths())
+        {
+            if (tokenized)
+                failures.Add($"{name}: new FileHelperEngine<T>().Core.Tokenized is true");
+            var result = DifferentialLoop.RunShape(name, iterations, DifferentialSeed, readDefault, readLegacy, readScalar);
+            if (result.Difference is not null)
+                failures.Add($"{name}: the default engine reads unlike the legacy path at input {result.Inputs}\n{result.Difference}");
+        }
+
+        foreach (string[] shapeFailures in Compat49Matrix.Twins(new SwitchedEngines(iterations)))
+            failures.AddRange(shapeFailures);
+
+        if (failures.Count > 0)
+        {
+            Console.WriteLine($"FAILED: {failures.Count} check(s)");
+            foreach (string failure in failures)
+                Console.WriteLine("  " + failure);
+            return 1;
+        }
+
+        Console.WriteLine("Paths switch: every engine takes the legacy path and reads without an exception");
+        return 0;
+    }
+
+    /// <summary>
+    /// For one shape: the <c>Tokenized</c> flag of every engine kind made by a public constructor or factory, and
+    /// the shape-aware inputs read through each of them (<see cref="ErrorMode.SaveAndContinue"/>) and through
+    /// <c>ParallelReadFile</c> (the inputs one after the other, repeated past two chunks of 64K chars, against a
+    /// sequential read of the same text). Returns the failed checks.
+    /// </summary>
+    private sealed class SwitchedEngines(int iterations) : Compat49Matrix.ITwinVisitor<string[]>
+    {
+        private const int ChunkSize = 65_536;
+
+        private static RecordAction Select(ReadOnlySpan<char> line) =>
+            !line.IsEmpty && line[0] == '1' ? RecordAction.Master : RecordAction.Detail;
+
+        public string[] Visit<T>(string name)
+        {
+            var failures = new List<string>();
+            void Require(bool condition, string what)
+            {
+                if (!condition)
+                    failures.Add($"{name}: {what}");
+            }
+
+            var engine = new FileHelperEngine<T> { ErrorMode = ErrorMode.SaveAndContinue };
+            using var asyncEngine = new FileHelperAsyncEngine<T> { ErrorMode = ErrorMode.SaveAndContinue };
+            var entry = (MultiRecordType<T>)MultiRecordType.For<T>(static _ => true);
+            var multi = new MultiRecordEngine(entry) { ErrorMode = ErrorMode.SaveAndContinue };
+            var masterDetail = new MasterDetailEngine<T, T>(Select) { ErrorMode = ErrorMode.SaveAndContinue };
+            var masterDetailAsync = new MasterDetailAsyncEngine<T, T>(Select) { ErrorMode = ErrorMode.SaveAndContinue };
+
+            Require(!engine.Core.Tokenized, "FileHelperEngine Core.Tokenized is true");
+            Require(!asyncEngine.Core.Tokenized, "FileHelperAsyncEngine Core.Tokenized is true");
+            Require(!entry.Core.Tokenized, "MultiRecordType.For Core.Tokenized is true");
+            Require(!masterDetail.MasterCore.Tokenized && !masterDetail.DetailCore.Tokenized, "MasterDetailEngine MasterCore/DetailCore.Tokenized is true");
+            Require(!masterDetailAsync.MasterCore.Tokenized && !masterDetailAsync.DetailCore.Tokenized, "MasterDetailAsyncEngine MasterCore/DetailCore.Tokenized is true");
+
+            var generator = ShapeInput.CreateGenerator(name, DifferentialSeed);
+            var all = new StringBuilder();
+            for (int i = 0; i < iterations; i++)
+            {
+                string input = ShapeInput.Next(name, generator);
+                all.Append(input);
+                Read(failures, name, "FileHelperEngine", input, () => engine.ReadString(input).Length);
+                Read(failures, name, "FileHelperAsyncEngine", input, () =>
+                {
+                    asyncEngine.BeginReadString(input);
+                    int count = asyncEngine.Count();
+                    asyncEngine.Close();
+                    return count;
+                });
+                Read(failures, name, "MultiRecordEngine", input, () => multi.ReadString(input).Length);
+                Read(failures, name, "MasterDetailEngine", input, () => masterDetail.ReadString(input).Length);
+                Read(failures, name, "MasterDetailAsyncEngine", input, () =>
+                {
+                    using var stream = new MemoryStream(Encoding.UTF8.GetBytes(input));
+                    return masterDetailAsync.ReadAsync(stream).ToBlockingEnumerable().Count();
+                });
+            }
+
+            masterDetailAsync.DisposeAsync().AsTask().GetAwaiter().GetResult();
+
+            int chars = ReadParallel(failures, name, engine, all.ToString());
+            Console.WriteLine($"  {name}: legacy path on 5 engine kinds; {iterations} inputs read through each and {chars} chars through ParallelReadFile");
+            return failures.ToArray();
+        }
+
+        /// <summary><paramref name="text"/> repeated past two chunks, read by <c>ParallelReadFile</c> and sequentially; returns its length.</summary>
+        private static int ReadParallel<T>(List<string> failures, string name, FileHelperEngine<T> engine, string text)
+        {
+            var file = new StringBuilder(text);
+            while (file.Length <= 2 * ChunkSize)
+                file.Append(text);
+            string content = file.ToString();
+            string path = Path.Combine(Path.GetTempPath(), "fh-paths-switch-" + Guid.NewGuid().ToString("N") + ".txt");
+            try
+            {
+                File.WriteAllText(path, content, engine.Encoding);
+                int sequential = engine.ReadString(content).Length;
+                int sequentialErrors = engine.ErrorManager.ErrorCount;
+                Read(failures, name, "ParallelReadFile", "<the inputs repeated>", () =>
+                {
+                    int parallel = engine.ParallelReadFile(path, ChunkSize).Length;
+                    if (parallel != sequential || engine.ErrorManager.ErrorCount != sequentialErrors)
+                    {
+                        failures.Add($"{name}: ParallelReadFile read {parallel} records and {engine.ErrorManager.ErrorCount} errors, "
+                            + $"the sequential read {sequential} and {sequentialErrors}");
+                    }
+
+                    return parallel;
+                });
+            }
+            finally
+            {
+                File.Delete(path);
+            }
+
+            return content.Length;
+        }
+
+        private static void Read(List<string> failures, string name, string engine, string input, Func<int> read)
+        {
+            try
+            {
+                _ = read();
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{name}: {engine} threw {ex.GetType().Name}: {ex.Message} on input \"{input.Replace("\r", "\\r", StringComparison.Ordinal).Replace("\n", "\\n", StringComparison.Ordinal)}\"");
+            }
+        }
     }
 
     public static void FuzzQuoteBalanceScanner(Stream stream)

@@ -49,6 +49,76 @@ internal static class Compat49Matrix
         yield return Case<Compat49SpanConverter, Compat49SpanConverterTwin>();
     }
 
+    /// <summary>The paths of <see cref="Paths"/> other than the default one (design 4.7).</summary>
+    private static readonly EnginePaths ScalarPaths = new(LegacyParse: false, ScalarTokenizer: true, LegacyWriter: false);
+
+    private static readonly EnginePaths LegacyPaths = new(LegacyParse: true, ScalarTokenizer: false, LegacyWriter: false);
+
+    /// <summary>
+    /// For each shape, the current descriptor (the twin) read as <see cref="All"/> reads it, on three code paths: the
+    /// default engine (<c>new FileHelperEngine&lt;T&gt;()</c>: the tokenized path when the record type is eligible),
+    /// the scalar tokenizer, and the forced legacy path (T18). <c>Tokenized</c> is <c>Core.Tokenized</c> of the
+    /// default engine.
+    /// </summary>
+    public static IEnumerable<(string Name, Func<string, string> ReadDefault, Func<string, string> ReadScalar, Func<string, string> ReadLegacy, bool Tokenized)> Paths() =>
+        Twins(PathReads.Instance);
+
+    /// <summary>A generic action on the twin record type of one shape (<see cref="Twins{TResult}"/>).</summary>
+    internal interface ITwinVisitor<out TResult>
+    {
+        /// <param name="name">The shape name: the twin's name without <c>Twin</c>.</param>
+        TResult Visit<T>(string name);
+    }
+
+    /// <summary>The result of <paramref name="visitor"/> for the twin of each shape, in the order of <see cref="All"/>.</summary>
+    internal static IEnumerable<TResult> Twins<TResult>(ITwinVisitor<TResult> visitor)
+    {
+        yield return Visit<Compat49Plain25Twin, TResult>(visitor);
+        yield return Visit<Compat49OptionalTwin, TResult>(visitor);
+        yield return Visit<Compat49PerFieldDelimiterTwin, TResult>(visitor);
+        yield return Visit<Compat49NewLineTwin, TResult>(visitor);
+        yield return Visit<Compat49TrimTwin, TResult>(visitor);
+        yield return Visit<Compat49QuoteAlwaysTwin, TResult>(visitor);
+        yield return Visit<Compat49QuoteOptionalReadTwin, TResult>(visitor);
+        yield return Visit<Compat49QuoteOptionalWriteTwin, TResult>(visitor);
+        yield return Visit<Compat49QuoteOptionalBothTwin, TResult>(visitor);
+        yield return Visit<Compat49MultilineNotAllowTwin, TResult>(visitor);
+        yield return Visit<Compat49RecyclableTwin, TResult>(visitor);
+        yield return Visit<Compat49StructTwin, TResult>(visitor);
+        yield return Visit<Compat49CtorTwin, TResult>(visitor);
+        yield return Visit<Compat49FixedExactTwin, TResult>(visitor);
+        yield return Visit<Compat49FixedMoreTwin, TResult>(visitor);
+        yield return Visit<Compat49FixedLessTwin, TResult>(visitor);
+        yield return Visit<Compat49FixedVariableTwin, TResult>(visitor);
+        yield return Visit<Compat49ConverterBaseTwin, TResult>(visitor);
+        yield return Visit<Compat49SpanConverterTwin, TResult>(visitor);
+    }
+
+    private static TResult Visit<T, TResult>(ITwinVisitor<TResult> visitor) => visitor.Visit<T>(ShapeName(typeof(T)));
+
+    /// <summary>
+    /// The reads of <see cref="Paths"/> over <paramref name="descriptor"/>: <paramref name="createDefault"/> makes the
+    /// default engine, the scalar and the legacy engines use the internal constructor with their
+    /// <see cref="EnginePaths"/>. Tests pass their own descriptor here (a seeded difference).
+    /// </summary>
+    internal static (Func<string, string> ReadDefault, Func<string, string> ReadScalar, Func<string, string> ReadLegacy, bool Tokenized) PathReadsOf<T>(
+        IRecordDescriptor<T> descriptor, Func<FileHelperEngine<T>> createDefault) =>
+        (input => Read(input, createDefault),
+         input => Read(input, () => new FileHelperEngine<T>(descriptor, Encoding.UTF8, ScalarPaths)),
+         input => Read(input, () => new FileHelperEngine<T>(descriptor, Encoding.UTF8, LegacyPaths)),
+         createDefault().Core.Tokenized);
+
+    private sealed class PathReads : ITwinVisitor<(string, Func<string, string>, Func<string, string>, Func<string, string>, bool)>
+    {
+        public static readonly PathReads Instance = new();
+
+        public (string, Func<string, string>, Func<string, string>, Func<string, string>, bool) Visit<T>(string name)
+        {
+            var (readDefault, readScalar, readLegacy, tokenized) = PathReadsOf(FileHelperRegistry<T>.Descriptor, static () => new FileHelperEngine<T>());
+            return (name, readDefault, readScalar, readLegacy, tokenized);
+        }
+    }
+
     /// <summary>The field count of the old and of the new descriptor of each shape.</summary>
     public static IEnumerable<(string Name, int Old, int New)> FieldCounts()
     {

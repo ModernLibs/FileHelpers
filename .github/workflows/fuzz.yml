@@ -6,7 +6,8 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    # Weekly run, Sunday at 00:00 UTC: the same steps as a push, with the run number as the differential seed.
+    # Weekly run, Sunday at 00:00 UTC: the same steps as a push, with the run number as the differential seed, and
+    # the paths target with 1 million inputs per shape in one job per target framework (job paths-weekly).
     # The extended target runs only on a manual (workflow_dispatch) run.
     - cron: '0 0 * * 0'
   workflow_dispatch:
@@ -15,6 +16,11 @@ on:
         description: 'Iterations of the extended fuzz target; also inputs per shape and pass of the differential target when above 20000 (about 33 s per 20000 per target on a dev box; the job stops at 60 minutes: keep it under about 300000)'
         required: false
         default: '10000'
+      big:
+        description: 'Also run the paths target with 10 million inputs per shape: one job per shape and target framework (38 jobs; 5 to 35 minutes each on a dev box)'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -103,6 +109,27 @@ jobs:
             dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests/ -c Release --no-build -f "$tfm" -- differential "$records" ${SEED:+"$SEED"}
           done
 
+      # Differential fuzz, part 2 (T18): for each Compat49 record shape, the current descriptor on the default engine
+      # (the tokenized path when the record type is eligible) and on the scalar tokenizer against the forced legacy
+      # path, 20000 shape-aware inputs per shape, default seed; exits 1 with the input and both results at the first
+      # difference. The weekly run adds 1 million per shape (job paths-weekly).
+      - name: Run paths fuzz target
+        run: |
+          set -euo pipefail
+          for tfm in net10.0 net11.0; do
+            dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests/ -c Release --no-build -f "$tfm" -- paths 20000
+          done
+
+      # The AppContext switches in their own process (Review Focus 8): paths-switch sets DisableTokenizedParse and
+      # DisableVectorizedTokenizer at the start of Main, checks that no engine takes the tokenized path, and reads
+      # 50 inputs per shape through every engine kind and ParallelReadFile.
+      - name: Run paths-switch fuzz target
+        run: |
+          set -euo pipefail
+          for tfm in net10.0 net11.0; do
+            dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests/ -c Release --no-build -f "$tfm" -- paths-switch 50
+          done
+
       # Manual extended run; the iteration count comes from the workflow_dispatch input.
       - name: Run extended fuzz target
         if: github.event_name == 'workflow_dispatch'
@@ -122,3 +149,123 @@ jobs:
           name: fuzz-corpus
           path: tests/ModernLibs.FileHelpers.Fuzz.Tests/FuzzCorpus/
           retention-days: 30
+
+  # Weekly: the paths target with 1 million shape-aware inputs per shape and the run number as seed (D11), one job
+  # per target framework: one framework takes about 23 minutes on a dev box (net11.0), so both do not fit one 60-minute job.
+  paths-weekly:
+    name: Paths fuzz, 1 million per shape (${{ matrix.tfm }})
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        tfm: [net10.0, net11.0]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+          dotnet-version: 10.0.x
+
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Build fuzz project
+        run: dotnet build tests/ModernLibs.FileHelpers.Fuzz.Tests/ --configuration Release -f "${{ matrix.tfm }}"
+
+      - name: Run paths fuzz target
+        env:
+          SEED: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests/ -c Release --no-build -f "${{ matrix.tfm }}" -- paths 1000000 "$SEED"
+
+  # Manual run with the big input (D11, once before the v4.10.0 tag): the shape names for the matrix of paths-big.
+  shapes:
+    name: List the paths fuzz shapes
+    if: github.event_name == 'workflow_dispatch' && inputs.big
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      shapes: ${{ steps.list.outputs.shapes }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+          dotnet-version: 10.0.x
+
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Build fuzz project
+        run: dotnet build tests/ModernLibs.FileHelpers.Fuzz.Tests/ --configuration Release -f net11.0
+
+      # One JSON array of the names that --list-shapes prints, one per line.
+      - name: List shapes
+        id: list
+        run: |
+          set -euo pipefail
+          dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests/ -c Release --no-build -f net11.0 -- --list-shapes > shapes.txt
+          if [ ! -s shapes.txt ]; then echo "::error::--list-shapes printed no shape."; exit 1; fi
+          echo "shapes=$(jq -Rnc '[inputs | select(length > 0)]' shapes.txt)" >> "$GITHUB_OUTPUT"
+
+  # The paths target with 10 million inputs for one shape and one target framework per job (on a dev box 5 to 35
+  # minutes each, Compat49NewLine the longest; one job for all would pass GitHub's 6-hour job limit).
+  paths-big:
+    name: Paths fuzz, 10 million (${{ matrix.shape }}, ${{ matrix.tfm }})
+    needs: shapes
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shape: ${{ fromJSON(needs.shapes.outputs.shapes) }}
+        tfm: [net10.0, net11.0]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+          dotnet-version: 10.0.x
+
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Build fuzz project
+        run: dotnet build tests/ModernLibs.FileHelpers.Fuzz.Tests/ --configuration Release -f "${{ matrix.tfm }}"
+
+      - name: Run paths fuzz target
+        env:
+          SHAPE: ${{ matrix.shape }}
+        run: |
+          set -euo pipefail
+          dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests/ -c Release --no-build -f "${{ matrix.tfm }}" -- paths 10000000 --shape "$SHAPE"

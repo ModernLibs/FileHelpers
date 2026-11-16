@@ -141,10 +141,10 @@ public class UnquoteBenchmarks
     }
 
     /// <summary>
-/// The shipped R3 helper <see cref="RecordParsing.Unquote"/>, measured as the length of the returned span. Informative
-/// only: it creates no string, so it is not comparable to <see cref="Unquote_Current"/>; S1 is judged on
-/// <see cref="UnquoteToString_Helper"/>.
-/// </summary>
+    /// The shipped R3 helper <see cref="RecordParsing.Unquote"/>, measured as the length of the returned span. Informative
+    /// only: it creates no string, so it is not comparable to <see cref="Unquote_Current"/>; S1 is judged on
+    /// <see cref="UnquoteToString_Helper"/>.
+    /// </summary>
     [Benchmark]
     public long Unquote_Helper()
     {

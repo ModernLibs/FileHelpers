@@ -5,6 +5,7 @@
 // CA2007: ConfigureAwait not needed in test code.
 #pragma warning disable CA2007
 
+using System.Globalization;
 using System.Text;
 using ModernLibs.FileHelpers.Tests.Engines.Fixtures;
 using TUnit.Core;
@@ -37,11 +38,12 @@ public sealed class WriteStringChunkTests
     {
         var descriptor = DirectFormats.Line();
         ChunkLine[] records = [.. Enumerable.Range(1, 300).Reverse().Concat(Enumerable.Range(1, 300)).Select(n => Line(n, n))];
+        int newLine = Engine(descriptor, NewPaths).NewLineForWrite.Length;
 
         for (int free = 0; free <= 302; free++)
         {
             // WriteFrame adds the newline: the header fills the first chunk up to `free` chars.
-            string header = new('h', FirstChunk - free - 2);
+            string header = new('h', FirstChunk - free - newLine);
             string expected = Engine(descriptor, LegacyWriterPaths, header).WriteString(records);
             var engine = Engine(descriptor, NewPaths, header);
             var (actual, inPlace) = WriteInPlace(engine, records);
@@ -193,6 +195,55 @@ public sealed class WriteStringChunkTests
         await Assert.That(multiExpected.Length).IsGreaterThan(3 * FirstChunk);
         await Assert.That(masterExpected.Length).IsGreaterThan(3 * FirstChunk);
         await Assert.That(line.WriterFormatCalls + pair.WriterFormatCalls).IsGreaterThan(0);
+
+        // MasterDetailEngine.WriteString hands its PooledStringWriter to the record engines: every record goes in place.
+        using var writer = new PooledStringWriter();
+        new MasterDetailEngine<ChunkPair, ChunkLine>(static _ => RecordAction.Master, pair, line, NewPaths).WriteStream(writer, groups);
+        await Assert.That(writer.ToString()).IsEqualTo(masterExpected);
+        await Assert.That(writer.RecordsFormattedInPlace).IsEqualTo(groups.Sum(g => 1 + g.Details.Count));
+    }
+
+    /// <summary>
+    /// A record that uses <see cref="RecordWriter.Quote"/>, <see cref="RecordWriter.Pad"/> and
+    /// <see cref="RecordWriter.WriteNewLine"/> with the newline <c>"|\n"</c>, after a header that leaves 0 to 80 chars
+    /// free: the chunk end falls inside the quoted field, the padded field and the line breaks, so each of them moves
+    /// the record to a new chunk. The text equals the hand-built one and the T22 path through
+    /// <see cref="RentedBufferWriter"/>.
+    /// </summary>
+    [Test]
+    public async Task Quote_Pad_And_NewLine_Across_A_Chunk_End_Give_The_Same_String()
+    {
+        const string newLine = "|\n";
+        var descriptor = new DirectWriterDescriptor<ChunkLine>(FileHelperRegistry<ChunkLine>.Descriptor, static (ChunkLine record, ref RecordWriter writer) =>
+        {
+            int start = writer.Position;
+            writer.Write(record.Text);
+            writer.Quote(start, '"', always: true, multilineWrite: false, ",", "Text");
+            writer.Write(',');
+            int padStart = writer.Position;
+            writer.Write(record.Text.Length.ToString(CultureInfo.InvariantCulture));
+            writer.Pad(padStart, 8, 2, '0', overflowError: false, "Length");
+            writer.WriteNewLine();
+            writer.Write("end");
+        });
+
+        ChunkLine[] records = [.. Enumerable.Range(1, 40).Select(n => new ChunkLine { Text = Line(n, n).Text.Replace('e', '"') })];
+        string body = string.Concat(records.Select(r =>
+            "\"" + r.Text.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"," + r.Text.Length.ToString("D8", CultureInfo.InvariantCulture) + newLine + "end" + newLine));
+
+        for (int free = 0; free <= 80; free++)
+        {
+            string header = new('h', FirstChunk - free - newLine.Length);
+            var engine = new FileHelperEngine<ChunkLine>(descriptor, Encoding.UTF8, NewPaths) { HeaderText = header, NewLineForWrite = newLine };
+            var (actual, inPlace) = WriteInPlace(engine, records);
+
+            using var t22Path = new StringWriter();
+            engine.WriteStream(t22Path, records);
+
+            await Assert.That(actual).IsEqualTo(header + newLine + body).Because($"{free} chars free");
+            await Assert.That(t22Path.ToString()).IsEqualTo(actual).Because($"{free} chars free");
+            await Assert.That(inPlace).IsEqualTo(records.Length);
+        }
     }
 
     [Test]
@@ -212,7 +263,11 @@ public sealed class WriteStringChunkTests
         long allocated = AllocationProbe.MinAllocated(() => _ = engine.WriteString(records)) - result;
         long legacyAllocated = AllocationProbe.MinAllocated(() => _ = legacyEngine.WriteString(records)) - result;
 
+        // The real guard: any per-record allocation is at least 24 B x 10,000 rows.
         await Assert.That(allocated).IsLessThan(64 * 1024).Because($"{allocated} B; LegacyWriter {legacyAllocated} B");
+
+        // The brief's second bound. Today the difference is one object: the RentedBufferWriter the legacy loop creates
+        // per call and the in-place loop does not (40 B). A legacy loop that creates it lazily fails this assert.
         await Assert.That(allocated).IsLessThan(legacyAllocated).Because($"{allocated} B; LegacyWriter {legacyAllocated} B");
 
         using var writer = new PooledStringWriter();

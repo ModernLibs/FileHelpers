@@ -677,7 +677,7 @@ class RoundShRecordTests(unittest.TestCase):
         # (a missing --base-commit made round_runs.py refuse the base pairs after the builds, found by the T59 dry run).
         with open(os.path.join(self.repo, "benchmarks", "tools", "round.sh"), encoding="utf-8") as f:
             text = f.read()
-        step5 = text[text.index(step=A/B runs):]
+        step5 = text[text.index('step="A/B runs"'):]
         for option in ("--base-commit", "--max-rows", "--env", "--compare", "--max-iterations", "--job", "--dry", "--resume"):
             self.assertIn("runs_args+=(%s" % option, step5)
 

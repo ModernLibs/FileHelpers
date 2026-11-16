@@ -108,6 +108,13 @@ public class CreateStringBenchmarks
         Check(nameof(CreateString_Cached), CreateCached, CreateString_Cached());
     }
 
+    [GlobalSetup(Target = nameof(CreateString_Helper))]
+    public void SetupHelper()
+    {
+        Prepare();
+        Check(nameof(CreateString_Helper), RecordParsing.CreateString, CreateString_Helper());
+    }
+
     [Benchmark(Baseline = true)]
     public long CreateString_New()
     {
@@ -127,6 +134,18 @@ public class CreateStringBenchmarks
         int[] fields = _fields;
         for (int k = 0; k < fields.Length; k += 3)
             length += CreateCached(lines[fields[k]].AsSpan(fields[k + 1], fields[k + 2])).Length;
+        return length;
+    }
+
+    /// <summary>The shipped R4 helper <see cref="RecordParsing.CreateString"/>.</summary>
+    [Benchmark]
+    public long CreateString_Helper()
+    {
+        long length = 0;
+        string[] lines = _lines;
+        int[] fields = _fields;
+        for (int k = 0; k < fields.Length; k += 3)
+            length += RecordParsing.CreateString(lines[fields[k]].AsSpan(fields[k + 1], fields[k + 2])).Length;
         return length;
     }
 

@@ -4,7 +4,7 @@ namespace ModernLibs.FileHelpers.Converters;
 /// Converts <see cref="string"/> fields.
 /// </summary>
 /// <remarks>
-/// <see cref="TryParse"/> allocates one <see cref="string"/> per call — unavoidable for string fields.
+/// <see cref="TryParse"/> allocates one <see cref="string"/> per call, except for an empty value and a single character below 128, which are shared.
 /// <see cref="TryFormat"/> is zero-allocation: it copies characters directly into the destination span.
 /// </remarks>
 public sealed class StringConverter : ISpanConverter<string>
@@ -15,10 +15,10 @@ public sealed class StringConverter : ISpanConverter<string>
     private StringConverter() { }
 
     /// <inheritdoc/>
-    /// <remarks>Allocates one string per call (unavoidable for string fields).</remarks>
+    /// <remarks>Allocates one string per call, except for an empty value and a single character below 128, which are shared.</remarks>
     public bool TryParse(ReadOnlySpan<char> span, out string value)
     {
-        value = new string(span); // unavoidable allocation — documented
+        value = RecordParsing.CreateString(span);
         return true;
     }
 

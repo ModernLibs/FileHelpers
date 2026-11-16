@@ -136,6 +136,10 @@ file.
   A project with `TreatWarningsAsErrors` can fail on upgrade. Fix the layout, or suppress the IDs in the
   project file: `<NoWarn>$(NoWarn);MLFH030;MLFH031;MLFH033</NoWarn>`. See
   [docs/diagnostics.md](docs/diagnostics.md).
+- **Two one-character string field values may now be the same `string` instance.**
+  `StringConverter` returns `string.Empty` for an empty value and one cached instance per character below
+  U+0080 for a one-character value, instead of a new string each time. The values are equal; only code that
+  compares string references or changes string contents through unsafe code can see the difference.
 
 ## [4.9.1] - 2026-11-11
 

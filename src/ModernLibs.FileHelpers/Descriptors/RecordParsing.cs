@@ -1,4 +1,6 @@
 using System.ComponentModel;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace ModernLibs.FileHelpers;
 
@@ -12,6 +14,171 @@ namespace ModernLibs.FileHelpers;
 [EditorBrowsable(EditorBrowsableState.Never)]
 public static class RecordParsing
 {
+    private static readonly string[] s_oneChar = CreateOneCharStrings();
+
+    private static string[] CreateOneCharStrings()
+    {
+        var strings = new string[128];
+        for (int c = 0; c < strings.Length; c++)
+            strings[c] = ((char)c).ToString();
+        return strings;
+    }
+
+    /// <summary>
+    /// Creates the <see cref="string"/> of a field value: <see cref="string.Empty"/> for no characters, a cached
+    /// instance for one character below 128, <c>new string</c> otherwise.
+    /// </summary>
+    /// <param name="value">The characters of the field.</param>
+    /// <returns>A string equal to <paramref name="value"/>; short values may share one instance.</returns>
+    public static string CreateString(ReadOnlySpan<char> value)
+    {
+        if (value.IsEmpty)
+            return string.Empty;
+        if (value.Length == 1 && value[0] < 128)
+            return s_oneChar[value[0]];
+        return new string(value);
+    }
+
+    /// <summary>
+    /// Removes the escape of a quoted value: each doubled <paramref name="quote"/> becomes one; a lone one is kept.
+    /// Scans left to right, as the 4.9 emitted strip loop does.
+    /// </summary>
+    /// <param name="inner">The text between the outer quotes.</param>
+    /// <param name="quote">The quote character of the field.</param>
+    /// <returns><paramref name="inner"/> itself when it holds no doubled quote, otherwise the span of a new array.</returns>
+    public static ReadOnlySpan<char> Unquote(ReadOnlySpan<char> inner, char quote)
+    {
+        int pairs = CountPairs(inner, quote);
+        if (pairs == 0)
+            return inner;
+
+        var result = new char[inner.Length - pairs];
+        CopyUnquoted(inner, quote, result);
+        return result;
+    }
+
+    /// <summary>
+    /// <see cref="Unquote"/> followed by <see cref="CreateString"/>, without an intermediate buffer.
+    /// </summary>
+    /// <param name="inner">The text between the outer quotes.</param>
+    /// <param name="quote">The quote character of the field.</param>
+    /// <returns>The unescaped value as a string.</returns>
+    public static string UnquoteToString(ReadOnlySpan<char> inner, char quote)
+    {
+        int pairs = CountPairs(inner, quote);
+        if (pairs == 0)
+            return CreateString(inner);
+
+        return string.Create(inner.Length - pairs, new UnquoteState(inner, quote), static (destination, state) => CopyUnquoted(state.Source, state.Quote, destination));
+    }
+
+    private readonly ref struct UnquoteState(ReadOnlySpan<char> source, char quote)
+    {
+        public readonly ReadOnlySpan<char> Source = source;
+        public readonly char Quote = quote;
+    }
+
+    /// <summary>Number of doubled quotes, found left to right: a quote followed by a quote is one pair, then scanning resumes after both.</summary>
+    private static int CountPairs(ReadOnlySpan<char> inner, char quote)
+    {
+        int first = inner.IndexOf(quote);
+        if (first < 0)
+            return 0;
+
+        int pairs = 0;
+        for (int at = first; at >= 0;)
+        {
+            int next;
+            if (at + 1 < inner.Length && inner[at + 1] == quote)
+            {
+                pairs++;
+                next = at + 2;
+            }
+            else
+            {
+                next = at + 1;
+            }
+
+            int found = inner.Slice(next).IndexOf(quote);
+            at = found < 0 ? -1 : next + found;
+        }
+
+        return pairs;
+    }
+
+    private static void CopyUnquoted(ReadOnlySpan<char> source, char quote, Span<char> destination)
+    {
+        while (true)
+        {
+            int at = source.IndexOf(quote);
+            if (at < 0)
+            {
+                source.CopyTo(destination);
+                return;
+            }
+
+            source.Slice(0, at + 1).CopyTo(destination);
+            destination = destination.Slice(at + 1);
+            int skip = at + 1 < source.Length && source[at + 1] == quote ? at + 2 : at + 1;
+            source = source.Slice(skip);
+        }
+    }
+
+    /// <summary>
+    /// The 1-based column of <paramref name="value"/> in <paramref name="record"/>, or -1 when the value is not part
+    /// of it (for example an unescaped copy). An empty value has no characters to overlap, so its position is compared directly.
+    /// </summary>
+    /// <param name="record">The record text.</param>
+    /// <param name="value">A slice of <paramref name="record"/>, or any other span.</param>
+    /// <returns>The column, or -1.</returns>
+    public static int Column(ReadOnlySpan<char> record, ReadOnlySpan<char> value)
+    {
+        if (record.Overlaps(value, out int offset))
+            return offset + 1;
+        if (!value.IsEmpty)
+            return -1;
+        nint bytes = Unsafe.ByteOffset(
+            ref MemoryMarshal.GetReference(record),
+            ref MemoryMarshal.GetReference(value));
+        return bytes >= 0 && bytes <= (nint)record.Length * sizeof(char) ? (int)(bytes / sizeof(char)) + 1 : -1;
+    }
+
+    /// <summary>Builds the exception for a value that a converter could not convert.</summary>
+    /// <param name="record">The record text.</param>
+    /// <param name="value">The field value.</param>
+    /// <param name="type">The destination type.</param>
+    /// <param name="field">The field name.</param>
+    /// <param name="extra">Extra information, or <see langword="null"/>.</param>
+    /// <param name="inner">The underlying exception, or <see langword="null"/>.</param>
+    /// <returns>A <see cref="ConvertException"/> with line -1 and the column of <paramref name="value"/>.</returns>
+    public static ConvertException ConvertError(ReadOnlySpan<char> record, ReadOnlySpan<char> value, Type type, string field, string? extra, Exception? inner) =>
+        new(new string(value), type, field, -1, Column(record, value), extra, inner);
+
+    /// <summary>Builds the exception for an empty value of a value-type field without <c>[FieldNullValue]</c>.</summary>
+    /// <param name="record">The record text.</param>
+    /// <param name="value">The field value.</param>
+    /// <param name="field">The field name.</param>
+    /// <param name="recordType">The record type name.</param>
+    /// <returns>A <see cref="NullValueNotFoundException"/> with line -1 and the column of <paramref name="value"/>.</returns>
+    public static NullValueNotFoundException NullValueNotFound(ReadOnlySpan<char> record, ReadOnlySpan<char> value, string field, string recordType) =>
+        new(-1, Column(record, value), "No value found for the value type field: '" + field + "' Class: '" + recordType + "'. You must use the [FieldNullValue] attribute because this is a value type and can't be null or use a Nullable Type instead of the current type.");
+
+    /// <summary>Builds the exception for a custom converter that threw.</summary>
+    /// <param name="record">The record text.</param>
+    /// <param name="value">The field value.</param>
+    /// <param name="type">The destination type.</param>
+    /// <param name="field">The field name.</param>
+    /// <param name="converter">The converter type name.</param>
+    /// <param name="exception">The exception the converter threw.</param>
+    /// <returns>A <see cref="ConvertException"/>; a <see cref="ConvertException"/> thrown by the converter keeps its extra text.</returns>
+    public static ConvertException ConverterFailure(ReadOnlySpan<char> record, ReadOnlySpan<char> value, Type type, string field, string converter, Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        if (exception is ConvertException convert)
+            return ConvertError(record, value, type, field, convert.MessageExtra, convert);
+        return ConvertError(record, value, type, field, "Your custom converter: " + converter + " throws an " + exception.GetType().Name + " with the message: " + exception.Message, exception);
+    }
+
     /// <summary>
     /// Finds the line break that ends the first physical line of a delimited
     /// <see cref="FieldInNewLineAttribute"/> record: the first <c>\r</c> or <c>\n</c> that is not inside a quoted

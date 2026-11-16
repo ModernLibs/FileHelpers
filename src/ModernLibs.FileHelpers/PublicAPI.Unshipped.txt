@@ -27,3 +27,10 @@ ModernLibs.FileHelpers.FileHelperEngine<T>.WriteStreamAsync(System.IO.Stream! st
 ModernLibs.FileHelpers.FileHelperEngine<T>.WriteStreamAsync(System.IO.TextWriter! writer, System.Collections.Generic.IEnumerable<T>! records, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 ModernLibs.FileHelpers.FileHelperAsyncEngine<T>.ReadAsync(System.IO.Stream! stream, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<T>!
 ModernLibs.FileHelpers.FileHelperAsyncEngine<T>.ReadAsync(System.IO.TextReader! reader, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<T>!
+static ModernLibs.FileHelpers.RecordParsing.Column(System.ReadOnlySpan<char> record, System.ReadOnlySpan<char> value) -> int
+static ModernLibs.FileHelpers.RecordParsing.ConvertError(System.ReadOnlySpan<char> record, System.ReadOnlySpan<char> value, System.Type! type, string! field, string? extra, System.Exception? inner) -> ModernLibs.FileHelpers.ConvertException!
+static ModernLibs.FileHelpers.RecordParsing.NullValueNotFound(System.ReadOnlySpan<char> record, System.ReadOnlySpan<char> value, string! field, string! recordType) -> ModernLibs.FileHelpers.NullValueNotFoundException!
+static ModernLibs.FileHelpers.RecordParsing.ConverterFailure(System.ReadOnlySpan<char> record, System.ReadOnlySpan<char> value, System.Type! type, string! field, string! converter, System.Exception! exception) -> ModernLibs.FileHelpers.ConvertException!
+static ModernLibs.FileHelpers.RecordParsing.CreateString(System.ReadOnlySpan<char> value) -> string!
+static ModernLibs.FileHelpers.RecordParsing.Unquote(System.ReadOnlySpan<char> inner, char quote) -> System.ReadOnlySpan<char>
+static ModernLibs.FileHelpers.RecordParsing.UnquoteToString(System.ReadOnlySpan<char> inner, char quote) -> string!

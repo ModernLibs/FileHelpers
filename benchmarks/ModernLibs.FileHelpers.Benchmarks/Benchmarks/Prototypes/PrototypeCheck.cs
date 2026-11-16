@@ -34,6 +34,7 @@ internal static class PrototypeCheck
             Console.WriteLine($"// G2_SingleSpan: WriteString of {PackageRows} records equals G2_Current ({lines} lines).");
             Console.WriteLine($"// Tokenizer_*: the four tokenizers give the same field ends on {CheckTokenizers(dir)} lines.");
             Console.WriteLine($"// Scan_SpanCreate: equals Scan_LoadUnsafe on {CheckScan(dir)} lines.");
+            Console.WriteLine($"// Unquote_Helper, UnquoteToString_Helper and CreateString_Helper: {CheckReadHelpers()} setups compared every string with the reference.");
             return 0;
         }
         catch (Exception e)
@@ -162,6 +163,28 @@ internal static class PrototypeCheck
             for (int k = 0; k < fieldCount; k++)
                 DataCheck.Equal(expected[k], ends[k], $"{name} end of field {k}, {where}");
         }
+    }
+
+    /// <summary>
+    /// The shipped read helpers of <see cref="RecordParsing"/> give the reference strings: each benchmark setup checks
+    /// every value, so running the setups for every parameter value is the check.
+    /// </summary>
+    private static int CheckReadHelpers()
+    {
+        int setups = 0;
+        foreach (var values in Enum.GetValues<UnquoteSet>())
+        {
+            var unquote = new UnquoteBenchmarks { Values = values };
+            unquote.SetupHelper();
+            unquote.SetupToStringHelper();
+            setups += 2;
+        }
+        foreach (var dataset in Enum.GetValues<StringFieldDataset>())
+        {
+            new CreateStringBenchmarks { Dataset = dataset }.SetupHelper();
+            setups++;
+        }
+        return setups;
     }
 
     /// <summary>Scan_SpanCreate and Scan_LoadUnsafe give the same result on every line of every dataset and on random lines.</summary>

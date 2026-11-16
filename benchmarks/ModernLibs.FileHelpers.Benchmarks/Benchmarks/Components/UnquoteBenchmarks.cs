@@ -96,6 +96,20 @@ public class UnquoteBenchmarks
         Check(nameof(Unquote_IndexOf), UnquoteIndexOf, Unquote_IndexOf());
     }
 
+    [GlobalSetup(Target = nameof(Unquote_Helper))]
+    public void SetupHelper()
+    {
+        Prepare();
+        Check(nameof(Unquote_Helper), static value => RecordParsing.Unquote(value, Quote).ToString(), Unquote_Helper());
+    }
+
+    [GlobalSetup(Target = nameof(UnquoteToString_Helper))]
+    public void SetupToStringHelper()
+    {
+        Prepare();
+        Check(nameof(UnquoteToString_Helper), static value => RecordParsing.UnquoteToString(value, Quote), UnquoteToString_Helper());
+    }
+
     [Benchmark(Baseline = true)]
     public long Unquote_Current()
     {
@@ -115,6 +129,30 @@ public class UnquoteBenchmarks
         int[] inner = _inner;
         for (int k = 0; k < inner.Length; k += 3)
             length += UnquoteIndexOf(lines[inner[k]].AsSpan(inner[k + 1], inner[k + 2])).Length;
+        return length;
+    }
+
+    /// <summary>The shipped R3 helper <see cref="RecordParsing.Unquote"/>, measured as the length of the returned span.</summary>
+    [Benchmark]
+    public long Unquote_Helper()
+    {
+        long length = 0;
+        string[] lines = _lines;
+        int[] inner = _inner;
+        for (int k = 0; k < inner.Length; k += 3)
+            length += RecordParsing.Unquote(lines[inner[k]].AsSpan(inner[k + 1], inner[k + 2]), Quote).Length;
+        return length;
+    }
+
+    /// <summary>The shipped R3 helper <see cref="RecordParsing.UnquoteToString"/>.</summary>
+    [Benchmark]
+    public long UnquoteToString_Helper()
+    {
+        long length = 0;
+        string[] lines = _lines;
+        int[] inner = _inner;
+        for (int k = 0; k < inner.Length; k += 3)
+            length += RecordParsing.UnquoteToString(lines[inner[k]].AsSpan(inner[k + 1], inner[k + 2]), Quote).Length;
         return length;
     }
 

@@ -40,6 +40,7 @@ namespace ModernLibs.FileHelpers;
 public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<T>
 {
     private readonly IRecordDescriptor<T> _descriptor;
+    private readonly IRecordWriterDescriptor<T>? _writerDescriptor; // null: the 4.9 write path (design 5.2)
     private readonly RecordReadCore<T> _core;
     private readonly bool _implementsNotifyWrite;   // T implements INotifyWrite<T>
 
@@ -79,6 +80,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
         Encoding = encoding;
 
         _descriptor = descriptor;
+        _writerDescriptor = paths.LegacyWriter ? null : descriptor as IRecordWriterDescriptor<T>;
         _core = new RecordReadCore<T>(_descriptor, paths);
 
         // Detect the INotifyWrite<T> implementation once at construction.
@@ -818,51 +820,8 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
         int initialSize = Math.Max(4096, _descriptor.Fields.Length * 64);
         using var buf = new RentedBufferWriter(initialSize);
 
-        // BeforeWriteRecord event, then INotifyWrite<T>.BeforeWrite
-        if (BeforeWriteRecord is not null || _implementsNotifyWrite)
-        {
-            var beforeArgs = new BeforeWriteEventArgs<T>(this, record, 1);
-
-            if (BeforeWriteRecord is not null)
-            {
-                BeforeWriteRecord.Invoke(this, beforeArgs);
-                if (beforeArgs.SkipThisRecord)
-                    return;
-            }
-
-            if (_implementsNotifyWrite && record is INotifyWrite<T> notifyWrite)
-            {
-                notifyWrite.BeforeWrite(beforeArgs);
-                if (beforeArgs.SkipThisRecord)
-                    return;
-            }
-        }
-
-        buf.NewLine = NewLineForWrite;
-        _descriptor.Format(record, buf);
-
-        // AfterWriteRecord event, then INotifyWrite<T>.AfterWrite
-        if (AfterWriteRecord is not null || _implementsNotifyWrite)
-        {
-            string formattedLine = buf.WrittenSpan.ToString();
-            var afterArgs = new AfterWriteEventArgs<T>(this, record, 1, formattedLine);
-
-            if (AfterWriteRecord is not null)
-            {
-                AfterWriteRecord.Invoke(this, afterArgs);
-            }
-
-            if (_implementsNotifyWrite && record is INotifyWrite<T> notifyWrite)
-            {
-                notifyWrite.AfterWrite(afterArgs);
-            }
-
-            sw.Write(afterArgs.RecordLine);
-        }
-        else
-        {
-            sw.Write(buf.WrittenSpan);
-        }
+        if (!WriteRecordText(sw, record, recordNumber: 1, buf))
+            return;
         sw.Write(NewLineForWrite); // The engine, not the descriptor, writes the record terminator.
         TotalRecords = 1;
     }
@@ -1279,8 +1238,9 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
 
     /// <summary>
     /// Core write pipeline. Rents one <see cref="RentedBufferWriter"/>
-    /// per session, emits optional <see cref="HeaderText"/>, calls
-    /// <see cref="IRecordDescriptor{T}.Format(T, IBufferWriter{char})"/> per record followed by
+    /// per session, emits optional <see cref="HeaderText"/>, formats each record into it (through
+    /// <see cref="IRecordWriterDescriptor{T}"/> when the descriptor has it, otherwise through
+    /// <see cref="IRecordDescriptor{T}.Format(T, IBufferWriter{char})"/>) followed by
     /// <see cref="NewLineForWrite"/>, and emits optional <see cref="FooterText"/>.
     /// </summary>
     // MA0051: single write pipeline kept together for readability.
@@ -1433,15 +1393,40 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
             if (!records.MoveNext())
                 return true;
 
-            if (!FormatRecord(records.Current, count + 1, buf, out string? eventLine))
-                continue;
-
-            pending.Write(eventLine is not null ? eventLine.AsSpan() : buf.WrittenSpan);
-            pending.Write(NewLineForWrite.AsSpan()); // The engine, not the descriptor, writes the record terminator.
-            count++;
+            if (AppendPendingRecord(records.Current, count + 1, buf, pending))
+                count++;
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Raises the write events and appends the formatted <paramref name="record"/> and <see cref="NewLineForWrite"/>
+    /// to <paramref name="pending"/>; <see langword="false"/> when an event skipped it. Without an
+    /// <see cref="AfterWriteRecord"/> handler and <see cref="INotifyWrite{T}"/>, a record writer formats the record
+    /// straight into <paramref name="pending"/> (design 5.2); otherwise the record goes through <paramref name="buf"/>.
+    /// </summary>
+    // .NET 11 Tier1 inlines this into the write loop and then stops inlining the writer's Write (dotnet/runtime#137552).
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private bool AppendPendingRecord(T record, int recordNumber, RentedBufferWriter buf, RentedBufferWriter pending)
+    {
+        if (!RaiseBeforeWrite(record, recordNumber))
+            return false;
+
+        if (_writerDescriptor is not null && AfterWriteRecord is null && !_implementsNotifyWrite)
+        {
+            // Committed only when Format returns: a record that throws adds nothing to pending.
+            pending.NewLine = NewLineForWrite;
+            pending.Format(_writerDescriptor, record);
+        }
+        else
+        {
+            string? eventLine = FormatAndRaiseAfterWrite(record, recordNumber, buf);
+            pending.Write(eventLine is not null ? eventLine.AsSpan() : buf.WrittenSpan);
+        }
+
+        pending.Write(NewLineForWrite.AsSpan()); // The engine, not the descriptor, writes the record terminator.
+        return true;
     }
 
     /// <summary>
@@ -1453,51 +1438,75 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     private bool FormatRecord(T record, int recordNumber, RentedBufferWriter buf, out string? eventLine)
     {
         eventLine = null;
+        if (!RaiseBeforeWrite(record, recordNumber))
+            return false;
 
-        // BeforeWriteRecord event, then INotifyWrite<T>.BeforeWrite
-        if (BeforeWriteRecord is not null || _implementsNotifyWrite)
+        eventLine = FormatAndRaiseAfterWrite(record, recordNumber, buf);
+        return true;
+    }
+
+    /// <summary>
+    /// The <see cref="BeforeWriteRecord"/> event, then <see cref="INotifyWrite{T}.BeforeWrite"/>;
+    /// <see langword="false"/> when one of them skipped the record.
+    /// </summary>
+    private bool RaiseBeforeWrite(T record, int recordNumber)
+    {
+        if (BeforeWriteRecord is null && !_implementsNotifyWrite)
+            return true;
+
+        var beforeArgs = new BeforeWriteEventArgs<T>(this, record, recordNumber);
+
+        if (BeforeWriteRecord is not null)
         {
-            var beforeArgs = new BeforeWriteEventArgs<T>(this, record, recordNumber);
-
-            if (BeforeWriteRecord is not null)
-            {
-                BeforeWriteRecord.Invoke(this, beforeArgs);
-                if (beforeArgs.SkipThisRecord)
-                    return false;
-            }
-
-            if (_implementsNotifyWrite && record is INotifyWrite<T> notifyWrite)
-            {
-                notifyWrite.BeforeWrite(beforeArgs);
-                if (beforeArgs.SkipThisRecord)
-                    return false;
-            }
+            BeforeWriteRecord.Invoke(this, beforeArgs);
+            if (beforeArgs.SkipThisRecord)
+                return false;
         }
 
-        buf.Reset();
-        buf.NewLine = NewLineForWrite;
-        _descriptor.Format(record, buf);
-
-        // AfterWriteRecord event, then INotifyWrite<T>.AfterWrite
-        if (AfterWriteRecord is not null || _implementsNotifyWrite)
+        if (_implementsNotifyWrite && record is INotifyWrite<T> notifyWrite)
         {
-            string formattedLine = buf.WrittenSpan.ToString();
-            var afterArgs = new AfterWriteEventArgs<T>(this, record, recordNumber, formattedLine);
-
-            if (AfterWriteRecord is not null)
-            {
-                AfterWriteRecord.Invoke(this, afterArgs);
-            }
-
-            if (_implementsNotifyWrite && record is INotifyWrite<T> notifyWrite)
-            {
-                notifyWrite.AfterWrite(afterArgs);
-            }
-
-            // A handler that sets RecordLine to null writes nothing, as TextWriter.Write(null) did.
-            eventLine = afterArgs.RecordLine ?? string.Empty;
+            notifyWrite.BeforeWrite(beforeArgs);
+            if (beforeArgs.SkipThisRecord)
+                return false;
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Formats <paramref name="record"/> into <paramref name="buf"/> (emptied first, <c>NewLine</c> set): through the
+    /// record writer when the descriptor has one and the <see cref="EnginePaths.LegacyWriter"/> path is off, otherwise
+    /// through <see cref="IRecordDescriptor{T}.Format(T, IBufferWriter{char})"/> (design 5.2). Then raises
+    /// <see cref="AfterWriteRecord"/> and <see cref="INotifyWrite{T}.AfterWrite"/>; returns the line they leave, or
+    /// <see langword="null"/> when there are none.
+    /// </summary>
+    private string? FormatAndRaiseAfterWrite(T record, int recordNumber, RentedBufferWriter buf)
+    {
+        buf.Reset();
+        buf.NewLine = NewLineForWrite;
+        if (_writerDescriptor is not null)
+            buf.Format(_writerDescriptor, record);
+        else
+            _descriptor.Format(record, buf);
+
+        // AfterWriteRecord event, then INotifyWrite<T>.AfterWrite
+        if (AfterWriteRecord is null && !_implementsNotifyWrite)
+            return null;
+
+        string formattedLine = buf.WrittenSpan.ToString();
+        var afterArgs = new AfterWriteEventArgs<T>(this, record, recordNumber, formattedLine);
+
+        if (AfterWriteRecord is not null)
+        {
+            AfterWriteRecord.Invoke(this, afterArgs);
+        }
+
+        if (_implementsNotifyWrite && record is INotifyWrite<T> notifyWrite)
+        {
+            notifyWrite.AfterWrite(afterArgs);
+        }
+
+        // A handler that sets RecordLine to null writes nothing, as TextWriter.Write(null) did.
+        return afterArgs.RecordLine ?? string.Empty;
     }
 }

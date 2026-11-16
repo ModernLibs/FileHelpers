@@ -33,6 +33,7 @@ namespace ModernLibs.FileHelpers;
 public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecordReadHost<T>
 {
     private readonly IRecordDescriptor<T> _descriptor;
+    private readonly IRecordWriterDescriptor<T>? _writerDescriptor; // null: the 4.9 write path (design 5.2)
     private readonly RecordReadCore<T> _core;
     private readonly bool _implementsNotifyWrite;   // T implements INotifyWrite<T>
 
@@ -79,6 +80,7 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     {
         ArgumentNullException.ThrowIfNull(descriptor);
         _descriptor = descriptor;
+        _writerDescriptor = paths.LegacyWriter ? null : descriptor as IRecordWriterDescriptor<T>;
         _core = new RecordReadCore<T>(_descriptor, paths);
 
         // Detect the INotifyWrite<T> implementation once at construction.
@@ -644,7 +646,10 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
 
         _writeBuf!.Reset();
         _writeBuf.NewLine = NewLineForWrite;
-        _descriptor.Format(record, _writeBuf);
+        if (_writerDescriptor is not null)
+            _writeBuf.Format(_writerDescriptor, record);
+        else
+            _descriptor.Format(record, _writeBuf);
 
         // AfterWriteRecord event, then INotifyWrite<T>.AfterWrite
         if (AfterWriteRecord is not null || _implementsNotifyWrite)

@@ -8,6 +8,7 @@ using SharpFuzz;
 using ModernLibs.FileHelpers.Parsing;
 using ModernLibs.FileHelpers.Converters;
 using ModernLibs.FileHelpers.Tests.Compat;
+using ModernLibs.FileHelpers.Tests.Engines.Fixtures;
 using ModernLibs.FileHelpers.Tests.Fuzz.DiffFuzz;
 
 namespace ModernLibs.FileHelpers.Fuzz.Tests;
@@ -23,6 +24,7 @@ public static class Program
         {
             AppContext.SetSwitch("ModernLibs.FileHelpers.DisableTokenizedParse", true);
             AppContext.SetSwitch("ModernLibs.FileHelpers.DisableVectorizedTokenizer", true);
+            AppContext.SetSwitch("ModernLibs.FileHelpers.DisableRecordWriter", true);
         }
 
         return RunTarget(args);
@@ -225,23 +227,27 @@ public static class Program
     }
 
     /// <summary>
-    /// Review Focus 8, in its own process: <see cref="Main"/> has set <c>DisableTokenizedParse</c> and
-    /// <c>DisableVectorizedTokenizer</c> before any library code ran. Checks that <see cref="RuntimeSwitches"/> sees
-    /// them, that no engine a public constructor or factory makes takes the tokenized path (plain, async,
-    /// multi-record, master-detail and its async twin, for every shape), and reads <paramref name="iterations"/>
-    /// shape-aware inputs per shape through each of them and through <c>ParallelReadFile</c> without an exception;
-    /// the default engine must read them as the forced legacy path does. Exit code 1 on the first failed check.
+    /// Review Focus 8, in its own process: <see cref="Main"/> has set <c>DisableTokenizedParse</c>,
+    /// <c>DisableVectorizedTokenizer</c> and <c>DisableRecordWriter</c> before any library code ran. Checks that
+    /// <see cref="RuntimeSwitches"/> sees them, that no engine a public constructor or factory makes takes the
+    /// tokenized path (plain, async, multi-record, master-detail and its async twin, for every shape), and reads
+    /// <paramref name="iterations"/> shape-aware inputs per shape through each of them and through
+    /// <c>ParallelReadFile</c> without an exception; the default engine must read them as the forced legacy path does.
+    /// The engines over a descriptor with a record writer, made with <see cref="EnginePaths.FromSwitches"/>, must write
+    /// through the legacy <c>Format</c> only (T22). Exit code 1 on the first failed check.
     /// </summary>
     private static int RunPathsSwitch(int iterations)
     {
-        Console.WriteLine($"Paths switch: DisableTokenizedParse and DisableVectorizedTokenizer set at the start of Main; {iterations} inputs per shape");
+        Console.WriteLine($"Paths switch: DisableTokenizedParse, DisableVectorizedTokenizer and DisableRecordWriter set at the start of Main; {iterations} inputs per shape");
 
         var failures = new List<string>();
         if (!RuntimeSwitches.DisableTokenizedParse)
             failures.Add("RuntimeSwitches.DisableTokenizedParse is off");
         if (!RuntimeSwitches.DisableVectorizedTokenizer)
             failures.Add("RuntimeSwitches.DisableVectorizedTokenizer is off");
-        if (!EnginePaths.FromSwitches.LegacyParse || !EnginePaths.FromSwitches.ScalarTokenizer)
+        if (!RuntimeSwitches.DisableRecordWriter)
+            failures.Add("RuntimeSwitches.DisableRecordWriter is off");
+        if (!EnginePaths.FromSwitches.LegacyParse || !EnginePaths.FromSwitches.ScalarTokenizer || !EnginePaths.FromSwitches.LegacyWriter)
             failures.Add($"EnginePaths.FromSwitches is {EnginePaths.FromSwitches}");
 
         foreach (var (name, readDefault, readScalar, readLegacy, tokenized) in Compat49Matrix.Paths())
@@ -264,7 +270,7 @@ public static class Program
             return 1;
         }
 
-        Console.WriteLine("Paths switch: every engine takes the legacy path and reads without an exception");
+        Console.WriteLine("Paths switch: every engine takes the legacy read and write paths and reads without an exception");
         return 0;
     }
 
@@ -329,8 +335,52 @@ public static class Program
             masterDetailAsync.DisposeAsync().AsTask().GetAwaiter().GetResult();
 
             int chars = ReadParallel(failures, name, engine, all.ToString());
-            Console.WriteLine($"  {name}: legacy path on 5 engine kinds; {iterations} inputs read through each and {chars} chars through ParallelReadFile");
+            int written = CheckLegacyWriter<T>(failures, name);
+            Console.WriteLine($"  {name}: legacy path on 5 engine kinds; {iterations} inputs read through each and {chars} chars through ParallelReadFile; "
+                + $"{written} records written through the legacy Format by 5 engine kinds");
             return failures.ToArray();
+        }
+
+        /// <summary>
+        /// T22: engines made with <see cref="EnginePaths.FromSwitches"/> over a descriptor that has a record writer (a
+        /// <see cref="WriterCheckingDescriptor{T}"/> around the generated one) write the valid records of the shape
+        /// through the legacy <c>Format</c> only. Returns the number of records written.
+        /// </summary>
+        private static int CheckLegacyWriter<T>(List<string> failures, string name)
+        {
+            var records = new FileHelperEngine<T> { ErrorMode = ErrorMode.SaveAndContinue }.ReadString(Compat49Inputs.For(name).First());
+            var descriptor = new WriterCheckingDescriptor<T>(FileHelperRegistry<T>.Descriptor);
+            var paths = EnginePaths.FromSwitches;
+            try
+            {
+                new FileHelperEngine<T>(descriptor, Encoding.UTF8, paths).WriteString(records);
+                new FileHelperEngine<T>(descriptor, Encoding.UTF8, paths).WriteStreamAsync(new StringWriter(), records).GetAwaiter().GetResult();
+                using (var asyncEngine = new FileHelperAsyncEngine<T>(descriptor, paths))
+                {
+                    asyncEngine.BeginWriteString();
+                    asyncEngine.WriteNext(records);
+                    asyncEngine.EndWriteString();
+                }
+
+                new MultiRecordEngine(new MultiRecordType<T>(static _ => true, descriptor, paths)).WriteString(records.Cast<object>());
+                if (records.Length > 0)
+                {
+                    new MasterDetailEngine<T, T>(static _ => RecordAction.Master, descriptor, descriptor, paths)
+                        .WriteString([new MasterDetails<T, T>(records[0], records[1..])]);
+                }
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{name}: a write threw {ex.GetType().Name}: {ex.Message}");
+            }
+
+            if (descriptor.WriterFormatCalls != 0 || descriptor.LegacyFormatCalls != 5 * records.Length)
+            {
+                failures.Add($"{name}: with DisableRecordWriter the writes called the record writer {descriptor.WriterFormatCalls} times "
+                    + $"and the legacy Format {descriptor.LegacyFormatCalls} times for {records.Length} records on 5 engine kinds");
+            }
+
+            return descriptor.LegacyFormatCalls;
         }
 
         /// <summary><paramref name="text"/> repeated past two chunks, read by <c>ParallelReadFile</c> and sequentially; returns its length.</summary>

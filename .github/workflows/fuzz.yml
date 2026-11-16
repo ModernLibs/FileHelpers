@@ -120,9 +120,9 @@ jobs:
             dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests/ -c Release --no-build -f "$tfm" -- paths 20000
           done
 
-      # The AppContext switches in their own process (Review Focus 8): paths-switch sets DisableTokenizedParse and
-      # DisableVectorizedTokenizer at the start of Main, checks that no engine takes the tokenized path, and reads
-      # 50 inputs per shape through every engine kind and ParallelReadFile.
+      # The AppContext switches in their own process (Review Focus 8): paths-switch sets DisableTokenizedParse,
+      # DisableVectorizedTokenizer and DisableRecordWriter at the start of Main, checks that no engine takes the
+      # tokenized path or the record writer, and reads 50 inputs per shape through every engine kind and ParallelReadFile.
       - name: Run paths-switch fuzz target
         run: |
           set -euo pipefail

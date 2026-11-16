@@ -147,12 +147,86 @@ no pool and no copied helpers in the legacy bodies), `TokenizedGeneratedReadTest
 time against the legacy ones, including quoted tokens written by hand) and `GeneratedCodeContractTests` (the
 members of this section).
 
+### Write contract
+
+The write contract (design 5.1 and 5.2, frozen by T22 on 2026-11-16, `t22-freeze-2026-11-16.md`). A descriptor
+that implements `IRecordWriterDescriptor<T>` formats a record straight into the engine's write buffer through a
+`RecordWriter`; generated code calls the converter itself, so no generic method stands between it and
+`TryFormat`. All three types are hidden (`[EditorBrowsable(Never)]`); their signatures, the member semantics
+below, the emitted call pattern of a converted field and the exception types and texts are a contract like the
+tables above. `RecordWriteBuffer`, the fields of `RecordWriter` and every growth size above the stated minimum
+are internal and may change in a patch.
+
+```csharp
+namespace ModernLibs.FileHelpers;
+
+[EditorBrowsable(EditorBrowsableState.Never)]
+public interface IRecordWriterDescriptor<T> : IRecordDescriptor<T>
+{
+    void Format(T record, ref RecordWriter writer);
+}
+
+[EditorBrowsable(EditorBrowsableState.Never)]
+public ref struct RecordWriter   // the constructor with arguments is internal
+{
+    public int Position { get; }
+    public Span<char> FreeSpan { get; }
+    public void Advance(int count);
+    public void Grow(object converter);
+    public void Reserve(int count);
+    public void Write(char value);
+    public void Write(scoped ReadOnlySpan<char> text);
+    public void WriteNewLine();
+    public void Quote(int fieldStart, char quote, bool always, bool multilineWrite, string separator, string field);
+    public void Pad(int fieldStart, int width, int align, char pad, bool overflowError, string field);
+}
+
+[EditorBrowsable(EditorBrowsableState.Never)]
+public static class RecordFormatting   // existing: WriteFieldNewLine
+{
+    public static void Format<T>(IRecordWriterDescriptor<T> descriptor, T record, IBufferWriter<char> writer);
+}
+```
+
+A converted field is written as
+`while (!converter.TryFormat(value, writer.FreeSpan, out n)) writer.Grow(converter); writer.Advance(n);`.
+
+| Member | Semantics |
+|---|---|
+| `default(RecordWriter)` | Every member, the two getters included, throws `InvalidOperationException`. |
+| `Position` | The chars of this record written so far; 0 when `Format` is entered. Growth never changes it: the record stays contiguous and a `fieldStart` read earlier stays valid. |
+| `FreeSpan` | The writable space at `Position`, of any length, also 0. A span read earlier must not be used after any other member was called. |
+| `Advance(count)` | `Position` grows by `count`; `count` below 0 or above `FreeSpan.Length` throws `ArgumentOutOfRangeException`. |
+| `Grow(converter)` | When `FreeSpan.Length` is 0x100000 or more it throws `FormatException("The field value could not be formatted by " + converter.GetType().Name + ".")`, the 4.9 text; otherwise the free space becomes at least twice as large and at least 64 chars. So a value of up to 0x100000 chars is always written, and a converter that never fits gets the 4.9 exception. Unlike 4.9, a value above 0x100000 chars is written when the free space happens to be large enough. |
+| `Reserve(count)` | Capacity hint; no text and no `Position` change. |
+| `Write(char)`, `Write(text)` | Append; grow as needed; `Write` does not keep `text`. |
+| `WriteNewLine()` | Appends the engine's `NewLineForWrite`; through `RecordFormatting.Format` into another `IBufferWriter<char>`, `"\r\n"`. Nothing when it is empty. |
+| `Quote(fieldStart, ...)` | Quotes the chars from `fieldStart` to `Position` in place; result and `BadUsageException` text equal `__WriteQuotedField` and `__WriteQuoted` of 4.9. |
+| `Pad(fieldStart, ...)` | Pads or cuts the chars from `fieldStart` to `Position` in place; result and `InvalidOperationException` text equal `__WritePadded` of 4.9; afterwards `Position` is `fieldStart + width`. |
+| `RecordFormatting.Format<T>` | The body of the legacy `Format(T, IBufferWriter<char>)` of a 4.10 descriptor: appends what `Format(record, ref writer)` writes. Into an engine write buffer it takes the buffer's `NewLine`; `null` for `descriptor` or `writer` throws `ArgumentNullException`. When the descriptor throws, nothing is written. |
+
+The runtime keeps the text of a record only when `Format(record, ref writer)` returns: a record whose formatting
+throws leaves nothing, as in 4.9. The engines call it for every write (`WriteString`, `WriteStream`, `WriteFile`,
+`AppendToFile`, `WriteStreamAsync`, `FileHelperAsyncEngine<T>.WriteNext`, the multi-record and master-detail
+engines), with or without write events; without an `AfterWriteRecord` handler and `INotifyWrite<T>`,
+`WriteStreamAsync` formats the record straight into its pending block. The `AppContext` switch
+`ModernLibs.FileHelpers.DisableRecordWriter` makes them call the legacy `Format` instead. 4.8 and 4.9
+descriptors do not implement the interface and keep the 4.9 path.
+
+Members added to `IRecordWriterDescriptor<T>` after 4.10.0 come with a default implementation. The generator
+emits the interface from T23 on; until then only test fixtures implement it.
+
+Tests: `RecordWriterTests` (each member against the 4.9 helpers copied in `LegacyEmittedWriteCopies`),
+`WritePathTests` (every engine writes the same text on the new and the legacy path, with a checking descriptor on
+the `Compat49Matrix` shapes, events and custom newlines; 4.8 and 4.9 descriptors still get a
+`RentedBufferWriter` with `NewLine` set) and the fuzz target `paths-switch` (the switch).
+
 ## Behaviour that old descriptors rely on
 
-1. `WriteFieldNewLine` finds the engine's newline with `writer is RentedBufferWriter`
-   (`src/ModernLibs.FileHelpers/Descriptors/RecordFormatting.cs:24`). An old descriptor must always get a
-   `RentedBufferWriter` whose `NewLine` is set. A new write path must keep that path for descriptors that do
-   not implement it.
+1. `WriteFieldNewLine` finds the engine's newline with `writer is RecordWriteBuffer` (from 4.10; `RentedBufferWriter`
+   before) (`src/ModernLibs.FileHelpers/Descriptors/RecordFormatting.cs:24`). An old descriptor must always get a
+   `RentedBufferWriter` (a `RecordWriteBuffer`) whose `NewLine` is set. A new write path must keep that path for
+   descriptors that do not implement it.
 2. `GetSpan(n)` returns one contiguous span of at least `n` chars
    (`src/ModernLibs.FileHelpers/Descriptors/IRecordDescriptor.cs:42-45`). Generated `Format` code writes into
    that span without checking its length.

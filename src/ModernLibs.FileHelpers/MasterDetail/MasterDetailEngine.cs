@@ -62,6 +62,14 @@ public sealed class MasterDetailEngine<TMaster, TDetail>
         _selector = selector;
     }
 
+    /// <summary>A master/detail engine over the given descriptors (tests: checking descriptors, T22).</summary>
+    internal MasterDetailEngine(MasterDetailSelector selector, IRecordDescriptor<TMaster> master, IRecordDescriptor<TDetail> detail, EnginePaths paths)
+    {
+        _masterEngine = new(master, Encoding.UTF8, paths);
+        _detailEngine = new(detail, Encoding.UTF8, paths);
+        _selector = selector;
+    }
+
     /// <summary>The engines of the two record types; their cores read the records (<see cref="MasterDetailReader{TMaster, TDetail}"/>).</summary>
     private static (FileHelperEngine<TMaster> Master, FileHelperEngine<TDetail> Detail) CreateEngines(EnginePaths paths) =>
         (new(FileHelperRegistry<TMaster>.Descriptor, Encoding.UTF8, paths), new(FileHelperRegistry<TDetail>.Descriptor, Encoding.UTF8, paths));

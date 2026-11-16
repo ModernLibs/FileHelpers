@@ -27,7 +27,7 @@ internal static class DescriptorEmitter
     /// The <c>[GeneratedCode]</c> line above both emitted classes. The version is the generator assembly's
     /// informational version without the <c>+</c> build metadata.
     /// </summary>
-    private static readonly string GeneratedCodeAttribute = BuildGeneratedCodeAttribute();
+    internal static readonly string GeneratedCodeAttribute = BuildGeneratedCodeAttribute();
 
     private static string BuildGeneratedCodeAttribute()
     {

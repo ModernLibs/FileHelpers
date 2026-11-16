@@ -43,6 +43,7 @@ internal static class InvalidRecordEmitter
             sb.AppendLine();
         }
 
+        sb.AppendLine(DescriptorEmitter.GeneratedCodeAttribute);
         sb.AppendLine($"file sealed class {descriptorName} : global::ModernLibs.FileHelpers.IRecordDescriptor<{fqType}>");
         sb.AppendLine("{");
         sb.AppendLine($"    public static readonly {descriptorName} Instance = new();");
@@ -56,6 +57,7 @@ internal static class InvalidRecordEmitter
         sb.AppendLine($"    public {fqType} CreateDefaultInstance(){Throw}");
         sb.AppendLine("}");
         sb.AppendLine();
+        sb.AppendLine(DescriptorEmitter.GeneratedCodeAttribute);
         sb.AppendLine($"file static class __{model.TypeName}Registration");
         sb.AppendLine("{");
         sb.AppendLine("    [global::System.Runtime.CompilerServices.ModuleInitializer]");

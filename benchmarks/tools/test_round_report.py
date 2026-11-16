@@ -472,5 +472,94 @@ class SectionTests(unittest.TestCase):
         self.assertEqual(len(table_rows(markdown, HEADER)), 1)             # the good file is still reported
 
 
+class T59Tests(unittest.TestCase):
+    """T59: Format_WriterDirectCall in the call-shape table, the base-commit pairs, the library comparison."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.round = os.path.join(self.tmp.name, "raw", "r3")
+        self.vm = os.path.join(self.round, "vm1")
+        os.makedirs(self.vm)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_format_writer_direct_call_is_in_the_converter_call_shape_table(self):
+        cls = NS + "Components.ConverterCallShapeBenchmarks."
+        rows = [bench(cls + method, scaled(1_000), scaled(1_000 * factor))
+                for method, factor in (("Format_GenericHelper", 1.0), ("Format_GenericWriter", 0.9),
+                                       ("Format_DirectCall", 0.8), ("Format_WriterDirectCall", 0.7))]
+        write(os.path.join(self.vm, "runtime-410", "050-component-x.json"),
+              doc("/w/bin/net10", "/w/bin/net11-ra-on", "*Components.ConverterCallShapeBenchmarks*", rows))
+        markdown = round_report.build(self.round)
+        self.assertIn("converter call shapes for the write path: Format_WriterDirectCall against Format_GenericHelper", markdown)
+        self.assertIn("converter call shapes for the write path: Format_DirectCall against Format_GenericHelper", markdown)
+
+    def test_the_base_commit_pairs_have_their_own_section(self):
+        glob = "*QuotedFieldsBenchmarks.FileHelpers_ParseAndDiscard"
+        write(os.path.join(self.vm, "base-net10", "003-quoted-x.json"), doc(
+            "/w/bin/base-net10", "/w/bin/net10", glob, [bench(QUOTED + "(Rows: 100000)", scaled(10_000), scaled(9_000))]))
+        write(os.path.join(self.vm, "base-net11", "003-quoted-x.json"), doc(
+            "/w/bin/base-net11-ra-on", "/w/bin/net11-ra-on", glob,
+            [bench(QUOTED + "(Rows: 100000)", scaled(10_000), scaled(9_500))]))
+        markdown = round_report.build(self.round)
+        section = markdown.split("### Against the base commit\n", 1)[1].split("\n### ", 1)[0]
+        self.assertIn("base-net10 -> net10:", section)
+        self.assertIn("base-net11-ra-on -> net11-ra-on:", section)
+        self.assertIn("| Scenario | base commit | this build net10 | build/base [99.9 % CI] | verdict |", section)
+        self.assertNotIn("Not run on this VM", section)
+        # without the pairs the section says how to get them
+        os.remove(os.path.join(self.vm, "base-net10", "003-quoted-x.json"))
+        os.remove(os.path.join(self.vm, "base-net11", "003-quoted-x.json"))
+        write(os.path.join(self.vm, "ra", "003-quoted-x.json"), doc(
+            "/w/bin/net11-ra-off", "/w/bin/net11-ra-on", glob, [bench(QUOTED + "(Rows: 10000)", scaled(800), scaled(720))]))
+        markdown = round_report.build(self.round)
+        self.assertIn("pairs base-net10, base-net11 need round.sh --base-commit", markdown)
+
+    def bdn_report(self, folder, medians):
+        os.makedirs(os.path.join(folder, "results"))
+        with open(os.path.join(folder, "results", "x-report-full.json"), "w", encoding="utf-8") as f:
+            json.dump({"Benchmarks": [{"FullName": name, "Statistics": {"Median": value}}
+                                      for name, value in medians.items()]}, f)
+
+    def comparison_fixture(self):
+        cls = NS + "DelimitedParseBenchmarks."
+        fh, sylvan = cls + "FileHelpers_ParseAndDiscard(Rows: 100000)", cls + "Sylvan_ParseAndDiscard(Rows: 100000)"
+        compare = os.path.join(self.vm, "compare")
+        # launch medians: net10 FileHelpers 10, 12, 11 ms; net11-ra-off ran only the FileHelpers method
+        for config, factor, libraries in (("net10", 1.0, (fh, sylvan)), ("net11-ra-on", 0.9, (fh, sylvan)),
+                                          ("net11-ra-off", 0.95, (fh,))):
+            for launch, base in enumerate((10e6, 12e6, 11e6), start=1):
+                self.bdn_report(os.path.join(compare, config, "001-read25-x", "launch-%d" % launch),
+                                {name: base * factor * (2 if name == sylvan else 1) for name in libraries})
+        with open(os.path.join(self.vm, "machine.txt"), "w", encoding="utf-8") as f:
+            f.write("round: r3\nmode: comparison, 3 launches, not B4 (job default, max iterations 20)\n"
+                    "commit: 0123456789abcdef (requested as HEAD)\n")
+
+    def test_the_comparison_has_a_table_per_class_three_columns_and_no_verdict(self):
+        self.comparison_fixture()
+        markdown = round_report.build_compare(self.round)
+        self.assertIn("### DelimitedParseBenchmarks", markdown)
+        header = "| Library (method) | Params | net10 | net11-ra-on | net11-ra-off |"
+        rows = table_rows(markdown, header)
+        self.assertEqual([r[0] for r in rows], ["FileHelpers_ParseAndDiscard", "Sylvan_ParseAndDiscard"])
+        self.assertEqual(rows[0][1], "Rows 100K")
+        self.assertEqual(rows[0][2], "11.00 ms (10.00 ms to 12.00 ms)")           # median of the launch medians, range
+        self.assertEqual(rows[0][3], "9.900 ms (9.000 ms to 10.80 ms)")
+        self.assertEqual(rows[0][4], "10.45 ms (9.500 ms to 11.40 ms)")
+        self.assertEqual(rows[1][4], "-")                                         # not run in net11-ra-off
+        self.assertNotIn("verdict", markdown.lower().replace("no verdict", ""))
+        self.assertNotIn("[99.9", markdown)
+        self.assertIn("comparison, 3 launches, not B4", markdown)                 # the mode cell
+        self.assertIn("0123456789ab", markdown)
+
+    def test_the_comparison_folder_stays_out_of_the_ab_report(self):
+        self.comparison_fixture()
+        markdown = round_report.build(self.round)
+        self.assertIn("No result files", markdown)
+        self.assertEqual(round_report.main(["--compare", self.round]), 0)
+        self.assertEqual(round_report.main(["--compare"]), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

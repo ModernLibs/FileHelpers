@@ -6,6 +6,8 @@
 import io
 import json
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -38,14 +40,16 @@ class FakeAb:
     def __init__(self, fail=()):
         self.fail = set(fail)
         self.calls = []
+        self.envs = []
 
-    def __call__(self, cmd, log):
+    def __call__(self, cmd, log, env=None):
         out = cmd[cmd.index("--out") + 1]
         glob = cmd[cmd.index("--filter") + 1]
         a, b = cmd[cmd.index("--a") + 1], cmd[cmd.index("--b") + 1]
         aot = "--aot" in cmd
         key = "executable_sha256" if aot else "library_sha256"
         self.calls.append((out, cmd))
+        self.envs.append(env)
         with open(log, "w", encoding="utf-8") as f:
             f.write("[A] x\n# B4 result\nrow\n")
         if glob in self.fail:
@@ -364,6 +368,355 @@ class AotFolderCheckTests(unittest.TestCase):
         self.make("net11-ra-off", "tfm=net11.0 runtime-async=off", "tfm=net11.0 runtime-async=off",
                   "native-aot=yes app-tfm=net11.0 rid=linux-x64", ".NET 11.0.0", executable=False)
         self.assert_mismatch("net11-ra-off", "no AOT harness executable")
+
+
+class RowCapEnvAndBasePairTests(unittest.TestCase):
+    """T59: --max-rows, --env, the base pairs (--base-commit)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.raw = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def main(self, filters, ab, extra=()):
+        path = os.path.join(self.raw, "filters.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(filters)
+        argv = ["--raw", self.raw, "--bin", "/bin", "--src", "/src", "--filters", path, "--checks-cwd", self.raw,
+                "--launches", "7"] + list(extra)
+        old, sys.stdout = sys.stdout, io.StringIO()
+        try:
+            code = round_runs.main(argv, lister=lambda folder, glob: True, runner=ab,
+                                   methods_lister=lambda folder, glob: ["Ns.Cls.FileHelpers_A", "Ns.Cls.CsvHelper_B"])
+        finally:
+            output, sys.stdout = sys.stdout.getvalue(), old
+        return code, output
+
+    def test_max_rows_and_env_reach_every_child_process(self):
+        ab = FakeAb()
+        code, _ = self.main(FILTERS, ab, ["--max-rows", "100000", "--env", "DOTNET_EnableAVX2=0", "--env", "A=B=C"])
+        self.assertEqual(code, 0)
+        self.assertEqual(len(ab.envs), 5)
+        for env in ab.envs:
+            self.assertEqual(env, {"DOTNET_EnableAVX2": "0", "A": "B=C", "FH_BENCH_MAX_ROWS": "100000"})
+
+    def test_without_the_options_the_children_get_no_extra_variables(self):
+        ab = FakeAb()
+        self.assertEqual(self.main(FILTERS, ab)[0], 0)
+        self.assertEqual(ab.envs, [{}] * 5)
+
+    def test_the_variables_are_in_the_environment_of_the_started_process(self):
+        log = os.path.join(self.raw, "child.log")
+        code = round_runs.process_runner(
+            [sys.executable, "-c", "import os; print(os.environ['FH_BENCH_MAX_ROWS'], os.environ['X_Y'])"], log,
+            round_runs.child_env(100000, {"X_Y": "z"}))
+        self.assertEqual(code, 0)
+        with open(log, encoding="utf-8") as f:
+            self.assertEqual(f.read().strip(), "100000 z")
+
+    def test_a_malformed_or_repeated_env_is_refused(self):
+        for items in (["NOEQUALS"], ["1BAD=x"], ["A=1", "A=2"], ["FH_BENCH_MAX_ROWS=5"]):
+            with self.assertRaises(ValueError, msg=items):
+                round_runs.parse_env(items)
+        self.assertEqual(round_runs.parse_env(["A=", "B=x y"]), {"A": "", "B": "x y"})
+        ab = FakeAb()
+        self.assertEqual(self.main(FILTERS, ab, ["--env", "oops"])[0], 2)
+        self.assertEqual(self.main(FILTERS, ab, ["--max-rows", "0"])[0], 2)
+        self.assertEqual(ab.calls, [])
+
+    BASE_FILTERS = "write base-net10,base-net11,ra *WriteBenchmarks.WriteString_FileHelpers\n"
+
+    def test_the_base_pairs_are_refused_without_a_base_commit(self):
+        ab = FakeAb()
+        code, _ = self.main(self.BASE_FILTERS, ab)
+        self.assertEqual((code, ab.calls), (2, []))
+        check = os.path.join(self.raw, "f.txt")
+        with open(check, "w", encoding="utf-8") as f:
+            f.write(self.BASE_FILTERS)
+        self.assertEqual(round_runs.main(["--check-filters", check]), 2)
+        self.assertEqual(round_runs.main(["--check-filters", check, "--base-commit", "abc"]), 0)
+
+    def test_the_base_pairs_run_with_a_base_commit(self):
+        ab = FakeAb()
+        code, last = self.main(self.BASE_FILTERS, ab, ["--base-commit", "abc"])
+        self.assertEqual(code, 0)
+        self.assertEqual(last.splitlines()[-1], "ROUND COMPLETE 3 result files, 0 FAILED")
+        pairs = sorted(os.path.basename(os.path.dirname(call[0])) for call in ab.calls)
+        self.assertEqual(pairs, ["base-net10", "base-net11", "ra"])
+        by_pair = dict((os.path.basename(os.path.dirname(call[0])), call[1]) for call in ab.calls)
+        self.assertEqual(by_pair["base-net10"][by_pair["base-net10"].index("--a") + 1], "/bin/base-net10")
+        self.assertEqual(by_pair["base-net10"][by_pair["base-net10"].index("--b") + 1], "/bin/net10")
+        self.assertEqual(by_pair["base-net11"][by_pair["base-net11"].index("--a") + 1], "/bin/base-net11-ra-on")
+        self.assertEqual(by_pair["base-net11"][by_pair["base-net11"].index("--b") + 1], "/bin/net11-ra-on")
+        self.assertIn("tfm=net11.0 runtime-async=on", by_pair["base-net11"])     # --expect-a for the base folder
+
+    def test_all_does_not_name_the_base_pairs(self):
+        [line] = round_runs.read_filters("component all *X*\n")
+        self.assertNotIn("base-net10", line.pairs)
+        self.assertIn("runtime-410", line.pairs)
+
+
+class CompareTests(unittest.TestCase):
+    """T59: round.sh --compare is the library comparison, not an A/B."""
+
+    FILTERS_ALL = ("# F10: in --compare mode the pairs column is ignored; the release filter file writes all\n"
+                   "component  all  *Components.UnquoteBenchmarks*\n"
+                   "read25     all  *DelimitedParseBenchmarks*\n"
+                   "aot        aot-ra *PackageAssets_ParseAndDiscard\n")
+
+    class Runner:
+        """Stands in for the benchmark process: writes one BenchmarkDotNet report into --artifacts."""
+
+        def __init__(self, fail_config=None):
+            self.cmds = []
+            self.envs = []
+            self.fail_config = fail_config
+
+        def __call__(self, cmd, log, env=None):
+            self.cmds.append(cmd)
+            self.envs.append(env)
+            artifacts = cmd[cmd.index("--artifacts") + 1]
+            os.makedirs(os.path.join(artifacts, "results"), exist_ok=True)
+            with open(log, "w", encoding="utf-8") as f:
+                f.write("console\n")
+            if self.fail_config and self.fail_config in cmd[1]:
+                return 1
+            with open(os.path.join(artifacts, "results", "x-report-full.json"), "w", encoding="utf-8") as f:
+                json.dump({"Benchmarks": [{"FullName": "Ns.Cls.FileHelpers_A", "Statistics": {"Median": 1.0}}]}, f)
+            return 0
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.raw = self.tmp.name
+        self.lines = round_runs.read_filters(self.FILTERS_ALL)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def methods_of(self, folder, glob):
+        return ["Ns.Cls.FileHelpers_A", "Ns.Cls.ModernLibs_B", "Ns.Cls.Sylvan_C", "Ns.Cls.CsvHelper_D"]
+
+    def compare(self, runner, resume=False, launches=3):
+        out = io.StringIO()
+        result = round_runs.run_compare(self.raw, "/bin", self.lines, launches, False, None, 20, resume,
+                                        self.methods_of, runner, out=out, env={"FH_BENCH_MAX_ROWS": "100000"},
+                                        hasher=lambda folder, harness: "sha-" + folder)
+        return result, out.getvalue()
+
+    def test_three_configuration_folders_and_no_ab_pair(self):
+        runner = self.Runner()
+        (results, failed), _ = self.compare(runner)
+        self.assertEqual((results, failed), (6, 0))                 # 3 configurations x 2 bdn lines (aot is skipped)
+        self.assertEqual(sorted(os.listdir(os.path.join(self.raw, "compare"))),
+                         ["net10", "net11-ra-off", "net11-ra-on"])
+        self.assertEqual(len(runner.cmds), 18)                       # 6 runs x 3 launches
+        for cmd in runner.cmds:
+            self.assertNotIn("--a", cmd)
+            self.assertFalse(any(part.endswith("ab.py") for part in cmd))
+            self.assertEqual(cmd[-4:], ["--artifacts", cmd[cmd.index("--artifacts") + 1], "--maxIterationCount", "20"])
+            self.assertNotIn("--job", cmd)                           # BenchmarkDotNet's default job
+        self.assertEqual(set(map(tuple, (sorted(e.items()) for e in runner.envs))), {(("FH_BENCH_MAX_ROWS", "100000"),)})
+        with open(os.path.join(self.raw, "commands.txt"), encoding="utf-8") as f:
+            self.assertNotIn("ab.py", f.read())
+
+    def test_net11_ra_off_runs_only_the_library_methods_by_name(self):
+        runner = self.Runner()
+        self.compare(runner)
+        off = [c for c in runner.cmds if "net11-ra-off" in c[1]]
+        on = [c for c in runner.cmds if "net11-ra-on" in c[1]]
+        self.assertEqual(off[0][2:off[0].index("--artifacts")],
+                         ["--filter", "Ns.Cls.FileHelpers_A", "Ns.Cls.ModernLibs_B"])
+        self.assertEqual(on[0][2:on[0].index("--artifacts")], ["--filter", "*Components.UnquoteBenchmarks*"])
+
+    def test_a_failed_launch_is_recorded_and_the_comparison_goes_on(self):
+        runner = self.Runner(fail_config="net11-ra-on")
+        (results, failed), _ = self.compare(runner)
+        self.assertEqual((results, failed), (4, 2))
+        with open(os.path.join(self.raw, "failed.txt"), encoding="utf-8") as f:
+            self.assertEqual(len(f.read().splitlines()), 2)
+
+    def test_resume_keeps_the_launches_that_finished(self):
+        self.compare(self.Runner())
+        runner = self.Runner()
+        (results, _), output = self.compare(runner, resume=True)
+        self.assertEqual((results, runner.cmds), (6, []))
+        self.assertIn("kept (resume)", output)
+
+    def main(self, extra):
+        path = os.path.join(self.raw, "filters.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(self.FILTERS_ALL)
+        argv = ["--raw", self.raw, "--bin", "/bin", "--src", "/src", "--filters", path, "--checks-cwd", self.raw,
+                "--compare"] + extra
+        runner = self.Runner()
+        old, sys.stdout = sys.stdout, io.StringIO()
+        try:
+            code = round_runs.main(argv, runner=runner, methods_lister=self.methods_of)
+        finally:
+            output, sys.stdout = sys.stdout.getvalue(), old
+        return code, output, runner
+
+    def test_main_needs_no_base_commit_for_all_and_runs_three_launches(self):
+        code, output, runner = self.main(["--launches", "3"])
+        self.assertEqual(code, 0)
+        self.assertEqual(output.splitlines()[-1], "ROUND COMPLETE 6 result files, 0 FAILED")
+        self.assertEqual(len(runner.cmds), 18)
+        code, _, runner = self.main(["--launches", "7"])
+        self.assertEqual((code, runner.cmds), (2, []))
+
+
+@unittest.skipUnless(os.name == "posix" and shutil.which("git") and shutil.which("bash"), "runs round.sh")
+class RoundShRecordTests(unittest.TestCase):
+    """round.sh itself, up to the first build: a fake dotnet fails the build step after machine.txt is written, so the
+    record of --max-rows, --base-commit, --env and the mode can be read and --resume can be tried (T59)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = self.tmp.name
+        self.repo = os.path.join(root, "repo")
+        tools = os.path.join(self.repo, "benchmarks", "tools")
+        os.makedirs(tools)
+        here = os.path.dirname(os.path.abspath(__file__))
+        for name in ("round.sh", "round_runs.py"):
+            shutil.copy(os.path.join(here, name), tools)
+        with open(os.path.join(tools, "filters.txt"), "w", encoding="utf-8") as f:
+            f.write("write ra *WriteBenchmarks.WriteString_FileHelpers\n")
+        with open(os.path.join(tools, "filters-base.txt"), "w", encoding="utf-8") as f:
+            f.write("write ra,base-net10 *WriteBenchmarks.WriteString_FileHelpers\n")
+        with open(os.path.join(tools, "filters-compare.txt"), "w", encoding="utf-8") as f:
+            f.write("write all *WriteBenchmarks*\n")
+        git = ["git", "-C", self.repo, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+        subprocess.run(["git", "init", "-q", self.repo], check=True)
+        subprocess.run(git + ["add", "."], check=True)
+        subprocess.run(git + ["commit", "-q", "-m", "base"], check=True)
+        subprocess.run(git + ["tag", "v4.9.1"], check=True)
+        self.base = subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True, text=True,
+                                   check=True).stdout.strip()
+        with open(os.path.join(self.repo, "second.txt"), "w", encoding="utf-8") as f:
+            f.write("x\n")
+        subprocess.run(git + ["add", "."], check=True)
+        subprocess.run(git + ["commit", "-q", "-m", "second"], check=True)
+        fake = os.path.join(root, "fakebin")
+        os.makedirs(fake)
+        dotnet = os.path.join(fake, "dotnet")
+        with open(dotnet, "w", encoding="utf-8") as f:
+            f.write('#!/bin/sh\n[ "$1" = "--info" ] && { echo ".NET SDK:"; exit 0; }\nexit 1\n')
+        os.chmod(dotnet, 0o755)
+        self.env = dict(os.environ, PATH=fake + os.pathsep + os.environ["PATH"], DOTNET_ROOT=fake)
+        self.root = os.path.join(root, "fh-round")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def round_sh(self, *args, filters="filters.txt"):
+        script = os.path.join(self.repo, "benchmarks", "tools", "round.sh")
+        proc = subprocess.run(["bash", script, "r1", "HEAD", os.path.join(self.repo, "benchmarks", "tools", filters),
+                               "--vm", "vm1", "--root", self.root] + list(args),
+                              capture_output=True, text=True, env=self.env, check=False)
+        return proc.returncode, proc.stdout + proc.stderr
+
+    def machine(self):
+        with open(os.path.join(self.root, "raw", "r1", "vm1", "machine.txt"), encoding="utf-8") as f:
+            return f.read()
+
+    ARGS = ["--dry", "--max-rows", "100000", "--env", "DOTNET_EnableAVX2=0", "--env", "A=B"]
+
+    def test_machine_txt_records_max_rows_env_and_the_base_commit(self):
+        code, output = self.round_sh(*self.ARGS, "--base-commit", self.base)
+        self.assertNotEqual(code, 0)                                   # the fake dotnet fails the build step
+        self.assertIn("ROUND FAILED during: build-variants.sh", output)
+        text = self.machine()
+        self.assertIn("max-rows=100000\n", text)
+        self.assertIn("env=DOTNET_EnableAVX2=0\n", text)
+        self.assertIn("env=A=B\n", text)
+        self.assertIn("base-commit=%s\n" % self.base, text)
+        mode = [l for l in text.splitlines() if l.startswith("mode: ")][0]
+        for part in ("max-rows=100000", "env=DOTNET_EnableAVX2=0", "env=A=B", "base-commit=" + self.base):
+            self.assertIn(part, mode)
+
+    def test_without_the_options_the_record_says_none(self):
+        self.round_sh("--dry")
+        self.assertNotIn("error:", self.machine())
+        text = self.machine()
+        for line in ("max-rows=none\n", "env=none\n", "base-commit=none\n", "compare=no\n"):
+            self.assertIn(line, text)
+
+    def test_resume_refuses_another_max_rows_env_base_commit_or_mode(self):
+        self.round_sh(*self.ARGS, "--base-commit", self.base)
+        same = self.round_sh(*self.ARGS, "--base-commit", self.base, "--resume")
+        self.assertNotIn("error: --resume", same[1])                   # the same call continues (and fails at the build)
+        other = [
+            ["--dry", "--max-rows", "10000", "--env", "DOTNET_EnableAVX2=0", "--env", "A=B", "--base-commit", self.base],
+            ["--dry", "--max-rows", "100000", "--env", "DOTNET_EnableAVX2=0", "--base-commit", self.base],
+            ["--dry", "--max-rows", "100000", "--env", "DOTNET_EnableAVX2=0", "--env", "A=C", "--base-commit", self.base],
+            ["--dry", "--max-rows", "100000", "--env", "DOTNET_EnableAVX2=0", "--env", "A=B"],
+        ]
+        for args in other:
+            code, output = self.round_sh(*args, "--resume")
+            self.assertEqual(code, 1, args)
+            self.assertIn("error: --resume: measured as", output)
+        code, output = self.round_sh("--dry", "--max-rows", "100000", "--env", "DOTNET_EnableAVX2=0", "--env", "A=B",
+                                     "--base-commit", self.base, "--compare", "--resume", filters="filters-compare.txt")
+        self.assertEqual(code, 1)
+        self.assertIn("error: --resume", output)          # another mode (--compare) and another filter file
+
+    def test_compare_mode_is_recorded_and_resume_refuses_leaving_it(self):
+        code, _ = self.round_sh("--compare", "--max-iterations", "20", filters="filters-compare.txt")
+        self.assertNotEqual(code, 0)
+        text = self.machine()
+        self.assertIn("compare=yes\n", text)
+        self.assertIn("mode: comparison, 3 launches, not B4", text)
+        code, output = self.round_sh("--max-iterations", "20", "--resume", filters="filters-compare.txt")
+        self.assertEqual(code, 1)
+        self.assertIn("error: --resume: measured as 'comparison, 3 launches, not B4", output)
+
+    def test_compare_refuses_launches_and_the_base_pairs_need_a_base_commit(self):
+        code, output = self.round_sh("--compare", "--launches", "7", filters="filters-compare.txt")
+        self.assertEqual(code, 2)
+        self.assertIn("always runs 3 launches", output)
+        code, output = self.round_sh("--dry", filters="filters-base.txt")
+        self.assertEqual(code, 2)
+        self.assertIn("needs --base-commit", output)
+        code, output = self.round_sh("--dry", "--base-commit", "HEAD")
+        self.assertEqual(code, 1)
+        self.assertIn("is the measured commit itself", output)
+
+
+class CheckRowsTests(unittest.TestCase):
+    """The program switch --check-rows prints the Rows values of the three classes with a Rows source (BenchRows.cs).
+    Needs a Release build of the benchmark project (dotnet build -c Release); skipped without one."""
+
+    @staticmethod
+    def dll():
+        project = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ModernLibs.FileHelpers.Benchmarks",
+                               "bin", "Release")
+        found = [p for p in (os.path.join(project, tfm, "ModernLibs.FileHelpers.Benchmarks.dll")
+                             for tfm in ("net10.0", "net11.0")) if os.path.isfile(p)]
+        return max(found, key=os.path.getmtime) if found else None
+
+    def rows(self, max_rows):
+        env = dict(os.environ)
+        env.pop("FH_BENCH_MAX_ROWS", None)
+        if max_rows:
+            env["FH_BENCH_MAX_ROWS"] = max_rows
+        proc = subprocess.run(["dotnet", self.dll(), "--check-rows"], capture_output=True, text=True, env=env,
+                              check=False)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        return [line for line in proc.stdout.splitlines() if line.startswith("Rows ")]
+
+    @unittest.skipUnless(shutil.which("dotnet"), "no dotnet on PATH")
+    def test_the_cap_cuts_the_values_of_all_three_classes(self):
+        if self.dll() is None:
+            self.skipTest("no Release build of the benchmark project")
+        classes = ["DelimitedParseBenchmarks", "SepComparisonBenchmarks", "WriteBenchmarks"]
+        full = self.rows(None)
+        self.assertEqual(full, ["Rows %s: 10000 100000 1000000" % c for c in classes])
+        capped = self.rows("100000")
+        self.assertEqual(capped, ["Rows %s: 10000 100000" % c for c in classes])
+        self.assertFalse(any("1000000" in line for line in capped))
+        self.assertEqual(self.rows("10000"), ["Rows %s: 10000" % c for c in classes])
 
 
 if __name__ == "__main__":

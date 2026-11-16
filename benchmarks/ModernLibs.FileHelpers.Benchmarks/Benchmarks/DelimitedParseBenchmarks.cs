@@ -148,7 +148,7 @@ public class DelimitedParseBenchmarks
     private FileHelperEngine<PackageAsset> _engine = null!;
     private RecordParser.Parsers.IVariableLengthReader<PackageAssetRow> _recordParser = null!;
 
-    [Params(10_000, 100_000, 1_000_000)]
+    [ParamsSource(typeof(BenchRows), nameof(BenchRows.Values))]
     public int Rows { get; set; }
 
     private void Prepare()

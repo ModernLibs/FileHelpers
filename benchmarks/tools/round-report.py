@@ -4,6 +4,7 @@
 Usage (from any directory):
 
     python3 -I benchmarks/tools/round-report.py raw/<round-name> > section.md
+    python3 -I benchmarks/tools/round-report.py --compare raw/<round-name> > comparison.md
 
 raw/<round-name> holds one folder per VM (round.sh writes raw/<round-name>/<vm>/). Each VM folder holds the ab.py
 result files (<pair>/*.json), and, when round.sh wrote it, machine.txt, filters.txt and not-run.txt. Folders
@@ -25,6 +26,13 @@ What the numbers are:
   (only_in_a, only_in_b) are listed with not-run.txt.
 - Results of ab.py --aot ("harness": "aot", T47) are kept apart from the BenchmarkDotNet results, although their
   folders have the same names (aot/net10, ...): they fill the "AOT read" section only.
+
+- --compare (T59) reads the library comparison of round.sh --compare (<vm>/compare/<configuration>/...): one table
+  per benchmark class, one row per method and parameter set (the libraries), the columns net10, net11-ra-on and
+  net11-ra-off, each the median of the launch medians with the range over the launches. It is not an A/B: there is
+  no verdict column, and the mode cell says so ("comparison, 3 launches, not B4"). A cell that the configuration did
+  not run (net11-ra-off runs only the FileHelpers* and ModernLibs* methods) shows "-".
+- The pairs base-net10 and base-net11 (round.sh --base-commit) fill the section "Against the base commit".
 
 Python standard library only.
 """
@@ -81,7 +89,7 @@ PATTERN_CHOICES = [
     ("1: safe span vector loop against the Unsafe loop", "VectorLoopShapeBenchmarks", "Scan_LoadUnsafe",
      ["Scan_SpanCreate"]),
     ("2: converter call shapes for the write path", "ConverterCallShapeBenchmarks", "Format_GenericHelper",
-     ["Format_GenericWriter", "Format_DirectCall"]),
+     ["Format_GenericWriter", "Format_DirectCall", "Format_WriterDirectCall"]),
     ("3: \"any match first\" block test in the tokenizer", "TokenizerBenchmarks", "Tokenizer_SinglePassVector",
      ["Tokenizer_SinglePassVector_AnyMatchFirst"]),
 ]
@@ -335,7 +343,8 @@ def load(round_dir):
             continue
         vm = Vm(name, path)
         for dirpath, dirnames, filenames in os.walk(path):
-            dirnames[:] = sorted(d for d in dirnames if not d.endswith(".runs"))
+            dirnames[:] = sorted(d for d in dirnames if not d.endswith(".runs")
+                                 and not (dirpath == path and d == "compare"))   # compare/ is read by build_compare
             for filename in sorted(filenames):
                 if not filename.endswith(".json"):
                     continue
@@ -820,6 +829,14 @@ def build(round_dir):
                                groups=[g for g, _ in SCENARIO_GROUPS] + [None])
             if table:
                 s += ["%s -> %s:" % (a, b), ""] + table + [""]
+        s += ["### Against the base commit", ""]
+        base_tables = []
+        for a, b in (("base-net10", "net10"), ("base-net11-ra-on", "net11-ra-on")):
+            table = pair_table(vm, a, b, "base commit", "this build " + b, "build/base",
+                               groups=[g for g, _ in SCENARIO_GROUPS] + [None])
+            if table:
+                base_tables += ["%s -> %s:" % (a, b), ""] + table + [""]
+        s += base_tables or ["Not run on this VM (pairs base-net10, base-net11 need round.sh --base-commit).", ""]
         s += ["### Slope from 10K to 100K rows", ""]
         s += slope(vm)
         s.append("")
@@ -869,11 +886,95 @@ def build(round_dir):
     return "\n".join(out) + "\n"
 
 
+# --- library comparison (round.sh --compare) ----------------------------------------------------------------------
+
+COMPARE_CONFIGS = ("net10", "net11-ra-on", "net11-ra-off")
+COMPARE_NOTE = ("Library comparison, not an A/B: no verdict. Each cell is the median of the per-launch medians "
+                "BenchmarkDotNet reported (3 launches), with the range over the launches in parentheses. "
+                "net11-ra-off ran only the methods whose name starts with FileHelpers or ModernLibs, because the "
+                "other libraries do not change with the runtime-async switch: its other cells show \"-\".")
+
+
+def load_compare(round_dir):
+    """[(vm name, machine.txt text, {config: {full name: [launch median ns]}})] for each VM folder with compare/."""
+    vms = []
+    for name in sorted(os.listdir(round_dir)):
+        folder = os.path.join(round_dir, name, "compare")
+        if not os.path.isdir(folder):
+            continue
+        samples = {}
+        for config in COMPARE_CONFIGS:
+            cases = samples.setdefault(config, {})
+            config_dir = os.path.join(folder, config)
+            if not os.path.isdir(config_dir):
+                continue
+            for line_dir in sorted(os.listdir(config_dir)):
+                for launch in sorted(os.listdir(os.path.join(config_dir, line_dir))):
+                    path = os.path.join(config_dir, line_dir, launch)
+                    if not os.path.isdir(os.path.join(path, "results")):
+                        continue
+                    try:
+                        medians = ab.parse_reports(path)
+                    except (OSError, ValueError, RuntimeError):
+                        continue            # a launch cut off by a kill: round.sh --compare --resume runs it again
+                    for case, median_ns in medians.items():
+                        cases.setdefault(case, []).append(median_ns)
+        vms.append((name, _read_text(os.path.join(round_dir, name, "machine.txt")), samples))
+    return vms
+
+
+def _compare_cell(values):
+    if not values:
+        return "-"
+    return "%s (%s to %s)" % (fmt_time(median(values)), fmt_time(min(values)), fmt_time(max(values)))
+
+
+def build_compare(round_dir):
+    """The Markdown of the library comparison of a round folder: one table per benchmark class."""
+    vms = load_compare(round_dir)
+    out = ["<!-- generated by benchmarks/tools/round-report.py --compare from %s -->" % os.path.basename(
+        os.path.normpath(round_dir)), ""]
+    if not vms:
+        return "\n".join(out + ["No comparison results under %s (round.sh --compare writes <vm>/compare/)." % round_dir, ""])
+    out += ["## Machines", ""]
+    rows = []
+    for name, machine, _ in vms:
+        f = machine_facts(machine)
+        rows.append([name, f["cpu"], f["arch"], f["cpus"], f["simd"], f["os"], f["kernel"], f["sdk"], f["runtimes"],
+                     f["commit"][:12], f["mode"]])
+    out += _table("| VM | CPU | Architecture | Logical CPUs | SIMD flags | OS | Kernel | SDK | Runtimes | Commit "
+                  "| Mode |", rows)
+    out.append("")
+    for name, _, samples in vms:
+        out += ["## VM %s: library comparison" % name, "", COMPARE_NOTE, ""]
+        cases = []
+        for config in COMPARE_CONFIGS:
+            cases += [c for c in samples[config] if c not in cases]
+        classes = []
+        for case in sorted(cases, key=_sort_key):
+            cls = parse_case(case)[0]
+            if cls not in classes:
+                classes.append(cls)
+        if not classes:
+            out += ["No comparison result on this VM.", ""]
+        for cls in classes:
+            out += ["### %s" % cls, ""]
+            table = []
+            for case in sorted((c for c in cases if parse_case(c)[0] == cls), key=_sort_key):
+                _, method, params = parse_case(case)
+                table.append([method, fmt_params(params) or "-"] + [_compare_cell(samples[c].get(case))
+                                                                   for c in COMPARE_CONFIGS])
+            out += _table("| Library (method) | Params | net10 | net11-ra-on | net11-ra-off |", table) + [""]
+    return "\n".join(out) + "\n"
+
+
 def main(argv):
-    if len(argv) != 1 or not os.path.isdir(argv[0]):
-        print("usage: round-report.py raw/<round-name>", file=sys.stderr)
+    compare = argv[:1] == ["--compare"]
+    rest = argv[1:] if compare else argv
+    if len(rest) != 1 or not os.path.isdir(rest[0]):
+        print("usage: round-report.py [--compare] raw/<round-name>", file=sys.stderr)
         return 2
-    sys.stdout.write(build(argv[0]))
+    sys.stdout.write(build_compare(rest[0]) if compare else build(rest[0]))
     return 0
 
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # round.sh <round-name> <commit> <filter-file> [--dry] [--resume] [--launches N] [--job NAME] [--max-iterations N]
-#          [--vm NAME] [--root DIR]
+#          [--vm NAME] [--root DIR] [--max-rows N] [--base-commit SHA] [--env NAME=VALUE]... [--compare]
 #
 # One benchmark round on one machine (T12, design 3.5 step 3): builds every configuration of <commit>, checks
 # them, and runs ab.py for each A/B pair and filter line. Run it once per VM, on an otherwise idle machine, from a
@@ -22,6 +22,22 @@
 #                      recorded in machine.txt and in the report's mode cell
 #   --vm NAME          machine name in the result path (default: the host name)
 #   --root DIR         working root (default: $HOME/fh-round); results go to DIR/raw/<round-name>/<vm>/
+#   --max-rows N       FH_BENCH_MAX_ROWS=N for every measured process (BenchRows.cs): the classes with a Rows source
+#                      run only the Rows values at or below N (design D10: no 1,000,000 rows in A/B runs); recorded as
+#                      max-rows=N in machine.txt and in the report's mode cell
+#   --base-commit SHA  also builds this commit of the repository into base-net10 and base-net11-ra-on (build-baselines.sh)
+#                      and enables the pairs base-net10 (base-net10 -> net10) and base-net11 (base-net11-ra-on ->
+#                      net11-ra-on); a filter file that names them is refused without it. The benchmark project is this
+#                      checkout's, built against the library of SHA with FILEHELPERS_BASELINE, so a method of an API
+#                      that SHA lacks is "not run" in those pairs
+#   --env NAME=VALUE   set NAME=VALUE in the environment of every measured process; repeatable; recorded as env=NAME=VALUE
+#                      in machine.txt (for example --vm fh-amd-noavx2 --env DOTNET_EnableAVX2=0)
+#   --compare          the one-off library comparison, not an A/B (design 3.1, T50): for each of net10, net11-ra-on and
+#                      net11-ra-off, the benchmark program runs from that folder with the filter globs, 3 launches,
+#                      BenchmarkDotNet's default job (capped by --max-iterations); in net11-ra-off only the methods whose
+#                      name starts with FileHelpers or ModernLibs run. The pairs column of the filter file is ignored, no
+#                      ab.py pair starts, no verdict. Results: raw/<round>/<vm>/compare/<configuration>/;
+#                      round-report.py --compare raw/<round> builds the tables. --launches is not accepted (always 3)
 #
 # Steps:
 #   0. checks of the arguments, before anything is written: the commit and the tag v4.9.1 exist, round.sh and
@@ -41,6 +57,7 @@
 #   5. round_runs.py: ab.py for every pair and filter line, the gate lines (group prototype) first. A glob that
 #      selects nothing in one build of a pair goes to not-run.txt; a failed ab.py run goes to failed.txt and the
 #      round goes on. Filter lines of group "aot" run in the aot-* pairs with ab.py --aot
+#      With --compare: the library comparison instead of the pairs (run_compare in round_runs.py)
 #   6. the last line is "ROUND COMPLETE <n> result files, <m> FAILED"; the exit code is 1 when m > 0, and
 #      round.sh ... --resume then reruns only what failed
 #
@@ -51,7 +68,8 @@ set -euo pipefail
 
 usage() {
     echo "usage: $0 <round-name> <commit> <filter-file> [--dry] [--resume] [--launches N] [--job NAME]" \
-         "[--max-iterations N] [--vm NAME] [--root DIR]" >&2
+         "[--max-iterations N] [--vm NAME] [--root DIR] [--max-rows N] [--base-commit SHA] [--env NAME=VALUE]..." \
+         "[--compare]" >&2
     exit 2
 }
 
@@ -59,6 +77,8 @@ usage() {
 round="$1" commit_arg="$2" filter_arg="$3"
 shift 3
 dry=0 resume=0 launches="" job="" max_iterations="" vm="$(hostname -s)" root="$HOME/fh-round"
+max_rows="" base_arg="" compare=0
+env_vars=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry) dry=1; shift ;;
@@ -68,10 +88,23 @@ while [[ $# -gt 0 ]]; do
         --max-iterations) [[ $# -ge 2 ]] || usage; max_iterations="$2"; shift 2 ;;
         --vm) [[ $# -ge 2 ]] || usage; vm="$2"; shift 2 ;;
         --root) [[ $# -ge 2 ]] || usage; root="$2"; shift 2 ;;
+        --max-rows) [[ $# -ge 2 ]] || usage; max_rows="$2"; shift 2 ;;
+        --base-commit) [[ $# -ge 2 ]] || usage; base_arg="$2"; shift 2 ;;
+        --env) [[ $# -ge 2 ]] || usage; env_vars+=("$2"); shift 2 ;;
+        --compare) compare=1; shift ;;
         *) usage ;;
     esac
 done
-if [[ $dry -eq 1 ]]; then
+if [[ $compare -eq 1 ]]; then
+    [[ -z "$launches" ]] || { echo "error: --compare always runs 3 launches; --launches is not accepted with it" >&2; exit 2; }
+    launches=3
+    job="${job:-}"
+    [[ $dry -eq 0 || -n "$job" ]] || job="Dry"
+    if [[ $dry -eq 0 && "${job,,}" == "dry" ]]; then
+        echo "error: --job Dry needs --dry (one cold iteration per launch is never a result)" >&2
+        exit 2
+    fi
+elif [[ $dry -eq 1 ]]; then
     launches="${launches:-5}"
     job="${job:-Dry}"
 else
@@ -88,6 +121,16 @@ else
 fi
 [[ "$round" =~ ^[A-Za-z0-9._-]+$ && "$vm" =~ ^[A-Za-z0-9._-]+$ ]] || {
     echo "error: round and VM names may only contain letters, digits, '.', '_' and '-'" >&2; exit 2; }
+[[ -z "$max_rows" || "$max_rows" =~ ^[1-9][0-9]*$ ]] || {
+    echo "error: --max-rows needs a positive integer" >&2; exit 2; }
+declare -A env_seen
+for item in "${env_vars[@]}"; do
+    [[ "$item" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || { echo "error: --env '$item' is not NAME=VALUE" >&2; exit 2; }
+    name="${item%%=*}"
+    [[ "$name" != "FH_BENCH_MAX_ROWS" ]] || { echo "error: --env FH_BENCH_MAX_ROWS: use --max-rows" >&2; exit 2; }
+    [[ -z "${env_seen[$name]:-}" ]] || { echo "error: --env $name is given twice" >&2; exit 2; }
+    env_seen[$name]=1
+done
 # BenchmarkDotNet refuses a maxIterationCount that is not above its MinIterationCount (15 by default).
 [[ -z "$max_iterations" || ( "$max_iterations" =~ ^[1-9][0-9]*$ && "$max_iterations" -gt 15 ) ]] || {
     echo "error: --max-iterations needs an integer above 15 (BenchmarkDotNet's MinIterationCount)" >&2; exit 2; }
@@ -126,7 +169,17 @@ else
     echo "error: filter file $filter_arg not found (current directory or commit $sha)" >&2
     exit 1
 fi
-python3 -I "$repo/benchmarks/tools/round_runs.py" --check-filters "$filter_file"
+base_sha=""
+if [[ -n "$base_arg" ]]; then
+    base_sha="$(git -C "$repo" rev-parse --verify --quiet "$base_arg^{commit}")" || {
+        echo "error: --base-commit $base_arg is not in $repo" >&2; exit 1; }
+    [[ "$base_sha" != "$sha" ]] || {
+        echo "error: --base-commit is the measured commit itself; the base columns would show one build" >&2; exit 1; }
+fi
+check_args=(--check-filters "$filter_file")
+[[ -z "$base_sha" ]] || check_args+=(--base-commit "$base_sha")
+[[ $compare -eq 0 ]] || check_args+=(--compare)
+python3 -I "$repo/benchmarks/tools/round_runs.py" "${check_args[@]}"
 # Is the filter file the commit's own copy? Recorded, not enforced (a dry run uses a narrower filter).
 filter_rel="$(realpath --relative-to="$repo" "$filter_file" 2>/dev/null || echo "$filter_arg")"
 if [[ "$filter_from" == "$filter_arg at $sha" ]]; then
@@ -143,10 +196,16 @@ if [[ $resume -eq 0 && -e "$raw" && -n "$(ls -A "$raw" 2>/dev/null)" ]]; then
     echo "error: $raw is not empty; a round never overwrites results (--resume continues it, or use another name)" >&2
     exit 1
 fi
-if [[ $dry -eq 1 ]]; then
-    mode="DRY RUN (ab.py --smoke, $launches launches, job $job${max_iterations:+, max iterations $max_iterations}): a smoke check of the script, not evidence (D1)"
+# The mode line is what --resume compares (round_runs.py --check-resume): everything that changes the measurement is in it.
+mode_extra="${max_rows:+, max-rows=$max_rows}${base_sha:+, base-commit=$base_sha}"
+for item in "${env_vars[@]}"; do mode_extra+=", env=$item"; done
+if [[ $compare -eq 1 ]]; then
+    mode="comparison, 3 launches, not B4 (job ${job:-default}${max_iterations:+, max iterations $max_iterations}$mode_extra)"
+    [[ $dry -eq 0 ]] || mode="DRY RUN $mode: a smoke check of the script, not evidence (D1)"
+elif [[ $dry -eq 1 ]]; then
+    mode="DRY RUN (ab.py --smoke, $launches launches, job $job${max_iterations:+, max iterations $max_iterations}$mode_extra): a smoke check of the script, not evidence (D1)"
 else
-    mode="round (B4: $launches launches per side, job ${job:-default}${max_iterations:+, max iterations $max_iterations})"
+    mode="round (B4: $launches launches per side, job ${job:-default}${max_iterations:+, max iterations $max_iterations}$mode_extra)"
 fi
 filter_sha="$(sha256sum "$filter_file" | cut -d ' ' -f 1)"
 # --resume continues the same measurement only: the commit, the mode line (launches, job, iteration cap, --dry) and
@@ -176,6 +235,10 @@ step="machine record"
         echo "launches: $launches"
         echo "job: ${job:-BenchmarkDotNet default}"
         echo "max iterations: ${max_iterations:-BenchmarkDotNet default}"
+        echo "max-rows=${max_rows:-none}"
+        echo "base-commit=${base_sha:-none}"
+        echo "compare=$([[ $compare -eq 1 ]] && echo yes || echo no)"
+        if [[ ${#env_vars[@]} -eq 0 ]]; then echo "env=none"; else for item in "${env_vars[@]}"; do echo "env=$item"; done; fi
         echo
         echo "== uname -a"; uname -a
         echo; echo "== /etc/os-release"; cat /etc/os-release 2>/dev/null || echo "(none)"
@@ -207,8 +270,10 @@ fi
 
 # --- 3. builds, one at a time ------------------------------------------------------------------------------
 built=1
-for name in net10 net11-ra-on net11-ra-off pkg-net10 pkg-net11 control-net10 control-net11-ra-on control-net11-ra-off \
-            aot/net10 aot/net11-ra-on aot/net11-ra-off aot/pkg-net10 aot/pkg-net11; do
+built_names=(net10 net11-ra-on net11-ra-off pkg-net10 pkg-net11 control-net10 control-net11-ra-on control-net11-ra-off
+             aot/net10 aot/net11-ra-on aot/net11-ra-off aot/pkg-net10 aot/pkg-net11)
+[[ -z "$base_sha" ]] || built_names+=(base-net10 base-net11-ra-on)
+for name in "${built_names[@]}"; do
     [[ -f "$bin/$name/variant.txt" ]] || built=0
 done
 if [[ $resume -eq 1 && $built -eq 1 ]]; then
@@ -219,7 +284,7 @@ else
     "$src/benchmarks/tools/build-variants.sh" "$bin" >> "$raw/build.log" 2>&1
     step="build-baselines.sh"
     echo "building the 4.9.1 package and control folders (log: $raw/build.log)"
-    "$src/benchmarks/tools/build-baselines.sh" "$bin" >> "$raw/build.log" 2>&1
+    "$src/benchmarks/tools/build-baselines.sh" "$bin" ${base_sha:+--base-commit "$base_sha"} >> "$raw/build.log" 2>&1
     step="build-aot-variants.sh"
     echo "publishing the Native AOT harness folders (log: $raw/build.log)"
     "$src/benchmarks/tools/build-aot-variants.sh" "$bin/aot" >> "$raw/build.log" 2>&1
@@ -242,6 +307,7 @@ folders=(
     "control-net11-ra-on|tfm=net11.0 runtime-async=on|11"
     "control-net11-ra-off|tfm=net11.0 runtime-async=off|11"
 )
+[[ -z "$base_sha" ]] || folders+=("base-net10|tfm=net10.0 runtime-async=off|10" "base-net11-ra-on|tfm=net11.0 runtime-async=on|11")
 declare -A library_sha
 verify="$bin/.tools/verify-variant/verify-variant.dll"
 checks_cwd="$work/checks-cwd"
@@ -315,12 +381,15 @@ for entry in "${folders[@]}"; do
         fi
     done
 done
-echo "checks passed: 8 folders, verify-variant, start-up lines, library hashes, --check-competitors, --check-prototypes; 5 AOT folders, variant.txt and --info"
+echo "checks passed: ${#folders[@]} folders, verify-variant, start-up lines, library hashes, --check-competitors, --check-prototypes; 5 AOT folders, variant.txt and --info"
 
 # --- 5. A/B runs (round_runs.py; review-T12 Important 1: a failed run is recorded and the round goes on) ------
 step="A/B runs"
 runs_args=(--raw "$raw" --bin "$bin" --src "$src" --filters "$raw/filters.txt" --launches "$launches"
            --checks-cwd "$checks_cwd")
+[[ -z "$max_rows" ]] || runs_args+=(--max-rows "$max_rows")
+for item in "${env_vars[@]}"; do runs_args+=(--env "$item"); done
+[[ $compare -eq 0 ]] || runs_args+=(--compare)
 [[ $dry -eq 1 ]] && runs_args+=(--dry)
 [[ $resume -eq 1 ]] && runs_args+=(--resume)
 [[ -n "$job" ]] && runs_args+=(--job "$job")

@@ -114,8 +114,8 @@ Running in-process has costs, which every result has to live with:
 |---|---|---|---|
 | `DelimitedComparisonBenchmarks` | Reading a 25-column delimited file into an array | FileHelpers 3.5.2 | 10K, 100K |
 | `FixedWidthComparisonBenchmarks` | Reading a fixed-width file (class and struct records) | FileHelpers 3.5.2 | 10K, 100K |
-| `DelimitedParseBenchmarks` | Reading all rows, and only the first column, of the 25-column file | Sylvan.Data.Csv, CsvHelper | 10K, 100K, 1M |
-| `SepComparisonBenchmarks` | Reading all rows and writing them back to a string | Sep | 10K, 100K, 1M |
+| `DelimitedParseBenchmarks` | Reading all rows, and only the first column, of the 25-column file | Sylvan.Data.Csv, CsvHelper | 10K, 100K, 1M (cut by `FH_BENCH_MAX_ROWS`) |
+| `SepComparisonBenchmarks` | Reading all rows and writing them back to a string | Sep | 10K, 100K, 1M (cut by `FH_BENCH_MAX_ROWS`) |
 | `QuotedFieldsBenchmarks` | Reading a file with quoted fields (embedded delimiters, doubled quotes); from 4.10 on the seeded random set, so its numbers are not comparable with the 4.8 and 4.9 quoted results | Sylvan.Data.Csv, CsvHelper, Sep | 10K, 100K |
 | `QuotedFieldsPeriodicBenchmarks` | The same on the periodic quoted file (row i uses pattern i % 10); continues the 4.8 and 4.9 quoted series | Sylvan.Data.Csv, CsvHelper, Sep | 10K, 100K |
 | `SparseQuoteBenchmarks` | `ReadFile` and `ReadFile_ParseAndDiscard` on the quoted layout where 1 % of the rows contain a quote | - | 10K, 100K |
@@ -124,7 +124,7 @@ Running in-process has costs, which every result has to live with:
 | `WideRecordBenchmarks` | The same on 150 columns (75 int, 75 string) | - | 1K, 10K |
 | `QuotedWriteBenchmarks` | `WriteString` and `WriteStream_Null` (to `TextWriter.Null`) of the seeded quoted records | - | 10K, 100K |
 | `FixedWidthWriteBenchmarks` | `WriteString` and `WriteStream_Null` of the fixed-width records | - | 10K, 100K |
-| `WriteBenchmarks` | `WriteString` and `WriteFile` | CsvHelper | 10K, 100K, 1M |
+| `WriteBenchmarks` | `WriteString` and `WriteFile` | CsvHelper | 10K, 100K, 1M (cut by `FH_BENCH_MAX_ROWS`) |
 | `FixedWidthParseBenchmarks` | Fixed-width reads, class versus struct records | CsvHelper | 10K, 100K |
 | `OptimizedParseBenchmarks` | `ReadFile`, `ReadString`, `ReadSpan` and their callback and async variants | - | 10K, 100K |
 | `AsyncStreamingBenchmarks` | `MultiRecordAsyncEngine.ReadAsync` versus `MultiRecordEngine.ReadFile`, with and without cancellation | - | 10K, 100K |
@@ -245,7 +245,7 @@ too: `Unquote_Current`, `Unquote_IndexOf`, `CreateString_New`, `CreateString_Cac
 |---|---|---|
 | `TokenizerBenchmarks` | `Tokenizer_CountPlusIndexOf`, `Tokenizer_SinglePassScalar`, `Tokenizer_SinglePassVector`, `Tokenizer_SinglePassVector_AnyMatchFirst` | The field ends of every line of a plain dataset (`Dataset`: 10,000 lines of the 25-column file, 1,000 of the 150-column file, 5,000 long lines) written into one preallocated `int[]`. The baseline is today's work: one `Count(',')` for the field-count check and N - 1 sequential `IndexOf(',')` in the generated parser. The vector tokenizers compare 16 (`Vector256`) or 8 (`Vector128`) characters at a time and walk the bits; `_AnyMatchFirst` tests the compare for a match before extracting the bits (expensive on Arm64). |
 | `VectorLoopShapeBenchmarks` | `Scan_LoadUnsafe`, `Scan_SpanCreate` | The delimiter-and-quote loop of `QuoteBalanceScanner.ScanSingleQuote`, reduced to counting, written with `Vector256.LoadUnsafe` from a `ref` (as in the library) and with `Vector256.Create(span.Slice(i, n))` (`Dataset`: the seeded quoted set, long lines). |
-| `ConverterCallShapeBenchmarks` | `Format_GenericHelper`, `Format_GenericWriter`, `Format_DirectCall` | One `int`, one `DateTime` and one `string` field written 1,000 times into the engine's record buffer: through today's generic helper into a `stackalloc` buffer and a copy, through a generic `Format<TConverter, TValue>` on a `ref struct` writer, and through direct `TryFormat` calls into one span. |
+| `ConverterCallShapeBenchmarks` | `Format_GenericHelper`, `Format_GenericWriter`, `Format_DirectCall`, `Format_WriterDirectCall` | One `int`, one `DateTime` and one `string` field written 1,000 times into the engine's record buffer: through today's generic helper into a `stackalloc` buffer and a copy, through a generic `Format<TConverter, TValue>` on a `ref struct` writer, through direct `TryFormat` calls into one span, and (`Format_WriterDirectCall`, T58) through direct `TryFormat` calls on the `ref struct` writer. |
 | `UnquoteBenchmarks` | `Unquote_Current`, `Unquote_IndexOf` | The quoted values of 10,000 lines of the seeded quoted set unquoted to a string: today's emitted strip pass (scalar search, rented buffer) against an `IndexOf` and `string.Create` helper (R3). `Values`: all quoted values, or only those with a doubled quote. |
 | `CreateStringBenchmarks` | `CreateString_New`, `CreateString_Cached` | `new string(span)` against a helper that returns `string.Empty` and cached one-character strings (R4), on the string columns of the 25-column file and the Name and Category columns of the quoted set. |
 | `FormatOneRecordBenchmarks` | `FormatRecord_Current`, `FormatRecord_SingleSpan` | `Format` of 1,000 PackageAssets records into the engine's record buffer, with the generated descriptor and with the G2 prototype: `Format` without the rest of `WriteString`. |
@@ -353,6 +353,12 @@ or 6; the JSON file then records `"b4": false` and the printed table starts with
 without `--smoke` records `"b4": true`. Run the tests of `ab.py` with
 `python3 -I -m unittest discover -s benchmarks/tools -p 'test_*.py'`.
 
+**Row cap.** `DelimitedParseBenchmarks`, `SepComparisonBenchmarks` and `WriteBenchmarks` take their `Rows` values from
+`BenchRows.Values` (`[ParamsSource]`): 10,000, 100,000 and 1,000,000, cut to the values at or below the number in
+the environment variable `FH_BENCH_MAX_ROWS` when it is set. `round.sh --max-rows N` sets it for every measured
+process (design D10: no 1,000,000 rows in A/B runs). `dotnet <dll> --check-rows` prints the values each of the three
+classes will run, one line per class, and measures nothing.
+
 **Local numbers are smoke checks (design D1).** A run on a developer machine or under WSL answers
 "does it run", "is the data right" and "is the direction plausible". Its numbers are not evidence and
 go into no report, gate or changelog; results come from Azure rounds only.
@@ -398,12 +404,41 @@ the format and the pairs). `--max-iterations N` passes `--maxIterationCount N` t
 tables; [docs/benchmarks/step0-4.10.md](docs/benchmarks/step0-4.10.md) is the Step 0 report and
 [docs/benchmarks/raw/README.md](docs/benchmarks/raw/README.md) describes the raw files.
 
+### Round options and filter files (T59)
+
+`round.sh` has four more options for the part 2 rounds. Every one is recorded in `machine.txt` (the lines `max-rows=`,
+`base-commit=`, `env=`, `compare=`) and in its `mode:` line, which `--resume` compares, so a resumed round keeps the
+first call's values and a call with other ones is refused (`error: --resume: measured as ...`).
+
+| Option | Effect |
+|---|---|
+| `--max-rows N` | `FH_BENCH_MAX_ROWS=N` in the environment of every measured process (see "Row cap"). |
+| `--base-commit SHA` | Also builds the library of commit `SHA` (a clone of this repository, no patch) into `base-net10` and `base-net11-ra-on` (`build-baselines.sh --base-commit SHA`) and enables the pairs `base-net10` (`base-net10 -> net10`) and `base-net11` (`base-net11-ra-on -> net11-ra-on`). A filter file that names them is refused without it, before anything is built. The benchmark project is this checkout's and defines `FILEHELPERS_BASELINE` for the base folders, so a method of an API that `SHA` lacks is "not run" in those pairs. `SHA` must differ from the measured commit. In a filter file, `all` in the pairs column does not include the two base pairs. The report has the section "Against the base commit". |
+| `--env NAME=VALUE` | Repeatable. Sets the variable in the environment of every measured process (not in the checks that run before the measurements). Used as `--vm fh-amd-noavx2 --env DOTNET_EnableAVX2=0`. |
+| `--compare` | The one-off library comparison, not an A/B (T50). For each of `net10`, `net11-ra-on` and `net11-ra-off`, the benchmark program runs from that folder with the filter globs, 3 launches (`--launches` is refused), BenchmarkDotNet's default job capped by `--max-iterations`. In `net11-ra-off` only the methods whose name starts with `FileHelpers` or `ModernLibs` run, because the other libraries do not change with the runtime-async switch. The pairs column of the filter file is ignored (`filters-release.txt` writes `all`), no `ab.py` pair starts. Results go to `raw/<round>/<vm>/compare/<configuration>/`; `round-report.py --compare raw/<round>` builds one table per class with the columns `net10`, `net11-ra-on`, `net11-ra-off` (median of the launch medians and the range) and no verdict column; the mode cell says "comparison, 3 launches, not B4". |
+
+Filter files of part 2 (format of `filters-step0.txt`): `filters-g1.txt` is the T19 round (run with `--max-rows 100000
+--max-iterations 20`); it holds the write benchmarks the P7 and P9 checks need (`MultiRecordWriteBenchmarks.WriteStream_Null`,
+`QuotedWriteBenchmarks.WriteStream_Null`, `QuotedWriteBenchmarks.WriteString`) and `ConverterCallShapeBenchmarks`
+(`Format_WriterDirectCall` among its methods). `filters-simd.txt`, `filters-simd-noavx2.txt` (T21), `filters-write.txt`
+(T25) and `filters-release.txt` (T50) have a header only; the task fills them, and `round.sh` refuses a filter file
+without a line. `benchmarks/tools/dis.sh` runs one benchmark method under `DOTNET_JitDisasm` and writes the listing
+(T19 runs it on the VMs).
+
 ## Native AOT timing harness
 
 BenchmarkDotNet runs the benchmarks in its own process with the JIT (see "Running"), so it cannot measure a
 Native AOT build. `benchmarks/ModernLibs.FileHelpers.Benchmarks.Aot` is a small console program, published with
 `PublishAot=true`, that times one scenario under Native AOT (design 3.1, row C2): the 25-column parse-and-discard
 read. It has no BenchmarkDotNet and uses no reflection.
+
+**Scenarios.** `--scenario` picks one (`ab.py` passes it to every timed launch): `PackageAssets_ParseAndDiscard`
+(the default, described below) and `PackageAssets_WriteString` (T59), the work of
+`WriteBenchmarks.WriteString_FileHelpers`: `WriteString` of the records the library read from the same file (CRLF,
+header text without its line ending, as the benchmark prepares them). Both scenarios share the data check and its
+checksum, so `ab.py` takes one checksum from the `--checksum-only` runs and passes it to every timed launch of either
+scenario. The write scenario also writes its records once, parses that output with the BCL parsers and refuses to time
+(exit 3) unless it has the checksum of the data check; every run must return a string of the same length.
 
 **What it measures.** The work of `DelimitedParseBenchmarks.FileHelpers_ParseAndDiscard`: the same record type
 (`Benchmarks/PackageAsset.cs`, compiled into both programs), the same dataset generator (`Data/DatasetGenerator.cs`,
@@ -459,8 +494,8 @@ needs a native toolchain on the machine: CI installs `clang` and `zlib1g-dev` wh
 
 **Run.** `ab.py --aot` runs the folders interleaved, with the B4 rule, the 7-launch minimum, `--smoke` and
 `--allow-dirty` exactly as for BenchmarkDotNet folders. Arguments after `--` go to the harness (`--rows`,
-`--warmup`, `--iterations`; `--expect-checksum`, `--checksum-only`, `--info` and `--data-dir` are refused, ab.py
-sets or forbids them). Before the first timed launch, `ab.py` runs each side once with `--checksum-only` and stops
+`--warmup`, `--iterations`; `--expect-checksum`, `--checksum-only`, `--info`, `--data-dir` and `--scenario` are refused,
+ab.py sets or forbids them; the `--filter` glob selects the scenarios). Before the first timed launch, `ab.py` runs each side once with `--checksum-only` and stops
 unless both report the same data checksum; every timed launch then gets `--expect-checksum` with that value. One
 sample is the median of the iteration times of one launch. The start-up lines of every process must show the
 folder's variant and `native-aot=yes`; for `pkg-net10` and `pkg-net11` also a package library and the .NET major

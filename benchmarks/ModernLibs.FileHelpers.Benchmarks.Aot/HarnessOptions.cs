@@ -8,10 +8,13 @@ internal sealed class HarnessOptions
 {
     public const string Usage =
         "usage: ModernLibs.FileHelpers.Benchmarks.Aot [--rows N] [--warmup N] [--iterations N] [--data-dir DIR] "
-        + "[--expect-checksum HEX] [--checksum-only] [--info]";
+        + "[--scenario NAME] [--expect-checksum HEX] [--checksum-only] [--info]";
 
     /// <summary>Data rows of the PackageAssets file (BenchmarkDotNet uses 10K, 100K and 1M).</summary>
     public int Rows { get; private set; } = 100_000;
+
+    /// <summary>The scenario to time: <see cref="Program.ReadScenario"/> (default) or <see cref="Program.WriteScenario"/>.</summary>
+    public string Scenario { get; private set; } = Program.ReadScenario;
 
     /// <summary>Untimed reads after the data check.</summary>
     public int Warmup { get; private set; } = 5;
@@ -46,7 +49,7 @@ internal sealed class HarnessOptions
                 case "--info":
                     options.Info = true;
                     continue;
-                case "--rows" or "--warmup" or "--iterations" or "--data-dir" or "--expect-checksum":
+                case "--rows" or "--warmup" or "--iterations" or "--data-dir" or "--expect-checksum" or "--scenario":
                     break;
                 default:
                     error = $"unknown argument '{arg}'";
@@ -72,6 +75,9 @@ internal sealed class HarnessOptions
     {
         switch (name)
         {
+            case "--scenario":
+                Scenario = value;
+                return value is Program.ReadScenario or Program.WriteScenario;
             case "--data-dir":
                 DataDir = value;
                 return value.Length > 0;

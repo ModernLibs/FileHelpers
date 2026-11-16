@@ -365,14 +365,19 @@ class AotStartupAndResultTests(unittest.TestCase):
             ab.aot_sample(ab.parse_aot_result(_aot_result_line(times=())))
 
     def test_arguments_ab_sets_itself_cannot_be_passed_to_the_aot_program(self):
-        for bad in (["--expect-checksum", "0x1"], ["--checksum-only"], ["--info"], ["--data-dir", "x"]):
+        for bad in (["--expect-checksum", "0x1"], ["--checksum-only"], ["--info"], ["--data-dir", "x"],
+                    ["--scenario", "PackageAssets_WriteString"]):
             with self.assertRaises(ValueError):
                 ab.check_aot_args(bad)
         ab.check_aot_args(["--rows", "100000", "--warmup", "5", "--iterations", "20"])
 
     def test_the_filter_selects_aot_scenarios(self):
-        self.assertEqual(ab.aot_methods("*"), ["ModernLibs.FileHelpers.Benchmarks.Aot.PackageAssets_ParseAndDiscard"])
-        self.assertEqual(ab.aot_methods("*ParseAndDiscard*"), ab.aot_methods("*"))
+        self.assertEqual(ab.aot_methods("*"), ["ModernLibs.FileHelpers.Benchmarks.Aot.PackageAssets_ParseAndDiscard",
+                                               "ModernLibs.FileHelpers.Benchmarks.Aot.PackageAssets_WriteString"])
+        self.assertEqual(ab.aot_methods("*ParseAndDiscard*"),
+                         ["ModernLibs.FileHelpers.Benchmarks.Aot.PackageAssets_ParseAndDiscard"])
+        self.assertEqual(ab.aot_methods("*WriteString"),
+                         ["ModernLibs.FileHelpers.Benchmarks.Aot.PackageAssets_WriteString"])
         self.assertEqual(ab.aot_methods("*QuotedFields*"), [])
 
 
@@ -408,7 +413,7 @@ class AotLauncherTests(unittest.TestCase):
             f.write(b"\x7fELF")
         self.artifacts = os.path.join(self._tmp.name, "work", "001-b-aot")
         self.expected = {"b": ab.expected_variant(self.bench, None)}
-        self.method = ab.aot_methods("*")[0]
+        self.method = ab.aot_methods("*ParseAndDiscard")[0]
 
     def tearDown(self):
         self._tmp.cleanup()
@@ -423,7 +428,8 @@ class AotLauncherTests(unittest.TestCase):
         medians = self._launcher(run, startups)("b", self.bench, self.method, self.artifacts)
         self.assertEqual(medians, {AOT_CASE: 200.0})
         self.assertEqual(run.commands[0][0], os.path.join(self.bench, ab.AOT_EXECUTABLE))
-        self.assertEqual(run.commands[0][1:], ["--expect-checksum", "0x00000000000000aa", "--rows", "1000"])
+        self.assertEqual(run.commands[0][1:], ["--scenario", "PackageAssets_ParseAndDiscard", "--expect-checksum",
+                                               "0x00000000000000aa", "--rows", "1000"])
         self.assertEqual(startups["b"]["build"], "native-aot=yes app-tfm=net10.0 rid=linux-x64")
         self.assertTrue(os.path.isfile(os.path.join(self.artifacts, "console.log")))
 
@@ -459,9 +465,11 @@ echo "// Build: native-aot=yes app-tfm=net10.0 rid=linux-x64"
 echo "// Runtime: .NET 10.0.15"
 expect=""
 only=0
+scenario=PackageAssets_ParseAndDiscard
 while [ $# -gt 0 ]; do
     case "$1" in
         --expect-checksum) expect="$2"; shift 2 ;;
+        --scenario) scenario="$2"; shift 2 ;;
         --checksum-only) only=1; shift ;;
         *) shift ;;
     esac
@@ -474,8 +482,8 @@ if [ "$only" = 1 ]; then
     echo '{"harness":"aot","scenario":"PackageAssets_ParseAndDiscard","rows":1000,"checksum":"'"$sum"'","times_ns":[]}'
     exit 0
 fi
-echo "timed" >> "$dir/timed.log"
-echo '{"harness":"aot","scenario":"PackageAssets_ParseAndDiscard","rows":1000,"checksum":"'"$sum"'","times_ns":[100,110,105]}'
+echo "timed $scenario $expect" >> "$dir/timed.log"
+echo '{"harness":"aot","scenario":"'"$scenario"'","rows":1000,"checksum":"'"$sum"'","times_ns":[100,110,105]}'
 """
 
 
@@ -506,14 +514,15 @@ class AotMainTests(unittest.TestCase):
                     f.write(text)
             self.dirs[name] = folder
         self.out = os.path.join(self._tmp.name, "aot.json")
+        self.filter = "*ParseAndDiscard"
 
     def tearDown(self):
         self._tmp.cleanup()
 
     def _main(self, *extra):
         return ab.main(["--aot", "--a", self.dirs["pkg-net10"], "--b", self.dirs["net10"],
-                        "--expect-a", "tfm=net10.0 runtime-async=off", "--launches", "7", "--out", self.out]
-                       + list(extra))
+                        "--expect-a", "tfm=net10.0 runtime-async=off", "--launches", "7", "--out", self.out,
+                        "--filter", self.filter] + list(extra))
 
     def _timed(self, name):
         path = os.path.join(self.dirs[name], "timed.log")
@@ -537,6 +546,24 @@ class AotMainTests(unittest.TestCase):
         self.assertEqual(row["a_median_ns"], [105.0] * 7)
         self.assertEqual(row["verdict"], "no-change")
         self.assertEqual((self._timed("pkg-net10"), self._timed("net10")), (7, 7))
+
+    def test_the_write_scenario_has_the_checksum_rule_of_the_read_scenario(self):
+        # T59 (F13): PackageAssets_WriteString is an AOT scenario. It gets the one data checksum of the --checksum-only
+        # runs, like the read scenario: every timed launch of both passes it as --expect-checksum, and the result
+        # must name the scenario that was asked for (_aot_launcher refuses another one).
+        self.assertIn("PackageAssets_WriteString", ab.AOT_SCENARIOS)
+        self.filter = "*"
+        self.assertEqual(self._main("--", "--rows", "1000"), 0)
+        document = self._document()
+        self.assertEqual(document["aot_checksum"], "0x00000000000000aa")
+        self.assertEqual([row["name"].split(".")[-1].split("(")[0] for row in document["benchmarks"]],
+                         ["PackageAssets_ParseAndDiscard", "PackageAssets_WriteString"])
+        for name in ("pkg-net10", "net10"):
+            with open(os.path.join(self.dirs[name], "timed.log"), encoding="utf-8") as f:
+                lines = f.read().splitlines()
+            self.assertEqual(sorted(set(lines)), ["timed PackageAssets_ParseAndDiscard 0x00000000000000aa",
+                                                  "timed PackageAssets_WriteString 0x00000000000000aa"])
+            self.assertEqual(len(lines), 14)
 
     def _document(self):
         with open(self.out, encoding="utf-8") as f:

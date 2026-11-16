@@ -1,10 +1,14 @@
 // Native AOT timing harness (T47, design 3.1 row C2). See BENCHMARKS.md, "Native AOT timing harness".
 //
-//   ModernLibs.FileHelpers.Benchmarks.Aot [--rows N] [--warmup N] [--iterations N] [--data-dir DIR]
+//   ModernLibs.FileHelpers.Benchmarks.Aot [--rows N] [--warmup N] [--iterations N] [--data-dir DIR] [--scenario NAME]
 //                                         [--expect-checksum HEX] [--checksum-only] [--info]
 //
-// Times the work of DelimitedParseBenchmarks.FileHelpers_ParseAndDiscard (one ReadFile of the PackageAssets file
-// with a callback that adds each record's Id) in this process: one untimed data check, --warmup untimed reads,
+// Times one scenario in this process. PackageAssets_ParseAndDiscard (the default) is the work of
+// DelimitedParseBenchmarks.FileHelpers_ParseAndDiscard: one ReadFile of the PackageAssets file with a callback that
+// adds each record's Id. PackageAssets_WriteString (T59) is the work of WriteBenchmarks.WriteString_FileHelpers: one
+// WriteString of the records the library read from that file. Both scenarios share the data check and its checksum
+// (the records the library reads); the write scenario also parses its own output with the BCL parsers and refuses to
+// time unless that gives the same checksum. One untimed data check, --warmup untimed runs,
 // then --iterations timed reads, each preceded by a full garbage collection (as BenchmarkDotNet does between
 // iterations). Prints the start-up lines, then one JSON line with every iteration time. Exit codes: 0 done;
 // 2 unusable arguments; 3 refused: the records do not match the text of the file, or the data checksum is not the
@@ -21,7 +25,8 @@ namespace ModernLibs.FileHelpers.Benchmarks.Aot;
 
 internal static class Program
 {
-    public const string Scenario = "PackageAssets_ParseAndDiscard";
+    public const string ReadScenario = "PackageAssets_ParseAndDiscard";
+    public const string WriteScenario = "PackageAssets_WriteString";
 
     private static int Main(string[] args)
     {
@@ -44,15 +49,19 @@ internal static class Program
             return 3;
         if (options.ChecksumOnly)
         {
-            Console.WriteLine(ResultJson(options.Rows, warmup: 0, checksum, []));
+            Console.WriteLine(ResultJson(options.Scenario, options.Rows, warmup: 0, checksum, []));
             return 0;
         }
 
-        long idSum = (long)options.Rows * (options.Rows - 1) / 2;
+        ScenarioRun? scenario = string.Equals(options.Scenario, WriteScenario, StringComparison.Ordinal)
+            ? WriteRun.Create(path, dataDir, checksum, options.Rows)
+            : new ReadRun(engine, path, options.Rows);
+        if (scenario is null)
+            return 3;
         for (int i = 0; i < options.Warmup; i++)
         {
-            if (ParseAndDiscard(engine, path) != idSum)
-                return Refuse($"warm-up read {i + 1} returned another Id sum than {idSum}");
+            if (scenario.Run() is { } wrong)
+                return Refuse($"warm-up run {i + 1}: {wrong}");
         }
 
         var times = new long[options.Iterations];
@@ -62,24 +71,103 @@ internal static class Program
             GC.WaitForPendingFinalizers();
             GC.Collect();
             long start = Stopwatch.GetTimestamp();
-            long sum = ParseAndDiscard(engine, path);
+            string? wrong = scenario.Run();
             long end = Stopwatch.GetTimestamp();
-            if (sum != idSum)
-                return Refuse($"timed read {i + 1} returned the Id sum {sum}, expected {idSum}");
+            if (wrong is not null)
+                return Refuse($"timed run {i + 1}: {wrong}");
             times[i] = (long)((end - start) * (1_000_000_000.0 / Stopwatch.Frequency));
         }
 
-        Console.WriteLine(ResultJson(options.Rows, options.Warmup, checksum, times));
+        Console.WriteLine(ResultJson(options.Scenario, options.Rows, options.Warmup, checksum, times));
         return 0;
     }
 
-    /// <summary>The measured work, the body of DelimitedParseBenchmarks.FileHelpers_ParseAndDiscard.</summary>
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private static long ParseAndDiscard(FileHelperEngine<PackageAsset> engine, string path)
+    /// <summary>One run of a scenario; <see cref="Run"/> returns null, or the reason the run gave a wrong result.</summary>
+    private abstract class ScenarioRun
     {
-        long checksum = 0;
-        engine.ReadFile(path, r => checksum += r.Id);
-        return checksum;
+        public abstract string? Run();
+    }
+
+    /// <summary>The measured work of DelimitedParseBenchmarks.FileHelpers_ParseAndDiscard.</summary>
+    private sealed class ReadRun(FileHelperEngine<PackageAsset> engine, string path, int rows) : ScenarioRun
+    {
+        private readonly long _idSum = (long)rows * (rows - 1) / 2;
+
+        public override string? Run()
+        {
+            long sum = ParseAndDiscard(engine, path);
+            return sum == _idSum ? null : $"the Id sum is {sum}, expected {_idSum}";
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static long ParseAndDiscard(FileHelperEngine<PackageAsset> engine, string path)
+        {
+            long checksum = 0;
+            engine.ReadFile(path, r => checksum += r.Id);
+            return checksum;
+        }
+    }
+
+    /// <summary>
+    /// The measured work of WriteBenchmarks.WriteString_FileHelpers: WriteString of the records read from the file,
+    /// with the settings of that benchmark (CRLF, the header text without its line ending). Create writes once, parses
+    /// the output with the BCL parsers (DataChecksum.OfFile) and refuses (null) unless rows and checksum are those of
+    /// the data check; every run must then return a string of the same length.
+    /// </summary>
+    private sealed class WriteRun : ScenarioRun
+    {
+        private readonly FileHelperEngine<PackageAsset> _engine;
+        private readonly PackageAsset[] _records;
+        private readonly int _length;
+
+        private WriteRun(FileHelperEngine<PackageAsset> engine, PackageAsset[] records, int length)
+        {
+            _engine = engine;
+            _records = records;
+            _length = length;
+        }
+
+        public static WriteRun? Create(string path, string dataDir, ulong textChecksum, int rows)
+        {
+            var writer = new FileHelperEngine<PackageAsset> { NewLineForWrite = "\r\n" };
+            var records = new List<PackageAsset>(rows);
+            writer.ReadFile(path, records.Add);
+            // 4.10 captures the header with its line ending, 4.9.1 without (see WriteBenchmarks.Prepare).
+            writer.HeaderText = writer.HeaderText?.TrimEnd('\r', '\n');
+            var array = records.ToArray();
+            string text = writer.WriteString(array);
+            string outputPath = Path.Combine(dataDir, "output_write_check.csv");
+            File.WriteAllText(outputPath, text);
+            try
+            {
+                var (writtenChecksum, writtenRows) = DataChecksum.OfFile(outputPath);
+                if (writtenRows != rows || writtenChecksum != textChecksum)
+                {
+                    Refuse($"data check: WriteString wrote {writtenRows} rows, checksum {Hex(writtenChecksum)}; "
+                        + $"the data check read {rows} rows, checksum {Hex(textChecksum)}");
+                    return null;
+                }
+            }
+            catch (InvalidDataException ex)
+            {
+                Refuse("data check: the output of WriteString does not parse: " + ex.Message);
+                return null;
+            }
+            finally
+            {
+                File.Delete(outputPath);
+            }
+            return new WriteRun(writer, array, text.Length);
+        }
+
+        public override string? Run()
+        {
+            string text = Write(_engine, _records);
+            return text.Length == _length ? null : $"WriteString returned {text.Length} characters, expected {_length}";
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static string Write(FileHelperEngine<PackageAsset> engine, PackageAsset[] records) => engine.WriteString(records);
     }
 
     /// <summary>
@@ -149,12 +237,12 @@ internal static class Program
 
     private static string Hex(ulong value) => "0x" + value.ToString("x16", CultureInfo.InvariantCulture);
 
-    private static string ResultJson(int rows, int warmup, ulong checksum, long[] times)
+    private static string ResultJson(string scenario, int rows, int warmup, ulong checksum, long[] times)
     {
         var json = new StringBuilder(256 + (times.Length * 12));
         var inv = CultureInfo.InvariantCulture;
         json.Append("{\"harness\":\"aot\"");
-        AppendString(json, "scenario", Scenario);
+        AppendString(json, "scenario", scenario);
         AppendString(json, "variant", Variant);
         AppendString(json, "library", HarnessBuild.Library);
         AppendString(json, "build", BuildLine);

@@ -28,7 +28,7 @@ public class WriteBenchmarks
     private string _outputPath = "";
     private string _sourceFile = "";
 
-    [Params(10_000, 100_000, 1_000_000)]
+    [ParamsSource(typeof(BenchRows), nameof(BenchRows.Values))]
     public int Rows { get; set; }
 
     /// <summary>

@@ -18,7 +18,7 @@ public class SepComparisonBenchmarks
     private PackageAsset[] _records = null!;
     private RecordParser.Parsers.IVariableLengthReader<PackageAssetRow> _recordParser = null!;
 
-    [Params(10_000, 100_000, 1_000_000)]
+    [ParamsSource(typeof(BenchRows), nameof(BenchRows.Values))]
     public int Rows { get; set; }
 
     private void Prepare()

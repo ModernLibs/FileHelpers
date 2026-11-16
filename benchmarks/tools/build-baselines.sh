@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# build-baselines.sh <out-dir> [<package-version> [<control-tag>]]
+# build-baselines.sh <out-dir> [<package-version> [<control-tag>]] [--base-commit SHA]
 #
 # Builds the two 4.9.1 baselines of a Step 0 round (T12, design 2.5 item 9 and 3.5) next to the folders of
 # build-variants.sh. The benchmark project is this repository's in every folder; only the library differs:
@@ -9,6 +9,15 @@
 #   <out-dir>/control-net10         the <control-tag> (default v4.9.1) source, built with this repository's SDK
 #   <out-dir>/control-net11-ra-on   the same source compiled for net11.0 with runtime async on
 #   <out-dir>/control-net11-ra-off  the same source compiled for net11.0 with runtime async off
+#
+# With --base-commit SHA (round.sh --base-commit, T59) two more folders are built, for the pairs base-net10 and base-net11:
+#
+#   <out-dir>/base-net10            the library of commit SHA (a clone of this repository, no patch), net10.0
+#   <out-dir>/base-net11-ra-on      the same source compiled for net11.0 with runtime async on
+#
+# They are built like the control folders (-p:FileHelpersSourceRoot, so FILEHELPERS_BASELINE is defined and the
+# benchmarks of APIs that SHA lacks are left out), but without control-v4.9.1.patch: a commit of the 4.10 line has the
+# net11.0 target and the runtime-async switch itself.
 #
 # The package build uses -p:FileHelpersPackageVersion, the control builds -p:FileHelpersSourceRoot (see the
 # benchmark project file). The control source is a clone of this repository at <control-tag> with
@@ -22,10 +31,20 @@
 # changes)" when this tree differs from it), the SDK, the library and its SHA-256.
 set -euo pipefail
 
-if [[ $# -lt 1 || $# -gt 3 ]]; then
-    echo "usage: $0 <out-dir> [<package-version> [<control-tag>]]" >&2
+base_commit=""
+positional=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --base-commit) [[ $# -ge 2 ]] || { echo "usage: $0 <out-dir> [<package-version> [<control-tag>]] [--base-commit SHA]" >&2; exit 2; }
+                       base_commit="$2"; shift 2 ;;
+        *) positional+=("$1"); shift ;;
+    esac
+done
+if [[ ${#positional[@]} -lt 1 || ${#positional[@]} -gt 3 ]]; then
+    echo "usage: $0 <out-dir> [<package-version> [<control-tag>]] [--base-commit SHA]" >&2
     exit 2
 fi
+set -- "${positional[@]}"
 
 package_version="${2:-4.9.1}"
 control_tag="${3:-v4.9.1}"
@@ -39,6 +58,7 @@ project="$repo/benchmarks/ModernLibs.FileHelpers.Benchmarks/ModernLibs.FileHelpe
 patch_file="$repo/benchmarks/tools/control-v4.9.1.patch"
 tool_dir="$out/.tools/verify-variant-baselines"
 control_src="$out/.control-src"
+base_src="$out/.base-src"
 
 # name | target framework | extra build arguments | expected verify-variant output
 variants=(
@@ -49,12 +69,19 @@ variants=(
     "control-net11-ra-off|net11.0|-p:FileHelpersSourceRoot=$control_src -p:FileHelpersRuntimeAsync=false|tfm=net11.0 runtime-async=off"
 )
 
+if [[ -n "$base_commit" ]]; then
+    variants+=(
+        "base-net10|net10.0|-p:FileHelpersSourceRoot=$base_src|tfm=net10.0 runtime-async=off"
+        "base-net11-ra-on|net11.0|-p:FileHelpersSourceRoot=$base_src|tfm=net11.0 runtime-async=on"
+    )
+fi
+
 # Delete every folder of an earlier run first, so a failed run leaves nothing that still looks valid.
 for entry in "${variants[@]}"; do
     IFS='|' read -r name _ <<< "$entry"
     rm -rf "${out:?}/$name" "$out/.artifacts/$name"
 done
-rm -rf "$tool_dir" "$out/.artifacts/verify-variant-baselines" "$control_src"
+rm -rf "$tool_dir" "$out/.artifacts/verify-variant-baselines" "$control_src" "$base_src"
 
 step="build verify-variant"
 dotnet build "$repo/benchmarks/tools/verify-variant/verify-variant.csproj" -c Release \
@@ -74,6 +101,14 @@ git -C "$control_src" checkout --quiet --detach "$tag_commit"
 step="apply $(basename "$patch_file") to $control_tag"
 git -C "$control_src" apply --whitespace=nowarn "$patch_file"
 control_changes="$(git -C "$control_src" diff --stat | tail -n 1 | sed 's/^ *//')"
+
+base_sha=""
+if [[ -n "$base_commit" ]]; then
+    step="clone the base commit $base_commit"
+    base_sha="$(git -C "$repo" rev-parse --verify "$base_commit^{commit}")"
+    git clone --quiet --no-checkout "$repo" "$base_src"
+    git -C "$base_src" checkout --quiet --detach "$base_sha"
+fi
 
 step="locate the NuGet cache"
 packages="$(dotnet nuget locals global-packages --list | sed -n 's/^global-packages: *//p')"
@@ -106,6 +141,9 @@ for entry in "${variants[@]}"; do
             ;;
         control-*)
             source_line="$control_tag source ($tag_commit) with $(basename "$patch_file") ($control_changes)"
+            ;;
+        base-*)
+            source_line="base commit $base_sha source (no patch)"
             ;;
     esac
     printf '%s: %s\ncommit=%s\nsdk=%s\nlibrary=%s\nlibrary_sha256=%s\n' \

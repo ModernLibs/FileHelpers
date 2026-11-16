@@ -5,6 +5,7 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Running;
 using ModernLibs.FileHelpers.Benchmarks.Benchmarks;
 using ModernLibs.FileHelpers.Benchmarks.Benchmarks.Prototypes;
@@ -25,6 +26,8 @@ internal static class Program
             return CompetitorCheck.Run();
         if (args.Contains("--check-prototypes"))
             return PrototypeCheck.Run();
+        if (args.Contains("--check-rows"))
+            return CheckRows();
 
         PrintVariant();
         var (config, arguments, error) = BenchConfig.FromArguments(args);
@@ -43,6 +46,22 @@ internal static class Program
                 || s.Reports.Length != s.BenchmarksCases.Length
                 || s.Reports.Any(r => !r.Success));
         return failed ? 1 : 0;
+    }
+
+    /// <summary>
+    /// <c>--check-rows</c>: prints the Rows values each class with a Rows source will run (BenchRows, honouring
+    /// FH_BENCH_MAX_ROWS), one line per class, and runs nothing. test_round_runs.py reads these lines.
+    /// </summary>
+    private static int CheckRows()
+    {
+        foreach (var type in new[] { typeof(DelimitedParseBenchmarks), typeof(SepComparisonBenchmarks), typeof(WriteBenchmarks) })
+        {
+            var source = type.GetProperty(nameof(DelimitedParseBenchmarks.Rows))!.GetCustomAttribute<ParamsSourceAttribute>()!;
+            var values = (IEnumerable<int>)(source.Type!.GetProperty(source.Name, BindingFlags.Public | BindingFlags.Static)!
+                .GetValue(null)!);
+            Console.WriteLine($"Rows {type.Name}: {string.Join(" ", values)}");
+        }
+        return 0;
     }
 
     /// <summary>

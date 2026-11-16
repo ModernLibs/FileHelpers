@@ -147,7 +147,7 @@ public sealed class GeneratedCodeContractTests
     ];
 
     [Test]
-    [DisplayName("Every member that 4.8 and 4.9 generated code binds to exists with the listed parameter types")]
+    [DisplayName("Every member that 4.8, 4.9 and 4.10 generated code binds to exists with the listed parameter types")]
     public async Task Every_Listed_Member_Exists()
     {
         // Act

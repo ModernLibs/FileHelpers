@@ -73,13 +73,16 @@ public sealed class TokenizedEmissionTests
 
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
 
-    /// <summary>Generates <paramref name="shape"/> and returns the text; fails on compile errors or warnings.</summary>
+    /// <summary>
+    /// Generates <paramref name="shape"/> and returns the text with <c>\n</c> line ends (the emitter writes the line
+    /// end of the platform); fails on compile errors or warnings.
+    /// </summary>
     private static async Task<string> Generate(string shape)
     {
         var run = GeneratorHarness.RunGenerator(Usings + shape);
         await Assert.That(run.CompileErrors.IsEmpty).IsTrue().Because(run.ErrorText + "\n" + run.GeneratedText);
         await Assert.That(run.GeneratedWarnings.IsEmpty).IsTrue().Because(string.Join("\n", run.GeneratedWarnings));
-        return run.GeneratedText;
+        return run.GeneratedText.ReplaceLineEndings("\n");
     }
 
     /// <summary>The method that starts at <paramref name="signature"/>, up to its closing brace (four spaces of indent), or null.</summary>
@@ -128,6 +131,20 @@ public sealed class TokenizedEmissionTests
         await Assert.That(tryParseInto).IsNotNull();
         await Assert.That(LayoutKnowledge(tryParse!, allowConverterTry: false)).IsEmpty();
         await Assert.That(LayoutKnowledge(tryParseInto!, allowConverterTry: false)).IsEmpty();
+    }
+
+    /// <summary>A <c>[FieldValueDiscarded]</c> field (<c>PlainShape.Ignored</c>, index 21) emits nothing in the tokenized bodies.</summary>
+    [Test]
+    public async Task Discarded_Field_Emits_Nothing_In_The_Tokenized_Bodies()
+    {
+        string text = await Generate(PlainShape);
+        foreach (string signature in (string[])["public bool TryParse(", "public bool TryParseInto("])
+        {
+            string body = Method(text, signature)!;
+            foreach (string absent in (string[])["__f21", "__v21", "GetValue(21)", "GetString(21)", "Ignored"])
+                await Assert.That(body).DoesNotContain(absent).Because(signature);
+            await Assert.That(body).Contains("GetValue(22)").Because(signature);
+        }
     }
 
     /// <summary>

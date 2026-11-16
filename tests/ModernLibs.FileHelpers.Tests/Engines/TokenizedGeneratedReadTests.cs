@@ -250,6 +250,26 @@ public sealed class TokenizedGeneratedReadTests
         await Assert.That(read[1]).IsEqualTo("2|B|3.5||<null>");
     }
 
+    /// <summary>
+    /// A <c>[FieldValueDiscarded]</c> field is read past, never trimmed, validated or converted, on both paths: its
+    /// text is not an int, and the member keeps its default.
+    /// </summary>
+    [Test]
+    [Arguments("1, junk ,c\r\n")]
+    [Arguments("1,,c\r\n")]
+    [Arguments("1,7,c\r\n")]
+    [Arguments("x, junk ,c\r\n")]
+    public async Task Discarded_Field_Reads_The_Same_On_Both_Paths(string input)
+    {
+        static string Show(TgDiscarded r) => string.Create(CultureInfo.InvariantCulture, $"{r.A}|{r.Skip}|{r.C}");
+
+        await Assert.That(new RecordReadCore<TgDiscarded>(FileHelperRegistry<TgDiscarded>.Descriptor, TokensPath).Tokenized).IsTrue();
+        string tokenized = Text<TgDiscarded>(TokensPath, input, Show);
+        await Assert.That(tokenized).IsEqualTo(Text<TgDiscarded>(LegacyPath, input, Show));
+        if (input[0] == '1')
+            await Assert.That(tokenized).IsEqualTo("record:1|0|c\n");
+    }
+
     [Test]
     public async Task Generated_Descriptors_Implement_The_Interface_Where_Eligible()
     {
@@ -334,6 +354,14 @@ public sealed class TgRecycle
     public decimal Amount { get; set; }
     [FieldOptional] public string? Note { get; set; }
     [FieldOptional] public int? Rank { get; set; }
+}
+
+[DelimitedRecord(",")]
+public sealed class TgDiscarded
+{
+    public int A { get; set; }
+    [FieldValueDiscarded, FieldTrim(TrimMode.Both)] public int Skip { get; set; }
+    public string C { get; set; } = string.Empty;
 }
 
 [FixedLengthRecord]

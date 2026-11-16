@@ -445,7 +445,8 @@ internal static class DescriptorEmitter
     /// <summary>
     /// Emits the shared parse prologue (line-count check, multi-line split, fixed-length validation,
     /// field splitting, quote strip, trim, not-empty validation and conversions). Quoted values are unescaped by
-    /// <c>RecordParsing.Unquote</c> and <c>UnquoteToString</c> (design 4.6): no pooled buffer, no try/finally.
+    /// <c>RecordParsing.Unquote</c> and <c>UnquoteToString</c> (design 4.6): no pooled buffer and no try/finally
+    /// around the parse (a custom converter call keeps its own try/catch, see <see cref="EmitFieldConversion"/>).
     /// </summary>
     private static void EmitParsePrologue(StringBuilder sb, RecordModel model, ConverterPlan?[] plans)
     {
@@ -542,7 +543,9 @@ internal static class DescriptorEmitter
     /// (1) the quote checks of the fields that require a quote on read, the only place that gives the record back,
     /// before any value is read or converted (freeze F-4); (2) the values from the tokens; (3) the trim, not-empty
     /// and conversion passes of the legacy body; (4) construction or member assignment. The tokens hold the layout:
-    /// no delimiter, no quote char, no try/finally.
+    /// no delimiter, no quote char, no pooled buffer. The only try/catch is the one <see cref="EmitFieldConversion"/>
+    /// wraps around a custom converter call (lead ruling P19): it maps the converter's exception to
+    /// <c>RecordParsing.ConverterFailure</c> exactly as the legacy body does, so it must stay.
     /// </summary>
     private static void EmitTryParseBody(StringBuilder sb, RecordModel model, string fqType, ConverterPlan?[] plans, bool into)
     {

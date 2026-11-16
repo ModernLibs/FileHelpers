@@ -144,6 +144,14 @@ internal sealed class RecordReadCore<T> : ILogicalLineRules
     public bool Tokenized => _tokenized is not null;
 
     /// <summary>
+    /// The loops the tokenizer runs for this core's records (T21): <see cref="RecordTokenizer.PlainLoop"/> and
+    /// <see cref="RecordTokenizer.QuotedLoop"/>, or <see cref="TokenizerLoop.IndexOfHop"/> for both with
+    /// <see cref="EnginePaths.ScalarTokenizer"/>.
+    /// </summary>
+    public (TokenizerLoop Plain, TokenizerLoop Quoted) TokenizerLoops =>
+        (RecordTokenizer.PlainLoopFor(_vectorTokenizer), RecordTokenizer.QuotedLoopFor(_vectorTokenizer));
+
+    /// <summary>
     /// A buffer for <see cref="Parse"/> and <see cref="ParseInto"/>, owned by the caller (one per reader, never shared
     /// between threads); <see langword="null"/> when the record type is not <see cref="Tokenized"/>.
     /// </summary>

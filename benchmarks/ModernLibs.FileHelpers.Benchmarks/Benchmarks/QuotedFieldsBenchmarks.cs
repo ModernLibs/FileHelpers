@@ -146,6 +146,26 @@ public abstract class QuotedFieldsBenchmarksBase
         CheckDiscard("FileHelpers", FileHelpers_ParseAndDiscard());
     }
 
+    /// <summary>
+    /// Sets the <c>ModernLibs.FileHelpers.DisableTokenizedParse</c> switch before the first engine of the process (T21,
+    /// lead ruling P21: an AppContext switch, not an environment variable). The library reads its switches once, so the
+    /// switch holds only when no engine was made before this setup, and it then holds for every later engine of the
+    /// process: run this method in a process of its own, as ab.py does (one process per method). A 4.10 build checks
+    /// that its engine does not take the tokenized path; a 4.9.1 build has none, and the switch does nothing there.
+    /// </summary>
+    [GlobalSetup(Target = nameof(FileHelpers_ParseAndDiscard_ScanOnly))]
+    public void SetupDiscardFileHelpersScanOnly()
+    {
+        AppContext.SetSwitch("ModernLibs.FileHelpers.DisableTokenizedParse", true);
+        Prepare();
+#if !FILEHELPERS_BASELINE
+        DataCheck.That(!_engine.Core.Tokenized,
+            "FileHelpers_ParseAndDiscard_ScanOnly: the engine takes the tokenized path, so the library read its switches "
+            + "before this setup; run the method in a process of its own");
+#endif
+        CheckDiscard("FileHelpers (DisableTokenizedParse)", FileHelpers_ParseAndDiscard_ScanOnly());
+    }
+
     [GlobalSetup(Target = nameof(Sylvan_ParseAndDiscard))]
     public void SetupDiscardSylvan()
     {
@@ -279,6 +299,18 @@ public abstract class QuotedFieldsBenchmarksBase
 
     [Benchmark]
     public long FileHelpers_ParseAndDiscard()
+    {
+        long checksum = 0;
+        _engine.ReadFile(_filePath, r => checksum += r.Id);
+        return checksum;
+    }
+
+    /// <summary>
+    /// <see cref="FileHelpers_ParseAndDiscard"/> with <c>DisableTokenizedParse</c> set (its setup): on 4.10 the scan
+    /// path that T20 moved to a generic recorder, without the tokenized parse.
+    /// </summary>
+    [Benchmark]
+    public long FileHelpers_ParseAndDiscard_ScanOnly()
     {
         long checksum = 0;
         _engine.ReadFile(_filePath, r => checksum += r.Id);

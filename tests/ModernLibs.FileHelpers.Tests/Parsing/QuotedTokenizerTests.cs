@@ -18,7 +18,7 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.Parsing;
 
 /// <summary>
-/// <see cref="RecordTokenizer.TokenizeQuoted"/> (T20, R6): the walk of <see cref="QuoteBalanceScanner"/> that also
+/// <see cref="RecordTokenizer.TokenizeQuoted(ReadOnlySpan{char}, char, char, ReadOnlySpan{char}, TokenBuffer, bool, out int, out bool)"/> (T20, R6): the walk of <see cref="QuoteBalanceScanner"/> that also
 /// writes the end entries. <c>(lastField, endsInside)</c> always equal <see cref="QuoteBalanceScanner.EndsInsideQuotes(ReadOnlySpan{char}, bool, ReadOnlySpan{char}, ReadOnlySpan{char}, ReadOnlySpan{string?}, ref int, ReadOnlySpan{string?})"/>;
 /// the tokens equal a char-by-char reference of the 3.x rules, or "no tokens" (-1) outside the success shape. Both
 /// loops run: <c>vectors: true</c> (whatever this machine accelerates) and <c>vectors: false</c> (<c>IndexOfAny</c>).
@@ -308,5 +308,49 @@ public sealed class QuotedTokenizerTests
         {
             await Assert.That(Compare(line, "\"\"\"", 3)).IsNull();
         }
+    }
+
+    /// <summary>
+    /// T21: the loop overload with each vector loop gives what <see cref="TokenizerLoop.IndexOfHop"/> gives (count,
+    /// entries, <c>lastField</c>, <c>endsInside</c>) on generated records of 1 to 40 fields, with the three quote
+    /// patterns and at two capacities. A loop whose vector width this machine does not accelerate is skipped with a
+    /// message.
+    /// </summary>
+    [Test]
+    [Arguments(nameof(TokenizerLoop.Vector128))]
+    [Arguments(nameof(TokenizerLoop.Vector256))]
+    [Arguments(nameof(TokenizerLoop.Vector512))]
+    [Arguments(nameof(TokenizerLoop.Vector256Packed))]
+    public async Task Every_Loop_Agrees_With_IndexOfHop(string loopName)
+    {
+        var loop = Enum.Parse<TokenizerLoop>(loopName);
+        Skip.Unless(RecordTokenizerTests.Accelerated(loop), $"{loop}: this machine does not accelerate its vector width");
+
+        var generator = new LineGenerator(4921);
+        int withTokens = 0;
+        for (int i = 0; i < 20_000; i++)
+        {
+            int fieldCount = 1 + (i % 40);
+            string line = generator.NextRecord(fieldCount);
+            string quotes = Quotes(i % 3, fieldCount);
+            foreach (int capacity in new[] { fieldCount, Math.Max(1, fieldCount / 2) })
+            {
+                var expected = new TokenBuffer(capacity);
+                int expectedCount = RecordTokenizer.TokenizeQuoted(line, ',', '"', quotes, expected, TokenizerLoop.IndexOfHop, out int expectedField, out bool expectedInside);
+                var buffer = new TokenBuffer(capacity);
+                int count = RecordTokenizer.TokenizeQuoted(line, ',', '"', quotes, buffer, loop, out int lastField, out bool endsInside);
+                int entries = Math.Max(0, count);
+                if ((count, lastField, endsInside) != (expectedCount, expectedField, expectedInside)
+                    || !buffer.Ends.AsSpan(0, entries).SequenceEqual(expected.Ends.AsSpan(0, entries)))
+                {
+                    Fail.Test(string.Create(CultureInfo.InvariantCulture,
+                        $"{loop}, capacity {capacity}, quotes '{Escape(quotes)}', line '{Escape(line)}': ({count}, {lastField}, {endsInside}), IndexOfHop ({expectedCount}, {expectedField}, {expectedInside})"));
+                }
+
+                withTokens += count > 0 ? 1 : 0;
+            }
+        }
+
+        await Assert.That(withTokens).IsGreaterThan(10_000);
     }
 }

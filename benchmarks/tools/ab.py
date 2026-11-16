@@ -95,9 +95,10 @@ _STARTUP_PREFIXES = {
 # Native AOT mode (T47): the harness benchmarks/ModernLibs.FileHelpers.Benchmarks.Aot.
 AOT_EXECUTABLE = "ModernLibs.FileHelpers.Benchmarks.Aot"
 AOT_NAMESPACE = "ModernLibs.FileHelpers.Benchmarks.Aot"
-# Both scenarios share the data check: --checksum-only gives one checksum (the records the library reads), every timed
+# All scenarios share the data check: --checksum-only gives one checksum (the records the library reads), every timed
 # launch gets it as --expect-checksum, and the write scenario also parses its own output against it (T59).
-AOT_SCENARIOS = ["PackageAssets_ParseAndDiscard", "PackageAssets_WriteString"]
+# PackageAssets_ParseAndDiscard_NoVector is the read with the switch DisableVectorizedTokenizer set (T21).
+AOT_SCENARIOS = ["PackageAssets_ParseAndDiscard", "PackageAssets_ParseAndDiscard_NoVector", "PackageAssets_WriteString"]
 AOT_EXIT_REFUSED = 3
 # Its start-up lines (Program.cs of the harness): no assembly line, a native executable loads no DLL.
 _AOT_STARTUP_PREFIXES = {

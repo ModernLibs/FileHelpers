@@ -38,7 +38,8 @@ internal static class PrototypeCheck
             Console.WriteLine($"// Tokenizer_*: the four tokenizers give the same field ends on {CheckTokenizers(dir)} lines.");
             Console.WriteLine($"// Scan_SpanCreate: equals Scan_LoadUnsafe on {CheckScan(dir)} lines.");
 #if !FILEHELPERS_BASELINE
-            Console.WriteLine($"// Tokenizer_Runtime, Tokenizer_Runtime_IndexOfHop, Parse_In and Parse_ByValue: {CheckRuntimeTokens(dir)} lines agree with the reference.");
+            Console.WriteLine($"// Tokenizer_Runtime*, Parse_In and Parse_ByValue: {CheckRuntimeTokens(dir)} lines agree with the reference.");
+            Console.WriteLine($"// TokenizerQuoted_*: every loop gives the reference entries on {CheckQuotedTokens(dir)} lines of the seeded quoted set.");
 #endif
             Console.WriteLine($"// Unquote_Helper, UnquoteToString_Helper and CreateString_Helper: {CheckReadHelpers()} setups compared every string with the reference.");
             Console.WriteLine($"// Slice_Direct: equals Slice_MathMin (class and struct) on {CheckFixedSlices()} lines, and both throw on a line of the wrong width.");
@@ -174,9 +175,32 @@ internal static class PrototypeCheck
 
 #if !FILEHELPERS_BASELINE
     /// <summary>
-    /// The shipped tokenizer (T15) on both paths gives the ends of <see cref="TokenizerBenchmarks.CountPlusIndexOf"/> on
-    /// every line of the four datasets, and the field count and ends of <see cref="string.Split(char)"/> on seeded random
-    /// lines at three capacities; <see cref="TokensPassingBenchmarks"/> gives the engine's records on both interfaces.
+    /// The calls of the shipped plain tokenizer that <see cref="TokenizerBenchmarks"/> makes: the <c>bool vectors</c>
+    /// overload both ways (T15) and the loop overload with every <see cref="TokenizerLoop"/> and load form (T21). A loop
+    /// this machine does not accelerate runs in software here: slower, same result.
+    /// </summary>
+    private static readonly (string Name, Func<string, int[], int> Tokenize)[] s_runtimeTokenizers = RuntimeTokenizers();
+
+    private static (string Name, Func<string, int[], int> Tokenize)[] RuntimeTokenizers()
+    {
+        var tokenizers = new List<(string, Func<string, int[], int>)>
+        {
+            ("vectors true", (line, ends) => RecordTokenizer.TokenizePlain(line, ',', ends, vectors: true)),
+            ("vectors false", (line, ends) => RecordTokenizer.TokenizePlain(line, ',', ends, vectors: false)),
+        };
+        foreach (var loop in Enum.GetValues<TokenizerLoop>())
+        {
+            foreach (bool unsafeLoad in new[] { false, true })
+                tokenizers.Add(($"{loop}, unsafeLoad {unsafeLoad}", (line, ends) => RecordTokenizer.TokenizePlain(line, ',', ends, loop, unsafeLoad)));
+        }
+        return tokenizers.ToArray();
+    }
+
+    /// <summary>
+    /// The shipped tokenizer (T15) with every call of <see cref="RuntimeTokenizers"/> gives the ends of
+    /// <see cref="TokenizerBenchmarks.CountPlusIndexOf"/> on every line of the four datasets, and the field count and
+    /// ends of <see cref="string.Split(char)"/> on seeded random lines at three capacities;
+    /// <see cref="TokensPassingBenchmarks"/> gives the engine's records on both interfaces.
     /// </summary>
     private static int CheckRuntimeTokens(string dir)
     {
@@ -188,12 +212,12 @@ internal static class PrototypeCheck
             {
                 var expected = new int[fieldCount];
                 DataCheck.Equal(fieldCount, TokenizerBenchmarks.CountPlusIndexOf(line, expected, ','), $"{dataset} line {lines} reference");
-                foreach (bool vectors in new[] { true, false })
+                foreach (var (name, tokenize) in s_runtimeTokenizers)
                 {
                     var ends = new int[fieldCount + 1];
-                    DataCheck.Equal(fieldCount, RecordTokenizer.TokenizePlain(line, ',', ends, vectors), $"Tokenizer_Runtime (vectors {vectors}) count, {dataset} line {lines}");
+                    DataCheck.Equal(fieldCount, tokenize(line, ends), $"Tokenizer_Runtime ({name}) count, {dataset} line {lines}");
                     for (int k = 0; k < fieldCount; k++)
-                        DataCheck.Equal(expected[k], ends[k], $"Tokenizer_Runtime (vectors {vectors}) end of field {k}, {dataset} line {lines}");
+                        DataCheck.Equal(expected[k], ends[k], $"Tokenizer_Runtime ({name}) end of field {k}, {dataset} line {lines}");
                 }
                 lines++;
             }
@@ -207,15 +231,15 @@ internal static class PrototypeCheck
             foreach (int capacity in new[] { parts.Length + 1, parts.Length, Math.Max(1, parts.Length / 2) })
             {
                 int count = Math.Min(parts.Length, capacity);
-                foreach (bool vectors in new[] { true, false })
+                foreach (var (name, tokenize) in s_runtimeTokenizers)
                 {
                     var ends = new int[capacity];
-                    DataCheck.Equal(count, RecordTokenizer.TokenizePlain(line, ',', ends, vectors), $"Tokenizer_Runtime (vectors {vectors}) count, random line {i}, capacity {capacity}");
+                    DataCheck.Equal(count, tokenize(line, ends), $"Tokenizer_Runtime ({name}) count, random line {i}, capacity {capacity}");
                     int end = -1;
                     for (int k = 0; k < count; k++)
                     {
                         end += parts[k].Length + 1;
-                        DataCheck.Equal(end, ends[k], $"Tokenizer_Runtime (vectors {vectors}) end of field {k}, random line {i}, capacity {capacity}");
+                        DataCheck.Equal(end, ends[k], $"Tokenizer_Runtime ({name}) end of field {k}, random line {i}, capacity {capacity}");
                     }
                 }
             }
@@ -235,6 +259,28 @@ internal static class PrototypeCheck
                 object? expected = property.GetValue(engine[i]);
                 DataCheck.Equal(expected, property.GetValue(byIn[i]), $"Parse_In row {i} {property.Name}");
                 DataCheck.Equal(expected, property.GetValue(byValue[i]), $"Parse_ByValue row {i} {property.Name}");
+            }
+            lines++;
+        }
+        return lines;
+    }
+
+    /// <summary>
+    /// The quoted tokenizer (T20) with the loops of <see cref="QuotedTokenizerBenchmarks"/> (T21) gives the entries of
+    /// <see cref="QuotedTokenizerBenchmarks.ExpectedEntry"/> for every field of every line of the seeded quoted set.
+    /// </summary>
+    private static int CheckQuotedTokens(string dir)
+    {
+        int lines = 0;
+        foreach (string line in QuotedTokenizerBenchmarks.Lines(dir))
+        {
+            foreach (var loop in new[] { TokenizerLoop.IndexOfHop, TokenizerLoop.Vector128, TokenizerLoop.Vector256 })
+            {
+                var buffer = new TokenBuffer(QuotedTokenizerBenchmarks.FieldCount);
+                int count = RecordTokenizer.TokenizeQuoted(line, ',', '"', QuotedTokenizerBenchmarks.Quotes, buffer, loop, out _, out _);
+                DataCheck.Equal(QuotedTokenizerBenchmarks.FieldCount, count, $"TokenizerQuoted_{loop} count, quoted line {lines}");
+                for (int k = 0; k < count; k++)
+                    DataCheck.Equal(QuotedTokenizerBenchmarks.ExpectedEntry(line, k), buffer.Ends[k], $"TokenizerQuoted_{loop} entry {k}, quoted line {lines}");
             }
             lines++;
         }

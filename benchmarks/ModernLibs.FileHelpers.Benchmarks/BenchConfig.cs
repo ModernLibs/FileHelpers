@@ -2,6 +2,7 @@ using BenchmarkDotNet.Columns;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Diagnosers;
 using BenchmarkDotNet.Exporters.Json;
+using BenchmarkDotNet.Filters;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Reports;
 using BenchmarkDotNet.Running;
@@ -42,6 +43,10 @@ namespace ModernLibs.FileHelpers.Benchmarks;
 /// class. (<see cref="FromArguments"/> already drops <c>--inProcess</c> and refuses <c>--runtimes</c>.) Program.cs
 /// never runs the suite without this configuration.
 /// </para>
+/// <para>
+/// Filter: a method marked <see cref="RequiresVectorAttribute"/> is left out on a machine that does not accelerate its
+/// vector width (T21).
+/// </para>
 /// </remarks>
 internal sealed class BenchConfig : ManualConfig
 {
@@ -59,6 +64,7 @@ internal sealed class BenchConfig : ManualConfig
         AddColumn(new GcCountColumn(0), new GcCountColumn(1), new GcCountColumn(2));
         AddExporter(JsonExporter.Full);
         AddValidator(new InProcessToolchainValidator());
+        AddFilter(new SimpleFilter(RequiresVectorAttribute.Runs));
     }
 
     /// <summary>Fails the run when a benchmark case would not use <see cref="s_toolchain"/> (see the remarks of <see cref="BenchConfig"/>).</summary>

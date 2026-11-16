@@ -32,10 +32,15 @@ namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components;
 /// compare for any match before extracting its bits, which matters where extracting is expensive (Arm64).
 /// </para>
 /// <para>
-/// <see cref="Tokenizer_Runtime"/> and <see cref="Tokenizer_Runtime_IndexOfHop"/> are the shipped
-/// <c>RecordTokenizer.TokenizePlain</c> (T15) with <c>vectors: true</c> and <c>false</c>, into an <c>int[]</c> of
-/// <c>FieldCount + 1</c> entries as the runtime's <c>TokenBuffer</c> holds; the runtime then checks the count, as
-/// here. <see cref="TokenizerDataset.Columns5"/> is the short-record case of freeze S3.
+/// <see cref="Tokenizer_Runtime"/> is the shipped <c>RecordTokenizer.TokenizePlain</c> (T15) as the runtime calls it
+/// (<c>vectors: true</c>, so the default loop of T21), into an <c>int[]</c> of <c>FieldCount + 1</c> entries as the
+/// runtime's <c>TokenBuffer</c> holds; the runtime then checks the count, as here. The other <c>Tokenizer_Runtime_*</c>
+/// methods call the loop overload of the same shipped code with one <c>TokenizerLoop</c> and load form each (T21 step
+/// 1): <c>_IndexOfHop</c> (one <c>IndexOf</c> per field), <c>_Vector128</c>, <c>_Vector256</c>, <c>_Vector512</c>,
+/// <c>_Vector256_Packed</c> (design 2.5 item 16) and <c>_Vector256_LoadUnsafe</c> (against <c>_Vector256</c>, the span
+/// form). A method marked <see cref="RequiresVectorAttribute"/> is not listed or run on a machine that does not
+/// accelerate its width (<see cref="BenchConfig"/>). <see cref="TokenizerDataset.Columns5"/> is the short-record case of
+/// freeze S3.
 /// </para>
 /// <para>
 /// Each benchmark returns the sum of the end of the middle field over all lines; its setup compares that with a
@@ -111,7 +116,7 @@ public class TokenizerBenchmarks
 
 #if !FILEHELPERS_BASELINE
     // RecordTokenizer is new in 4.10: a build against the 4.9.1 package or source (round.sh baselines,
-    // FILEHELPERS_BASELINE) has neither Tokenizer_Runtime nor Tokenizer_Runtime_IndexOfHop (setups and benchmarks).
+    // FILEHELPERS_BASELINE) has none of the Tokenizer_Runtime methods (setups and benchmarks).
     [GlobalSetup(Target = nameof(Tokenizer_Runtime))]
     public void SetupRuntime()
     {
@@ -124,6 +129,41 @@ public class TokenizerBenchmarks
     {
         Prepare();
         Check(nameof(Tokenizer_Runtime_IndexOfHop), Tokenizer_Runtime_IndexOfHop());
+    }
+
+    [GlobalSetup(Target = nameof(Tokenizer_Runtime_Vector128))]
+    public void SetupRuntimeVector128()
+    {
+        Prepare();
+        Check(nameof(Tokenizer_Runtime_Vector128), Tokenizer_Runtime_Vector128());
+    }
+
+    [GlobalSetup(Target = nameof(Tokenizer_Runtime_Vector256))]
+    public void SetupRuntimeVector256()
+    {
+        Prepare();
+        Check(nameof(Tokenizer_Runtime_Vector256), Tokenizer_Runtime_Vector256());
+    }
+
+    [GlobalSetup(Target = nameof(Tokenizer_Runtime_Vector512))]
+    public void SetupRuntimeVector512()
+    {
+        Prepare();
+        Check(nameof(Tokenizer_Runtime_Vector512), Tokenizer_Runtime_Vector512());
+    }
+
+    [GlobalSetup(Target = nameof(Tokenizer_Runtime_Vector256_Packed))]
+    public void SetupRuntimeVector256Packed()
+    {
+        Prepare();
+        Check(nameof(Tokenizer_Runtime_Vector256_Packed), Tokenizer_Runtime_Vector256_Packed());
+    }
+
+    [GlobalSetup(Target = nameof(Tokenizer_Runtime_Vector256_LoadUnsafe))]
+    public void SetupRuntimeVector256LoadUnsafe()
+    {
+        Prepare();
+        Check(nameof(Tokenizer_Runtime_Vector256_LoadUnsafe), Tokenizer_Runtime_Vector256_LoadUnsafe());
     }
 #endif
 
@@ -188,22 +228,61 @@ public class TokenizerBenchmarks
     }
 
 #if !FILEHELPERS_BASELINE
-    /// <summary>The shipped tokenizer, vector path (<c>vectors: true</c>).</summary>
+    /// <summary>The shipped tokenizer as the runtime calls it (<c>vectors: true</c>): <c>RecordTokenizer.PlainLoop</c>.</summary>
     [Benchmark]
-    public long Tokenizer_Runtime() => RunRuntime(vectors: true);
-
-    /// <summary>The shipped tokenizer, one <c>IndexOf</c> per field (<c>vectors: false</c>: the switch and no-SIMD path).</summary>
-    [Benchmark]
-    public long Tokenizer_Runtime_IndexOfHop() => RunRuntime(vectors: false);
-
-    private long RunRuntime(bool vectors)
+    public long Tokenizer_Runtime()
     {
         long sum = 0;
         int[] ends = _runtimeEnds;
         int fieldCount = _fieldCount;
         foreach (string line in _lines)
         {
-            int n = RecordTokenizer.TokenizePlain(line, ',', ends, vectors);
+            int n = RecordTokenizer.TokenizePlain(line, ',', ends, vectors: true);
+            if (n != fieldCount)
+                ThrowFieldCount(n);
+            sum += ends[n >> 1];
+        }
+        return sum;
+    }
+
+    /// <summary>One <c>IndexOf</c> per field: the switch, the no-SIMD path and the Arm64 default.</summary>
+    [Benchmark]
+    public long Tokenizer_Runtime_IndexOfHop() => RunLoop(TokenizerLoop.IndexOfHop, unsafeLoad: false);
+
+    /// <summary><c>Vector128</c> blocks, span loads: the x64 default without AVX2.</summary>
+    [Benchmark, RequiresVector(128)]
+    public long Tokenizer_Runtime_Vector128() => RunLoop(TokenizerLoop.Vector128, unsafeLoad: false);
+
+    /// <summary><c>Vector256</c> blocks, span loads: the x64 default with AVX2.</summary>
+    [Benchmark, RequiresVector(256)]
+    public long Tokenizer_Runtime_Vector256() => RunLoop(TokenizerLoop.Vector256, unsafeLoad: false);
+
+    /// <summary><c>Vector512</c> blocks, span loads: the AVX-512 candidate (gate: at least 3 % on <c>LongLines</c>, <c>fh-intel</c>).</summary>
+    [Benchmark, RequiresVector(512)]
+    public long Tokenizer_Runtime_Vector512() => RunLoop(TokenizerLoop.Vector512, unsafeLoad: false);
+
+    /// <summary>
+    /// <c>Vector256</c> with the packed pre-test per 32 chars (design 2.5 item 16). The decision reads
+    /// <c>LongLines</c> (at least 3 %) and <c>Columns25</c> (no loss); the other datasets are informative.
+    /// </summary>
+    [Benchmark, RequiresVector(256)]
+    public long Tokenizer_Runtime_Vector256_Packed() => RunLoop(TokenizerLoop.Vector256Packed, unsafeLoad: false);
+
+    /// <summary><c>Vector256</c> blocks loaded with <c>LoadUnsafe</c>, against <see cref="Tokenizer_Runtime_Vector256"/> (<c>UseUnsafeLoad</c>, freeze F-8, F5).</summary>
+    [Benchmark, RequiresVector(256)]
+    public long Tokenizer_Runtime_Vector256_LoadUnsafe() => RunLoop(TokenizerLoop.Vector256, unsafeLoad: true);
+
+    // Inlined into each benchmark, so the loop and the load form are constants there, as PlainLoop and UseUnsafeLoad
+    // are in the runtime's call.
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private long RunLoop(TokenizerLoop loop, bool unsafeLoad)
+    {
+        long sum = 0;
+        int[] ends = _runtimeEnds;
+        int fieldCount = _fieldCount;
+        foreach (string line in _lines)
+        {
+            int n = RecordTokenizer.TokenizePlain(line, ',', ends, loop, unsafeLoad);
             if (n != fieldCount)
                 ThrowFieldCount(n);
             sum += ends[n >> 1];

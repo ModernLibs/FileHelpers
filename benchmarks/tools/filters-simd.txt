@@ -2,5 +2,42 @@
 # pair names and the "not run" rule). Part 2 of the 4.10 plan (T59). Run with --max-rows 100000 (design D10) and
 # --max-iterations 20.
 #
-# filters-simd.txt: the SIMD round with the default hardware features
-# No filter line yet: T21 fills it.
+# filters-simd.txt: the SIMD round with the default hardware features (T21 step 3; the quoted target of T20). Run it
+# with --base-commit 96df9b2 (the T19 round commit): the quoted lines run in the pairs base-net10 and base-net11.
+# The block for the run with DOTNET_EnableAVX2=0 is filters-simd-noavx2.txt (ruling F07).
+
+# Component benchmarks (B3): the 4.10 build on .NET 10 against .NET 11, no ra (Global Constraints, D6 exception).
+# The glob selects TokenizerBenchmarks (Tokenizer_Runtime and its loop and load forms) and QuotedTokenizerBenchmarks
+# (TokenizerQuoted_*) in one run. A method marked RequiresVector is not listed on a VM that does not accelerate its
+# width (Tokenizer_Runtime_Vector512 runs on fh-intel only).
+component  runtime-410                                          *TokenizerBenchmarks*
+component  runtime-410                                          *VectorLoopShapeBenchmarks*
+
+# Quoted reads, also against the base commit
+quoted     v410-net10,v410-net11,ra,base-net10,base-net11       *QuotedFieldsBenchmarks.FileHelpers_ParseAndDiscard
+quoted     v410-net10,v410-net11,ra,base-net10,base-net11       *QuotedFieldsBenchmarks.ReadAllRows_FileHelpers
+quoted     v410-net10,v410-net11,ra,base-net10,base-net11       *QuotedFieldsPeriodicBenchmarks.FileHelpers_ParseAndDiscard
+quoted     v410-net10,v410-net11,ra,base-net10,base-net11       *SparseQuoteBenchmarks.ReadFile_ParseAndDiscard
+quoted     v410-net10,v410-net11,ra,base-net10,base-net11       *MultilineBenchmarks.ReadFile_ParseAndDiscard
+# The same quoted parse-and-discard with the AppContext switch DisableTokenizedParse set in its setup: the scan-only
+# path that T20 moved to a generic recorder. A B4 slowdown against base-net10 or base-net11 is a T20 finding. The
+# 4.9.1 builds have no such switch (their side reads as FileHelpers_ParseAndDiscard does).
+quoted     v410-net10,v410-net11,base-net10,base-net11          *QuotedFieldsBenchmarks.FileHelpers_ParseAndDiscard_ScanOnly
+
+# 25-column, long-line and wide reads
+read25     v410-net10,v410-net11,ra                             *DelimitedParseBenchmarks.FileHelpers_ParseAndDiscard
+read25     v410-net10,v410-net11,ra                             *OptimizedParseBenchmarks.ReadFile
+read-other v410-net10,v410-net11,ra                             *LongLineBenchmarks.ReadFile_ParseAndDiscard
+read-other v410-net10,v410-net11,ra                             *WideRecordBenchmarks.ReadFile_ParseAndDiscard
+
+# Exception path: a conversion error in every 100th row, ErrorMode.SaveAndContinue
+exception  v410-net10,ra                                        *EngineAsyncBenchmarks.Engine_ReadAsync_Path_ExceptionEvery100
+
+# Controls: code that is the same in every build, so their ratios show the noise of a pair
+control    v410-net10,v410-net11,ra                             *DelimitedParseBenchmarks.Sylvan_ParseAndDiscard
+control    v410-net10,v410-net11,ra                             *DelimitedParseBenchmarks.CsvHelper_ParseAndDiscard
+control    v410-net10,v410-net11,ra                             *FixedWidthParseBenchmarks.SliceAllFields_SpanSlicer
+
+# Native AOT read (ruling F22): PackageAssets_ParseAndDiscard and PackageAssets_ParseAndDiscard_NoVector (the read with
+# the AppContext switch DisableVectorizedTokenizer set before the first engine), interleaved in one run per pair
+aot        aot-v410-net10,aot-v410-net11,aot-ra                 *PackageAssets_ParseAndDiscard*

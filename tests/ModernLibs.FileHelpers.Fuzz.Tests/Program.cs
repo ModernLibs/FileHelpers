@@ -229,7 +229,8 @@ public static class Program
     /// <summary>
     /// Review Focus 8, in its own process: <see cref="Main"/> has set <c>DisableTokenizedParse</c>,
     /// <c>DisableVectorizedTokenizer</c> and <c>DisableRecordWriter</c> before any library code ran. Checks that
-    /// <see cref="RuntimeSwitches"/> sees them, that no engine a public constructor or factory makes takes the
+    /// <see cref="RuntimeSwitches"/> sees them, that <see cref="RecordTokenizer.PlainLoop"/> and
+    /// <see cref="RecordTokenizer.QuotedLoop"/> are <see cref="TokenizerLoop.IndexOfHop"/> (T21), that no engine a public constructor or factory makes takes the
     /// tokenized path (plain, async, multi-record, master-detail and its async twin, for every shape), and reads
     /// <paramref name="iterations"/> shape-aware inputs per shape through each of them and through
     /// <c>ParallelReadFile</c> without an exception; the default engine must read them as the forced legacy path does.
@@ -249,6 +250,12 @@ public static class Program
             failures.Add("RuntimeSwitches.DisableRecordWriter is off");
         if (!EnginePaths.FromSwitches.LegacyParse || !EnginePaths.FromSwitches.ScalarTokenizer || !EnginePaths.FromSwitches.LegacyWriter)
             failures.Add($"EnginePaths.FromSwitches is {EnginePaths.FromSwitches}");
+        // T21: the switch also turns the default loops off, so an engine that injects ScalarTokenizer: false (tests,
+        // benchmarks) runs no vector code of the tokenizer either.
+        if (RecordTokenizer.PlainLoop != TokenizerLoop.IndexOfHop)
+            failures.Add($"RecordTokenizer.PlainLoop is {RecordTokenizer.PlainLoop}");
+        if (RecordTokenizer.QuotedLoop != TokenizerLoop.IndexOfHop)
+            failures.Add($"RecordTokenizer.QuotedLoop is {RecordTokenizer.QuotedLoop}");
 
         foreach (var (name, readDefault, readScalar, readLegacy, tokenized) in Compat49Matrix.Paths())
         {

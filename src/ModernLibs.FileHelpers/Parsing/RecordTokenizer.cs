@@ -12,6 +12,67 @@ namespace ModernLibs.FileHelpers.Parsing;
 internal static class RecordTokenizer
 {
     /// <summary>
+    /// The loop of <see cref="TokenizePlain(ReadOnlySpan{char}, char, Span{int}, bool)"/> with <c>vectors: true</c>,
+    /// chosen once per process from the switch, the architecture and the vector widths the hardware accelerates (T21
+    /// step 2; under Native AOT the row of the architecture). See <see cref="DefaultLoop"/> for the table.
+    /// </summary>
+    public static readonly TokenizerLoop PlainLoop = DefaultLoop();
+
+    /// <summary>
+    /// The walk loop of <see cref="TokenizeQuoted(ReadOnlySpan{char}, char, char, ReadOnlySpan{char}, TokenBuffer, bool, out int, out bool)"/>
+    /// with <c>vectors: true</c>; same table as <see cref="PlainLoop"/> until the T21 round decides each separately.
+    /// </summary>
+    public static readonly TokenizerLoop QuotedLoop = DefaultLoop();
+
+    /// <summary>
+    /// The block loops of the plain tokenizer load with <c>Vector*.LoadUnsafe</c> from a <c>ref</c> instead of
+    /// bounds-checked span loads (freeze F-8). <see langword="false"/> on every runtime until the T21 round has
+    /// measured both forms; the round sets it per <see cref="Environment.Version"/> major (finding F5: on .NET 11 only
+    /// if it beats the span form there).
+    /// </summary>
+    public static readonly bool UseUnsafeLoad;
+
+    /// <summary>
+    /// The loop of <see cref="PlainLoop"/> and <see cref="QuotedLoop"/> before the T21 round. Each row names the
+    /// measurement of the round that confirms or changes it (T21 step 5).
+    /// </summary>
+    /// <returns>
+    /// <list type="bullet">
+    /// <item><c>DisableVectorizedTokenizer</c>: <see cref="TokenizerLoop.IndexOfHop"/>.</item>
+    /// <item>No <c>Vector128.IsHardwareAccelerated</c> (for example <c>DOTNET_EnableHWIntrinsic=0</c>):
+    /// <see cref="TokenizerLoop.IndexOfHop"/>; there is no vector loop to run.</item>
+    /// <item>Not x64 (Arm64 and any other architecture): <see cref="TokenizerLoop.IndexOfHop"/>. Arm64 was not measured
+    /// (owner waiver of 2026-11-16, branch B); the existing 4.9 scan <c>QuoteBalanceScanner.ScanSingleQuote</c> keeps
+    /// its vector code there.</item>
+    /// <item>x64 with <c>Vector256.IsHardwareAccelerated</c> (AVX2), also with AVX-512 until the <c>Vector512</c> gate
+    /// passes: <see cref="TokenizerLoop.Vector256"/>; the round reads it on <c>fh-amd</c> and <c>fh-intel</c>
+    /// (<c>Vector512</c>: <c>fh-intel</c>, long lines).</item>
+    /// <item>x64 without AVX2: <see cref="TokenizerLoop.Vector128"/>; the round reads it on <c>fh-amd</c> with
+    /// <c>DOTNET_EnableAVX2=0</c>.</item>
+    /// </list>
+    /// </returns>
+    private static TokenizerLoop DefaultLoop()
+    {
+        if (RuntimeSwitches.DisableVectorizedTokenizer || !Vector128.IsHardwareAccelerated)
+            return TokenizerLoop.IndexOfHop;
+        if (RuntimeInformation.ProcessArchitecture != Architecture.X64)
+            return TokenizerLoop.IndexOfHop;
+        return Vector256.IsHardwareAccelerated ? TokenizerLoop.Vector256 : TokenizerLoop.Vector128;
+    }
+
+    /// <summary>The loop the <c>bool vectors</c> overload of <c>TokenizePlain</c> runs: <see cref="PlainLoop"/>, or <see cref="TokenizerLoop.IndexOfHop"/>.</summary>
+    /// <param name="vectors">As for <see cref="TokenizePlain(ReadOnlySpan{char}, char, Span{int}, bool)"/>.</param>
+    /// <returns>The loop.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static TokenizerLoop PlainLoopFor(bool vectors) => vectors ? PlainLoop : TokenizerLoop.IndexOfHop;
+
+    /// <summary>The walk loop the <c>bool vectors</c> overload of <c>TokenizeQuoted</c> runs: <see cref="QuotedLoop"/>, or <see cref="TokenizerLoop.IndexOfHop"/>.</summary>
+    /// <param name="vectors">As for <see cref="TokenizePlain(ReadOnlySpan{char}, char, Span{int}, bool)"/>.</param>
+    /// <returns>The loop.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static TokenizerLoop QuotedLoopFor(bool vectors) => vectors ? QuotedLoop : TokenizerLoop.IndexOfHop;
+
+    /// <summary>
     /// Writes the end of each field of a record without quoted fields into <paramref name="ends"/>: the offset of
     /// the delimiter after it, or the record length for the last field. Never throws.
     /// </summary>
@@ -19,43 +80,148 @@ internal static class RecordTokenizer
     /// <param name="delimiter">The record delimiter.</param>
     /// <param name="ends">The end entries; the runtime passes <c>FieldCount + 1</c> of them, so one extra field is detectable.</param>
     /// <param name="vectors">
-    /// Use the vector loop when the hardware accelerates <c>Vector128</c>. <see langword="false"/> (the
-    /// <c>DisableVectorizedTokenizer</c> switch, <c>EnginePaths.ScalarTokenizer</c>): one
-    /// <see cref="MemoryExtensions.IndexOf{T}(ReadOnlySpan{T}, T)"/> per field, which the BCL may vectorize (freeze F-7, F-9).
+    /// Run <see cref="PlainLoop"/> (with <see cref="UseUnsafeLoad"/>). <see langword="false"/> (the
+    /// <c>DisableVectorizedTokenizer</c> switch, <c>EnginePaths.ScalarTokenizer</c>): <see cref="TokenizerLoop.IndexOfHop"/>,
+    /// one <see cref="MemoryExtensions.IndexOf{T}(ReadOnlySpan{T}, T)"/> per field, which the BCL may vectorize (freeze F-7, F-9).
     /// </param>
     /// <returns>The fields found, at most <c>ends.Length</c>; <c>ends.Length</c> also when the record has more.</returns>
-    public static int TokenizePlain(ReadOnlySpan<char> record, char delimiter, Span<int> ends, bool vectors)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int TokenizePlain(ReadOnlySpan<char> record, char delimiter, Span<int> ends, bool vectors) =>
+        TokenizePlain(record, delimiter, ends, PlainLoopFor(vectors), UseUnsafeLoad);
+
+    /// <summary>
+    /// <see cref="TokenizePlain(ReadOnlySpan{char}, char, Span{int}, bool)"/> with the loop and the load form named
+    /// (T21: the entry of the tests and the benchmarks, so each variant they measure is the shipped code). A vector
+    /// loop runs whether or not the hardware accelerates its width; the result is the same, only slower.
+    /// </summary>
+    /// <param name="record">The record text.</param>
+    /// <param name="delimiter">The record delimiter.</param>
+    /// <param name="ends">The end entries.</param>
+    /// <param name="loop">The loop; a value outside <see cref="TokenizerLoop"/> runs <see cref="TokenizerLoop.Vector256"/>.</param>
+    /// <param name="unsafeLoad">Load the blocks with <c>LoadUnsafe</c> instead of bounds-checked span loads (freeze F-8).</param>
+    /// <returns>The fields found, at most <c>ends.Length</c>; <c>ends.Length</c> also when the record has more.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int TokenizePlain(ReadOnlySpan<char> record, char delimiter, Span<int> ends, TokenizerLoop loop, bool unsafeLoad)
     {
         if (ends.IsEmpty)
             return 0;
-        if (!vectors || !Vector128.IsHardwareAccelerated)
+        if (loop == TokenizerLoop.IndexOfHop)
             return TokenizeIndexOf(record, delimiter, ends);
 
-        // Bounds-checked span loads (freeze F-8). Vector128/256 do not take char, so one MemoryMarshal.Cast reinterprets
-        // the record as ushort before the loop (lead ruling on T15: the only MemoryMarshal call; no Unsafe, no
-        // GetReference, no LoadUnsafe, which is T21's UseUnsafeLoad variant). The cast keeps the bounds.
+        // Vector128/256/512 do not take char, so one MemoryMarshal.Cast reinterprets the record as ushort before the
+        // loop (lead ruling on T15); the cast keeps the bounds. The load form is a type argument, so each loop is
+        // compiled once per form with no test inside it.
         ReadOnlySpan<ushort> units = MemoryMarshal.Cast<char, ushort>(record);
+        return unsafeLoad
+            ? Blocks<UnsafeLoad>(units, delimiter, ends, loop)
+            : Blocks<SpanLoad>(units, delimiter, ends, loop);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int Blocks<TLoad>(ReadOnlySpan<ushort> units, char delimiter, Span<int> ends, TokenizerLoop loop)
+        where TLoad : struct, IBlockLoad => loop switch
+        {
+            TokenizerLoop.Vector128 => Blocks128<TLoad>(units, delimiter, ends, 0, 0),
+            TokenizerLoop.Vector512 => Blocks512<TLoad>(units, delimiter, ends),
+            TokenizerLoop.Vector256Packed => BlocksPacked<TLoad>(units, delimiter, ends),
+            _ => Blocks256<TLoad>(units, delimiter, ends, 0, 0),
+        };
+
+    /// <summary><see cref="TokenizerLoop.Vector512"/>: blocks of 32 chars, then <see cref="Blocks256{TLoad}"/>.</summary>
+    private static int Blocks512<TLoad>(ReadOnlySpan<ushort> units, char delimiter, Span<int> ends)
+        where TLoad : struct, IBlockLoad
+    {
         int length = units.Length;
         int position = 0;
         int n = 0;
-        if (Vector256.IsHardwareAccelerated && length >= Vector256<ushort>.Count)
+        if (length >= Vector512<ushort>.Count)
         {
-            var delimiters = Vector256.Create((ushort)delimiter);
-            for (; position <= length - Vector256<ushort>.Count; position += Vector256<ushort>.Count)
+            var delimiters = Vector512.Create((ushort)delimiter);
+            for (; position <= length - Vector512<ushort>.Count; position += Vector512<ushort>.Count)
             {
-                uint mask = Vector256.Equals(Vector256.Create(units.Slice(position)), delimiters).ExtractMostSignificantBits();
+                // 32 lanes: the mask fits in 32 bits.
+                uint mask = (uint)Vector512.Equals(TLoad.Load512(units, position), delimiters).ExtractMostSignificantBits();
                 n = WriteEnds(mask, position, ends, n);
                 if (n == ends.Length)
                     return n;
             }
         }
 
+        return Blocks256<TLoad>(units, delimiter, ends, position, n);
+    }
+
+    /// <summary>
+    /// <see cref="TokenizerLoop.Vector256Packed"/>: per 32 chars, the low bytes of two <c>Vector256</c> loads
+    /// (<c>Vector256.Narrow</c> keeps the low byte of each char) are compared with the delimiter's low byte. A
+    /// delimiter always matches there; another char with the same low byte (U+012C, U+2C2C for a comma) does too, and
+    /// the exact 16-bit compares after it drop that one. Then <see cref="Blocks256{TLoad}"/> for the rest.
+    /// </summary>
+    private static int BlocksPacked<TLoad>(ReadOnlySpan<ushort> units, char delimiter, Span<int> ends)
+        where TLoad : struct, IBlockLoad
+    {
+        int length = units.Length;
+        int position = 0;
+        int n = 0;
+        if (length >= 2 * Vector256<ushort>.Count)
+        {
+            var delimiters = Vector256.Create((ushort)delimiter);
+            var lowBytes = Vector256.Create((byte)delimiter);
+            for (; position <= length - (2 * Vector256<ushort>.Count); position += 2 * Vector256<ushort>.Count)
+            {
+                var first = TLoad.Load256(units, position);
+                var second = TLoad.Load256(units, position + Vector256<ushort>.Count);
+                if (!Vector256.EqualsAny(Vector256.Narrow(first, second), lowBytes))
+                    continue;
+                n = WriteEnds(Vector256.Equals(first, delimiters).ExtractMostSignificantBits(), position, ends, n);
+                if (n == ends.Length)
+                    return n;
+                n = WriteEnds(Vector256.Equals(second, delimiters).ExtractMostSignificantBits(), position + Vector256<ushort>.Count, ends, n);
+                if (n == ends.Length)
+                    return n;
+            }
+        }
+
+        return Blocks256<TLoad>(units, delimiter, ends, position, n);
+    }
+
+    /// <summary>
+    /// <see cref="TokenizerLoop.Vector256"/>, from <paramref name="position"/> with <paramref name="n"/> entries written:
+    /// blocks of 16 chars, then <see cref="Blocks128{TLoad}"/>.
+    /// </summary>
+    private static int Blocks256<TLoad>(ReadOnlySpan<ushort> units, char delimiter, Span<int> ends, int position, int n)
+        where TLoad : struct, IBlockLoad
+    {
+        int length = units.Length;
+        if (length - position >= Vector256<ushort>.Count)
+        {
+            var delimiters = Vector256.Create((ushort)delimiter);
+            for (; position <= length - Vector256<ushort>.Count; position += Vector256<ushort>.Count)
+            {
+                uint mask = Vector256.Equals(TLoad.Load256(units, position), delimiters).ExtractMostSignificantBits();
+                n = WriteEnds(mask, position, ends, n);
+                if (n == ends.Length)
+                    return n;
+            }
+        }
+
+        return Blocks128<TLoad>(units, delimiter, ends, position, n);
+    }
+
+    /// <summary>
+    /// <see cref="TokenizerLoop.Vector128"/>, from <paramref name="position"/> with <paramref name="n"/> entries written:
+    /// blocks of 8 chars, then the scalar tail and the end of the last field.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int Blocks128<TLoad>(ReadOnlySpan<ushort> units, char delimiter, Span<int> ends, int position, int n)
+        where TLoad : struct, IBlockLoad
+    {
+        int length = units.Length;
         if (length - position >= Vector128<ushort>.Count)
         {
             var delimiters = Vector128.Create((ushort)delimiter);
             for (; position <= length - Vector128<ushort>.Count; position += Vector128<ushort>.Count)
             {
-                uint mask = Vector128.Equals(Vector128.Create(units.Slice(position)), delimiters).ExtractMostSignificantBits();
+                uint mask = Vector128.Equals(TLoad.Load128(units, position), delimiters).ExtractMostSignificantBits();
                 n = WriteEnds(mask, position, ends, n);
                 if (n == ends.Length)
                     return n;
@@ -87,7 +253,11 @@ internal static class RecordTokenizer
     /// <param name="quote">The quote char of every quoted field.</param>
     /// <param name="quotes">Per field index: <paramref name="quote"/> for a quoted field, <c>'\0'</c> otherwise; fields past the end are not quoted.</param>
     /// <param name="buffer">The buffer of the record type.</param>
-    /// <param name="vectors">As for <see cref="TokenizePlain"/>; <see langword="false"/>: one <c>IndexOfAny</c> per delimiter or quote position.</param>
+    /// <param name="vectors">
+    /// Walk with <see cref="QuotedLoop"/>, and tokenize a record without the quote char as
+    /// <see cref="TokenizePlain(ReadOnlySpan{char}, char, Span{int}, bool)"/> does; <see langword="false"/>: one
+    /// <c>IndexOfAny</c> per delimiter or quote position.
+    /// </param>
     /// <param name="lastField">
     /// The field the record ends in, counted over the whole record (also past the capacity, and when the result is
     /// -1): always what <see cref="QuoteBalanceScanner.EndsInsideQuotes(ReadOnlySpan{char}, bool, ReadOnlySpan{char}, ReadOnlySpan{char}, ReadOnlySpan{string?}, ref int, ReadOnlySpan{string?})"/>
@@ -100,7 +270,30 @@ internal static class RecordTokenizer
     /// the fields found, at most <c>buffer.Ends.Length</c>.
     /// </returns>
     public static int TokenizeQuoted(ReadOnlySpan<char> record, char delimiter, char quote, ReadOnlySpan<char> quotes,
-        TokenBuffer buffer, bool vectors, out int lastField, out bool endsInside)
+        TokenBuffer buffer, bool vectors, out int lastField, out bool endsInside) =>
+        TokenizeQuotedCore(record, delimiter, quote, quotes, buffer, PlainLoopFor(vectors), QuotedLoopFor(vectors), out lastField, out endsInside);
+
+    /// <summary>
+    /// <see cref="TokenizeQuoted(ReadOnlySpan{char}, char, char, ReadOnlySpan{char}, TokenBuffer, bool, out int, out bool)"/>
+    /// with one loop named for the walk and for a record without the quote char (T21: the entry of the tests and the
+    /// benchmarks). <see cref="TokenizerLoop.Vector512"/> and <see cref="TokenizerLoop.Vector256Packed"/> walk in
+    /// <see cref="TokenizerLoop.Vector256"/> blocks; the load form is <see cref="UseUnsafeLoad"/>.
+    /// </summary>
+    /// <param name="record">The record text.</param>
+    /// <param name="delimiter">The record delimiter (not <paramref name="quote"/>).</param>
+    /// <param name="quote">The quote char of every quoted field.</param>
+    /// <param name="quotes">Per field index: <paramref name="quote"/> for a quoted field, <c>'\0'</c> otherwise.</param>
+    /// <param name="buffer">The buffer of the record type.</param>
+    /// <param name="loop">The loop.</param>
+    /// <param name="lastField">As for the <c>bool vectors</c> overload.</param>
+    /// <param name="endsInside">As for the <c>bool vectors</c> overload.</param>
+    /// <returns>As for the <c>bool vectors</c> overload.</returns>
+    public static int TokenizeQuoted(ReadOnlySpan<char> record, char delimiter, char quote, ReadOnlySpan<char> quotes,
+        TokenBuffer buffer, TokenizerLoop loop, out int lastField, out bool endsInside) =>
+        TokenizeQuotedCore(record, delimiter, quote, quotes, buffer, loop, loop, out lastField, out endsInside);
+
+    private static int TokenizeQuotedCore(ReadOnlySpan<char> record, char delimiter, char quote, ReadOnlySpan<char> quotes,
+        TokenBuffer buffer, TokenizerLoop plainLoop, TokenizerLoop walkLoop, out int lastField, out bool endsInside)
     {
         bool fits = record.Length <= TokenBuffer.MaxRecordLength;
         Span<int> ends = fits ? buffer.Ends : default;
@@ -109,7 +302,7 @@ internal static class RecordTokenizer
         // QuoteBalanceScanner.EndsInsideQuotes with a plan, which counts the delimiters there).
         if (fits && !record.Contains(quote))
         {
-            int n = TokenizePlain(record, delimiter, ends, vectors);
+            int n = TokenizePlain(record, delimiter, ends, plainLoop, UseUnsafeLoad);
             lastField = n < ends.Length ? n - 1 : record.Count(delimiter);
             endsInside = false;
             return n;
@@ -118,10 +311,10 @@ internal static class RecordTokenizer
         var walk = new QuoteBalanceScanner.QuoteWalk(0);
         var recorder = new QuoteBalanceScanner.TokenRecorder(ends);
         walk.OpenAt(record, 0, quotes, ref recorder);
-        if (vectors && Vector128.IsHardwareAccelerated)
-            WalkBlocks(record, delimiter, quote, quotes, ref walk, ref recorder);
-        else
+        if (walkLoop == TokenizerLoop.IndexOfHop)
             WalkIndexOfAny(record, delimiter, quote, quotes, ref walk, ref recorder);
+        else
+            WalkBlocks(record, delimiter, quote, quotes, wide: walkLoop != TokenizerLoop.Vector128, ref walk, ref recorder);
 
         // The last field ends at the record end; an open quoted value has no end (the result is -1 anyway).
         if (!walk.Inside)
@@ -138,15 +331,15 @@ internal static class RecordTokenizer
 
     /// <summary>
     /// Visits every delimiter and quote position of <paramref name="record"/> in increasing order: blocks of
-    /// <c>Vector256</c> or <c>Vector128</c> with bounds-checked span loads (freeze F-8), then a scalar tail. No early
-    /// exit: the walk counts every field.
+    /// <c>Vector256</c> (when <paramref name="wide"/>), then of <c>Vector128</c>, with bounds-checked span loads
+    /// (freeze F-8), then a scalar tail. No early exit: the walk counts every field.
     /// </summary>
-    private static void WalkBlocks(ReadOnlySpan<char> record, char delimiter, char quote, ReadOnlySpan<char> quotes, ref QuoteBalanceScanner.QuoteWalk walk, ref QuoteBalanceScanner.TokenRecorder recorder)
+    private static void WalkBlocks(ReadOnlySpan<char> record, char delimiter, char quote, ReadOnlySpan<char> quotes, bool wide, ref QuoteBalanceScanner.QuoteWalk walk, ref QuoteBalanceScanner.TokenRecorder recorder)
     {
         ReadOnlySpan<ushort> units = MemoryMarshal.Cast<char, ushort>(record);
         int length = units.Length;
         int position = 0;
-        if (Vector256.IsHardwareAccelerated && length >= Vector256<ushort>.Count)
+        if (wide && length >= Vector256<ushort>.Count)
         {
             var delimiters = Vector256.Create((ushort)delimiter);
             var quoteChars = Vector256.Create((ushort)quote);
@@ -235,5 +428,47 @@ internal static class RecordTokenizer
         }
 
         return n;
+    }
+
+    /// <summary>The load form of the plain block loops (freeze F-8): a type argument, so the JIT compiles each form apart.</summary>
+    private interface IBlockLoad
+    {
+        static abstract Vector128<ushort> Load128(ReadOnlySpan<ushort> units, int position);
+
+        static abstract Vector256<ushort> Load256(ReadOnlySpan<ushort> units, int position);
+
+        static abstract Vector512<ushort> Load512(ReadOnlySpan<ushort> units, int position);
+    }
+
+    /// <summary>Bounds-checked span loads, <c>Vector*.Create(units.Slice(position))</c> (T15, design 2.5 item 1).</summary>
+    private readonly struct SpanLoad : IBlockLoad
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector128<ushort> Load128(ReadOnlySpan<ushort> units, int position) => Vector128.Create(units.Slice(position));
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector256<ushort> Load256(ReadOnlySpan<ushort> units, int position) => Vector256.Create(units.Slice(position));
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector512<ushort> Load512(ReadOnlySpan<ushort> units, int position) => Vector512.Create(units.Slice(position));
+    }
+
+    /// <summary>
+    /// <c>Vector*.LoadUnsafe</c> from the first unit, no bounds check (<see cref="UseUnsafeLoad"/>): every loop keeps
+    /// <c>position + Count &lt;= units.Length</c>.
+    /// </summary>
+    private readonly struct UnsafeLoad : IBlockLoad
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector128<ushort> Load128(ReadOnlySpan<ushort> units, int position) =>
+            Vector128.LoadUnsafe(ref MemoryMarshal.GetReference(units), (nuint)position);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector256<ushort> Load256(ReadOnlySpan<ushort> units, int position) =>
+            Vector256.LoadUnsafe(ref MemoryMarshal.GetReference(units), (nuint)position);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector512<ushort> Load512(ReadOnlySpan<ushort> units, int position) =>
+            Vector512.LoadUnsafe(ref MemoryMarshal.GetReference(units), (nuint)position);
     }
 }

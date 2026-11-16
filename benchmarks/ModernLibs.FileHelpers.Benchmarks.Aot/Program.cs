@@ -6,9 +6,11 @@
 // Times one scenario in this process. PackageAssets_ParseAndDiscard (the default) is the work of
 // DelimitedParseBenchmarks.FileHelpers_ParseAndDiscard: one ReadFile of the PackageAssets file with a callback that
 // adds each record's Id. PackageAssets_WriteString (T59) is the work of WriteBenchmarks.WriteString_FileHelpers: one
-// WriteString of the records the library read from that file. Both scenarios share the data check and its checksum
-// (the records the library reads); the write scenario also parses its own output with the BCL parsers and refuses to
-// time unless that gives the same checksum. One untimed data check, --warmup untimed runs,
+// WriteString of the records the library read from that file. PackageAssets_ParseAndDiscard_NoVector (T21) is the read
+// scenario with the AppContext switch ModernLibs.FileHelpers.DisableVectorizedTokenizer set before the first engine
+// (a 4.9.1 package has no such switch and reads as in the read scenario). All scenarios share the data check and its
+// checksum (the records the library reads); the write scenario also parses its own output with the BCL parsers and
+// refuses to time unless that gives the same checksum. One untimed data check, --warmup untimed runs,
 // then --iterations timed reads, each preceded by a full garbage collection (as BenchmarkDotNet does between
 // iterations). Prints the start-up lines, then one JSON line with every iteration time. Exit codes: 0 done;
 // 2 unusable arguments; 3 refused: the records do not match the text of the file, or the data checksum is not the
@@ -26,6 +28,7 @@ namespace ModernLibs.FileHelpers.Benchmarks.Aot;
 internal static class Program
 {
     public const string ReadScenario = "PackageAssets_ParseAndDiscard";
+    public const string ReadNoVectorScenario = "PackageAssets_ParseAndDiscard_NoVector";
     public const string WriteScenario = "PackageAssets_WriteString";
 
     private static int Main(string[] args)
@@ -39,6 +42,10 @@ internal static class Program
         }
         if (options.Info)
             return 0;
+
+        // The library reads its switches once, when the first engine is made: set it before that (T21, ruling F22).
+        if (string.Equals(options.Scenario, ReadNoVectorScenario, StringComparison.Ordinal))
+            AppContext.SetSwitch("ModernLibs.FileHelpers.DisableVectorizedTokenizer", true);
 
         string dataDir = options.DataDir ?? Path.Combine(AppContext.BaseDirectory, "Data");
         Directory.CreateDirectory(dataDir);

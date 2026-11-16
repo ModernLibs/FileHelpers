@@ -373,9 +373,13 @@ class AotStartupAndResultTests(unittest.TestCase):
 
     def test_the_filter_selects_aot_scenarios(self):
         self.assertEqual(ab.aot_methods("*"), ["ModernLibs.FileHelpers.Benchmarks.Aot.PackageAssets_ParseAndDiscard",
+                                               "ModernLibs.FileHelpers.Benchmarks.Aot.PackageAssets_ParseAndDiscard_NoVector",
                                                "ModernLibs.FileHelpers.Benchmarks.Aot.PackageAssets_WriteString"])
-        self.assertEqual(ab.aot_methods("*ParseAndDiscard*"),
+        self.assertEqual(ab.aot_methods("*ParseAndDiscard"),
                          ["ModernLibs.FileHelpers.Benchmarks.Aot.PackageAssets_ParseAndDiscard"])
+        self.assertEqual(ab.aot_methods("*ParseAndDiscard*"),
+                         ["ModernLibs.FileHelpers.Benchmarks.Aot.PackageAssets_ParseAndDiscard",
+                          "ModernLibs.FileHelpers.Benchmarks.Aot.PackageAssets_ParseAndDiscard_NoVector"])
         self.assertEqual(ab.aot_methods("*WriteString"),
                          ["ModernLibs.FileHelpers.Benchmarks.Aot.PackageAssets_WriteString"])
         self.assertEqual(ab.aot_methods("*QuotedFields*"), [])
@@ -557,13 +561,15 @@ class AotMainTests(unittest.TestCase):
         document = self._document()
         self.assertEqual(document["aot_checksum"], "0x00000000000000aa")
         self.assertEqual([row["name"].split(".")[-1].split("(")[0] for row in document["benchmarks"]],
-                         ["PackageAssets_ParseAndDiscard", "PackageAssets_WriteString"])
+                         ["PackageAssets_ParseAndDiscard", "PackageAssets_ParseAndDiscard_NoVector",
+                          "PackageAssets_WriteString"])
         for name in ("pkg-net10", "net10"):
             with open(os.path.join(self.dirs[name], "timed.log"), encoding="utf-8") as f:
                 lines = f.read().splitlines()
             self.assertEqual(sorted(set(lines)), ["timed PackageAssets_ParseAndDiscard 0x00000000000000aa",
+                                                  "timed PackageAssets_ParseAndDiscard_NoVector 0x00000000000000aa",
                                                   "timed PackageAssets_WriteString 0x00000000000000aa"])
-            self.assertEqual(len(lines), 14)
+            self.assertEqual(len(lines), 21)
 
     def _document(self):
         with open(self.out, encoding="utf-8") as f:

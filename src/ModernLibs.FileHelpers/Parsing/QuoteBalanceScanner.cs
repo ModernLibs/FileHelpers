@@ -185,7 +185,8 @@ internal static class QuoteBalanceScanner
     }
 
     /// <summary>
-    /// The state of <see cref="ScanSingleQuote"/> and <see cref="RecordTokenizer.TokenizeQuoted"/>, advanced at each
+    /// The state of <see cref="ScanSingleQuote"/> and
+    /// <see cref="RecordTokenizer.TokenizeQuoted(ReadOnlySpan{char}, char, char, ReadOnlySpan{char}, TokenBuffer, bool, out int, out bool)"/>, advanced at each
     /// delimiter or quote position in increasing order. The transitions read and write <see cref="Field"/>,
     /// <see cref="Inside"/> and <c>_next</c> only; they tell the recorder what they did and never read anything
     /// back from it, so the scan (<see cref="NoRecorder"/>) and the tokenizer (<see cref="TokenRecorder"/>) end in the

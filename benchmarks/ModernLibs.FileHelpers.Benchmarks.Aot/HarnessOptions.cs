@@ -13,7 +13,10 @@ internal sealed class HarnessOptions
     /// <summary>Data rows of the PackageAssets file (BenchmarkDotNet uses 10K, 100K and 1M).</summary>
     public int Rows { get; private set; } = 100_000;
 
-    /// <summary>The scenario to time: <see cref="Program.ReadScenario"/> (default) or <see cref="Program.WriteScenario"/>.</summary>
+    /// <summary>
+    /// The scenario to time: <see cref="Program.ReadScenario"/> (default), <see cref="Program.ReadNoVectorScenario"/>
+    /// or <see cref="Program.WriteScenario"/>.
+    /// </summary>
     public string Scenario { get; private set; } = Program.ReadScenario;
 
     /// <summary>Untimed reads after the data check.</summary>
@@ -77,7 +80,7 @@ internal sealed class HarnessOptions
         {
             case "--scenario":
                 Scenario = value;
-                return value is Program.ReadScenario or Program.WriteScenario;
+                return value is Program.ReadScenario or Program.ReadNoVectorScenario or Program.WriteScenario;
             case "--data-dir":
                 DataDir = value;
                 return value.Length > 0;

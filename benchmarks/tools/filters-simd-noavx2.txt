@@ -3,5 +3,16 @@
 # --max-iterations 20.
 #
 # filters-simd-noavx2.txt: the SIMD round on fh-amd-noavx2
-# No filter line yet: T21 fills it.
 # Run it with --vm fh-amd-noavx2 --env DOTNET_EnableAVX2=0.
+#
+# noavx2 (T21 step 3, ruling F07): x64 without AVX2, where the default loop is Vector128. The component lines run in
+# runtime-410 as in filters-simd.txt (the Tokenizer_Runtime_* methods exist in the 4.10 builds only, so a pair with a
+# 4.9.1 build would not compare them); the methods that need Vector256 or Vector512 are not listed (RequiresVector).
+# The 25-column, long-line and quoted parse-and-discard reads run against the 4.9.1 package on both runtimes.
+
+component  runtime-410                                          *TokenizerBenchmarks*
+component  runtime-410                                          *VectorLoopShapeBenchmarks*
+
+read25     v410-net10,v410-net11                                *DelimitedParseBenchmarks.FileHelpers_ParseAndDiscard
+read-other v410-net10,v410-net11                                *LongLineBenchmarks.ReadFile_ParseAndDiscard
+quoted     v410-net10,v410-net11                                *QuotedFieldsBenchmarks.FileHelpers_ParseAndDiscard

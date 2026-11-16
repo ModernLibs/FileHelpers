@@ -154,6 +154,10 @@ other libraries through their own read loop. The checksum is the sum of the `Id`
 files) or of the last character of the `Id` field (fixed-width files); each method's setup compares it
 with the value computed from the dataset. Without the array or list that holds every record, these
 methods measure parsing on its own; they are the primary metric of the 4.10 read work (design B2).
+`QuotedFields` also has `FileHelpers_ParseAndDiscard_ScanOnly` (T21): the same read, with the AppContext switch
+`ModernLibs.FileHelpers.DisableTokenizedParse` set in its setup before the first engine, so a 4.10 build reads
+through the scan path without the tokenized parse (the setup checks that). The library reads its switches once per
+process: run this method in a process of its own, as `ab.py` does.
 
 ### Competitor libraries added in 4.10 (T11)
 
@@ -243,7 +247,8 @@ too: `Unquote_Current`, `Unquote_IndexOf`, `CreateString_New`, `CreateString_Cac
 
 | Class | Methods (baseline first) | What it measures |
 |---|---|---|
-| `TokenizerBenchmarks` | `Tokenizer_CountPlusIndexOf`, `Tokenizer_SinglePassScalar`, `Tokenizer_SinglePassVector`, `Tokenizer_SinglePassVector_AnyMatchFirst` | The field ends of every line of a plain dataset (`Dataset`: 10,000 lines of the 25-column file, 1,000 of the 150-column file, 5,000 long lines) written into one preallocated `int[]`. The baseline is today's work: one `Count(',')` for the field-count check and N - 1 sequential `IndexOf(',')` in the generated parser. The vector tokenizers compare 16 (`Vector256`) or 8 (`Vector128`) characters at a time and walk the bits; `_AnyMatchFirst` tests the compare for a match before extracting the bits (expensive on Arm64). |
+| `TokenizerBenchmarks` | `Tokenizer_CountPlusIndexOf`, `Tokenizer_SinglePassScalar`, `Tokenizer_SinglePassVector`, `Tokenizer_SinglePassVector_AnyMatchFirst` | The field ends of every line of a plain dataset (`Dataset`: 10,000 lines of the 25-column file, 1,000 of the 150-column file, 5,000 long lines) written into one preallocated `int[]`. The baseline is today's work: one `Count(',')` for the field-count check and N - 1 sequential `IndexOf(',')` in the generated parser. The vector tokenizers compare 16 (`Vector256`) or 8 (`Vector128`) characters at a time and walk the bits; `_AnyMatchFirst` tests the compare for a match before extracting the bits (expensive on Arm64). The 4.10 builds also have the shipped `RecordTokenizer` (T15, T21): `Tokenizer_Runtime` as the runtime calls it (the default loop), and `Tokenizer_Runtime_IndexOfHop`, `_Vector128`, `_Vector256`, `_Vector512`, `_Vector256_Packed` (two `Vector256` loads narrowed to their low bytes as a pre-test, design 2.5 item 16) and `_Vector256_LoadUnsafe` (against `_Vector256`, the span load), each one loop and load form of the same code. A method that needs `Vector256` or `Vector512` is not listed on a machine that does not accelerate it (`RequiresVectorAttribute`, `BenchConfig`). |
+| `QuotedTokenizerBenchmarks` | `TokenizerQuoted_IndexOfHop`, `TokenizerQuoted_Vector128`, `TokenizerQuoted_Vector256` | 4.10 builds only (T21). The shipped quoted tokenizer (`RecordTokenizer.TokenizeQuoted`, T20) on 10,000 lines of the seeded quoted set, with one walk loop each: one `IndexOfAny` per delimiter or quote, `Vector128` blocks, `Vector256` blocks. |
 | `VectorLoopShapeBenchmarks` | `Scan_LoadUnsafe`, `Scan_SpanCreate` | The delimiter-and-quote loop of `QuoteBalanceScanner.ScanSingleQuote`, reduced to counting, written with `Vector256.LoadUnsafe` from a `ref` (as in the library) and with `Vector256.Create(span.Slice(i, n))` (`Dataset`: the seeded quoted set, long lines). |
 | `ConverterCallShapeBenchmarks` | `Format_GenericHelper`, `Format_GenericWriter`, `Format_DirectCall`, `Format_WriterDirectCall` | One `int`, one `DateTime` and one `string` field written 1,000 times into the engine's record buffer: through today's generic helper into a `stackalloc` buffer and a copy, through a generic `Format<TConverter, TValue>` on a `ref struct` writer, through direct `TryFormat` calls into one span, and (`Format_WriterDirectCall`, T58) through direct `TryFormat` calls on the `ref struct` writer. |
 | `UnquoteBenchmarks` | `Unquote_Current`, `Unquote_IndexOf` | The quoted values of 10,000 lines of the seeded quoted set unquoted to a string: today's emitted strip pass (scalar search, rented buffer) against an `IndexOf` and `string.Create` helper (R3). `Values`: all quoted values, or only those with a doubled quote. |
@@ -433,10 +438,12 @@ Native AOT build. `benchmarks/ModernLibs.FileHelpers.Benchmarks.Aot` is a small 
 read. It has no BenchmarkDotNet and uses no reflection.
 
 **Scenarios.** `--scenario` picks one (`ab.py` passes it to every timed launch): `PackageAssets_ParseAndDiscard`
-(the default, described below) and `PackageAssets_WriteString` (T59), the work of
+(the default, described below), `PackageAssets_ParseAndDiscard_NoVector` (T21: the same read with the AppContext
+switch `ModernLibs.FileHelpers.DisableVectorizedTokenizer` set before the first engine; a 4.9.1 package has no such
+switch) and `PackageAssets_WriteString` (T59), the work of
 `WriteBenchmarks.WriteString_FileHelpers`: `WriteString` of the records the library read from the same file (CRLF,
-header text without its line ending, as the benchmark prepares them). Both scenarios share the data check and its
-checksum, so `ab.py` takes one checksum from the `--checksum-only` runs and passes it to every timed launch of either
+header text without its line ending, as the benchmark prepares them). All scenarios share the data check and its
+checksum, so `ab.py` takes one checksum from the `--checksum-only` runs and passes it to every timed launch of any
 scenario. The write scenario also writes its records once, parses that output with the BCL parsers and refuses to time
 (exit 3) unless it has the checksum of the data check; every run must return a string of the same length.
 

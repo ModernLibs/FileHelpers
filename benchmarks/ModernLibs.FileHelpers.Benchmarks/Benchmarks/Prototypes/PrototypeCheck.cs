@@ -4,6 +4,9 @@
 
 using ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components;
 using ModernLibs.FileHelpers.Benchmarks.Data;
+#if !FILEHELPERS_BASELINE
+using ModernLibs.FileHelpers.Parsing;
+#endif
 
 namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks.Prototypes;
 
@@ -34,6 +37,9 @@ internal static class PrototypeCheck
             Console.WriteLine($"// G2_SingleSpan: WriteString of {PackageRows} records equals G2_Current ({lines} lines).");
             Console.WriteLine($"// Tokenizer_*: the four tokenizers give the same field ends on {CheckTokenizers(dir)} lines.");
             Console.WriteLine($"// Scan_SpanCreate: equals Scan_LoadUnsafe on {CheckScan(dir)} lines.");
+#if !FILEHELPERS_BASELINE
+            Console.WriteLine($"// Tokenizer_Runtime, Tokenizer_Runtime_IndexOfHop, Parse_In and Parse_ByValue: {CheckRuntimeTokens(dir)} lines agree with the reference.");
+#endif
             Console.WriteLine($"// Unquote_Helper, UnquoteToString_Helper and CreateString_Helper: {CheckReadHelpers()} setups compared every string with the reference.");
             Console.WriteLine($"// Slice_Direct: equals Slice_MathMin (class and struct) on {CheckFixedSlices()} lines, and both throw on a line of the wrong width.");
             return 0;
@@ -165,6 +171,76 @@ internal static class PrototypeCheck
                 DataCheck.Equal(expected[k], ends[k], $"{name} end of field {k}, {where}");
         }
     }
+
+#if !FILEHELPERS_BASELINE
+    /// <summary>
+    /// The shipped tokenizer (T15) on both paths gives the ends of <see cref="TokenizerBenchmarks.CountPlusIndexOf"/> on
+    /// every line of the four datasets, and the field count and ends of <see cref="string.Split(char)"/> on seeded random
+    /// lines at three capacities; <see cref="TokensPassingBenchmarks"/> gives the engine's records on both interfaces.
+    /// </summary>
+    private static int CheckRuntimeTokens(string dir)
+    {
+        int lines = 0;
+        foreach (var dataset in Enum.GetValues<TokenizerDataset>())
+        {
+            int fieldCount = ComponentData.FieldCount(dataset);
+            foreach (string line in ComponentData.Lines(dataset, dir))
+            {
+                var expected = new int[fieldCount];
+                DataCheck.Equal(fieldCount, TokenizerBenchmarks.CountPlusIndexOf(line, expected, ','), $"{dataset} line {lines} reference");
+                foreach (bool vectors in new[] { true, false })
+                {
+                    var ends = new int[fieldCount + 1];
+                    DataCheck.Equal(fieldCount, RecordTokenizer.TokenizePlain(line, ',', ends, vectors), $"Tokenizer_Runtime (vectors {vectors}) count, {dataset} line {lines}");
+                    for (int k = 0; k < fieldCount; k++)
+                        DataCheck.Equal(expected[k], ends[k], $"Tokenizer_Runtime (vectors {vectors}) end of field {k}, {dataset} line {lines}");
+                }
+                lines++;
+            }
+        }
+
+        var random = new Random(4915);
+        for (int i = 0; i < 3_000; i++)
+        {
+            string line = RandomLine(random, ",a\u012C", commaShare: 0.15);
+            string[] parts = line.Split(',');
+            foreach (int capacity in new[] { parts.Length + 1, parts.Length, Math.Max(1, parts.Length / 2) })
+            {
+                int count = Math.Min(parts.Length, capacity);
+                foreach (bool vectors in new[] { true, false })
+                {
+                    var ends = new int[capacity];
+                    DataCheck.Equal(count, RecordTokenizer.TokenizePlain(line, ',', ends, vectors), $"Tokenizer_Runtime (vectors {vectors}) count, random line {i}, capacity {capacity}");
+                    int end = -1;
+                    for (int k = 0; k < count; k++)
+                    {
+                        end += parts[k].Length + 1;
+                        DataCheck.Equal(end, ends[k], $"Tokenizer_Runtime (vectors {vectors}) end of field {k}, random line {i}, capacity {capacity}");
+                    }
+                }
+            }
+            lines++;
+        }
+
+        string path = DatasetGenerator.EnsurePackageAssets(dir, PackageRows);
+        var engine = new FileHelperEngine<PackageAsset>().ReadFile(path);
+        var (byIn, byValue) = TokensPassingBenchmarks.Collect(DataCheck.DataLines(path, hasHeader: true));
+        DataCheck.Equal(engine.Length, byIn.Count, "Parse_In record count");
+        DataCheck.Equal(engine.Length, byValue.Count, "Parse_ByValue record count");
+        var properties = typeof(PackageAsset).GetProperties();
+        for (int i = 0; i < engine.Length; i++)
+        {
+            foreach (var property in properties)
+            {
+                object? expected = property.GetValue(engine[i]);
+                DataCheck.Equal(expected, property.GetValue(byIn[i]), $"Parse_In row {i} {property.Name}");
+                DataCheck.Equal(expected, property.GetValue(byValue[i]), $"Parse_ByValue row {i} {property.Name}");
+            }
+            lines++;
+        }
+        return lines;
+    }
+#endif
 
     /// <summary>
     /// The shipped read helpers of <see cref="RecordParsing"/> give the reference strings: each benchmark setup checks

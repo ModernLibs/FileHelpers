@@ -67,13 +67,26 @@ public sealed class FileHelperAsyncEngine<T> : IFileHelperAsyncEngine<T>, IRecor
     /// source generator did not run. See <see cref="FileHelperRegistry{T}.Descriptor"/>.
     /// </exception>
     public FileHelperAsyncEngine()
+        : this(FileHelperRegistry<T>.Descriptor, EnginePaths.FromSwitches)
     {
-        _descriptor = FileHelperRegistry<T>.Descriptor;
-        _core = new RecordReadCore<T>(_descriptor);
+    }
+
+    /// <summary>
+    /// Creates an engine over <paramref name="descriptor"/> with explicit code paths: the entry of tests, fuzzing and
+    /// benchmarks (design 4.7). The public constructor passes the registered descriptor and <see cref="EnginePaths.FromSwitches"/>.
+    /// </summary>
+    internal FileHelperAsyncEngine(IRecordDescriptor<T> descriptor, EnginePaths paths)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        _descriptor = descriptor;
+        _core = new RecordReadCore<T>(_descriptor, paths);
 
         // Detect the INotifyWrite<T> implementation once at construction.
         _implementsNotifyWrite = typeof(INotifyWrite<T>).IsAssignableFrom(typeof(T));
     }
+
+    /// <summary>The record-type configuration shared by this engine's reads (tests: which read path it takes).</summary>
+    internal RecordReadCore<T> Core => _core;
 
     // =========================================================================
     // Public properties

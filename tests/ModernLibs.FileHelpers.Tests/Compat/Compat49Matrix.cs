@@ -78,11 +78,18 @@ internal static class Compat49Matrix
     /// (<c>ParseInto</c>, prefix <c>recycled-</c>); an array read with the default
     /// <see cref="ErrorMode.ThrowException"/> (prefix <c>thrown-</c>).
     /// </summary>
-    private static string Read<T>(string input)
+    private static string Read<T>(string input) => Read(input, static () => new FileHelperEngine<T>());
+
+    /// <summary>
+    /// <see cref="Read{T}(string)"/> with the three engines made by <paramref name="create"/>: one descriptor on two
+    /// read paths (T15, <c>TokenizedReadTests</c>).
+    /// </summary>
+    internal static string Read<T>(string input, Func<FileHelperEngine<T>> create)
     {
         var text = new StringBuilder();
 
-        var engine = new FileHelperEngine<T> { ErrorMode = ErrorMode.SaveAndContinue };
+        var engine = create();
+        engine.ErrorMode = ErrorMode.SaveAndContinue;
         Run(text, string.Empty, () =>
         {
             foreach (var r in engine.ReadString(input))
@@ -96,7 +103,9 @@ internal static class Compat49Matrix
         }
         else
         {
-            var recycling = new FileHelperEngine<T> { ErrorMode = ErrorMode.SaveAndContinue, RecycleRecords = true };
+            var recycling = create();
+            recycling.ErrorMode = ErrorMode.SaveAndContinue;
+            recycling.RecycleRecords = true;
             Run(text, "recycled-", () =>
             {
                 int count = recycling.ReadString(input, r => Line(text, "recycled-record:", Show(r)));
@@ -105,7 +114,7 @@ internal static class Compat49Matrix
             AppendState(text, "recycled-", recycling);
         }
 
-        var throwing = new FileHelperEngine<T>();
+        var throwing = create();
         Run(text, "thrown-", () => Line(text, "thrown-count:", throwing.ReadString(input).Length.ToString(CultureInfo.InvariantCulture)));
         AppendState(text, "thrown-", throwing);
 

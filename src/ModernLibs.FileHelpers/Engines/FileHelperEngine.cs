@@ -64,15 +64,32 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     /// </summary>
     /// <param name="encoding">Encoding used by <see cref="ReadFile(string)"/>, <see cref="WriteFile"/>, and <see cref="AppendToFile(string,T)"/>.</param>
     public FileHelperEngine(Encoding encoding)
+        : this(RegisteredDescriptor(encoding), encoding, EnginePaths.FromSwitches)
     {
+    }
+
+    /// <summary>
+    /// Creates an engine over <paramref name="descriptor"/> with explicit code paths: the entry of tests, fuzzing and
+    /// benchmarks (design 4.7). The public constructors pass the registered descriptor and <see cref="EnginePaths.FromSwitches"/>.
+    /// </summary>
+    internal FileHelperEngine(IRecordDescriptor<T> descriptor, Encoding encoding, EnginePaths paths)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
         ArgumentNullException.ThrowIfNull(encoding);
         Encoding = encoding;
 
-        _descriptor = FileHelperRegistry<T>.Descriptor;
-        _core = new RecordReadCore<T>(_descriptor);
+        _descriptor = descriptor;
+        _core = new RecordReadCore<T>(_descriptor, paths);
 
         // Detect the INotifyWrite<T> implementation once at construction.
         _implementsNotifyWrite = typeof(INotifyWrite<T>).IsAssignableFrom(typeof(T));
+    }
+
+    /// <summary>The registered descriptor, after the <paramref name="encoding"/> check (the order of the 4.9 constructor).</summary>
+    private static IRecordDescriptor<T> RegisteredDescriptor(Encoding encoding)
+    {
+        ArgumentNullException.ThrowIfNull(encoding);
+        return FileHelperRegistry<T>.Descriptor;
     }
 
     /// <summary>

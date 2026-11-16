@@ -18,6 +18,10 @@ internal sealed class MasterDetailReader<TMaster, TDetail> : IDisposable
     private readonly RecordReadCore<TMaster> _master;
     private readonly RecordReadCore<TDetail> _detail;
     private readonly ErrorManager _errors;
+
+    // The field ends of the record being parsed, per record type, when that type is tokenized.
+    private readonly TokenBuffer? _masterTokens;
+    private readonly TokenBuffer? _detailTokens;
     private readonly LogicalLineAssembler _assembler = new();
     private readonly PendingLines _pending = new();
     private readonly Queue<MasterDetails<TMaster, TDetail>> _completed = new();
@@ -34,6 +38,8 @@ internal sealed class MasterDetailReader<TMaster, TDetail> : IDisposable
         _master = master;
         _detail = detail;
         _errors = errors;
+        _masterTokens = master.CreateTokenBuffer();
+        _detailTokens = detail.CreateTokenBuffer();
     }
 
     /// <summary>
@@ -122,7 +128,7 @@ internal sealed class MasterDetailReader<TMaster, TDetail> : IDisposable
         if (_master.IsFiltered(record[.._assembler.FirstLineLength], _assembler.AllLinesEmpty))
             return;
 
-        var master = _master.Parse(record, recycle: false);
+        var master = _master.Parse(record, recycle: false, tokens: _masterTokens);
         CloseGroup();
         _currentMaster = master;
         _currentDetails = [];
@@ -134,7 +140,7 @@ internal sealed class MasterDetailReader<TMaster, TDetail> : IDisposable
         if (_detail.IsFiltered(record[.._assembler.FirstLineLength], _assembler.AllLinesEmpty))
             return;
 
-        var detail = _detail.Parse(record, recycle: false);
+        var detail = _detail.Parse(record, recycle: false, tokens: _detailTokens);
         if (_currentDetails is null)
         {
             if (_discardDetails)

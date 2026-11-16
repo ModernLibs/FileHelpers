@@ -58,6 +58,67 @@ A record whose attributes have errors that the build hides gets a descriptor fro
 table: `IRecordDescriptor<T>` (`InvalidRecordEmitter:46`) and its five members (`:52-56`), `BadUsageException(string)`
 (`:32`) and `FileHelperRegistry<T>.SetDescriptor` (`:64-65`).
 
+## 4.10 members
+
+The tokenized read contract (design 4.2 to 4.5, frozen by T14 on 2026-11-14). From 4.10 on the runtime finds
+the field boundaries of a record once and hands them to generated code; generated code still emits its full
+legacy `Parse` and `ParseInto`, which handle every record the tokenized path gives back. Both types are hidden
+(`[EditorBrowsable(Never)]`), and their signatures and member semantics below are a contract like the table
+above. The layout of `RecordTokens`, the field cap and the conditions under which the runtime tokenizes are
+internal and may change in a patch.
+
+```csharp
+namespace ModernLibs.FileHelpers;
+
+[EditorBrowsable(EditorBrowsableState.Never)]
+public interface ITokenizedDescriptor<T> : IRecordDescriptor<T>
+{
+    // false = "not handled" (never "invalid input"); a conversion or validation error throws.
+    bool TryParse(ReadOnlySpan<char> record, in RecordTokens tokens, [MaybeNullWhen(false)] out T result);
+    bool TryParseInto(ReadOnlySpan<char> record, in RecordTokens tokens, T existing) => false;
+}
+
+[EditorBrowsable(EditorBrowsableState.Never)]
+public readonly ref struct RecordTokens   // internal constructor; default has Count 0; no member throws
+{
+    public int Count { get; }
+    public bool IsQuoted(int index);
+    public ReadOnlySpan<char> GetValue(int index);
+    public string GetString(int index);
+}
+```
+
+| Member | Result |
+|---|---|
+| `TryParse`, `TryParseInto` returning `false` | "Not handled": the runtime validates the field count and calls the legacy `Parse` or `ParseInto` for the same record. A method returns `false` only before any converter runs (and, for `TryParseInto`, before any member is assigned), so a custom converter never runs twice for one record. A conversion or validation error throws, with the text, type and column of the legacy code. |
+| `Count` | Fields found. The runtime calls `TryParse` only when the mandatory field count `<= Count <=` the field count. |
+| `IsQuoted(i)` | `true` when field `i` is a `[FieldQuoted]` field and its value was quoted; `false` for `i` outside `[0, Count)`. |
+| `GetValue(i)`, not quoted | `record.Slice(start, length)`, also when the length is 0: a present empty field keeps its position, so `RecordParsing.Column` gives the column of the legacy code. |
+| `GetValue(i)`, quoted, no doubled quote | `record.Slice(start + 1, length - 2)`, also for `""`. |
+| `GetValue(i)`, quoted, doubled quotes | The unescaped text in a scratch buffer, not part of the record (`Column` gives -1, as with the legacy pooled copy). |
+| `GetValue(i)`, `i` outside `[0, Count)` | `default`: what the legacy code yields for a missing trailing field. |
+| `GetString(i)` | The string of `GetValue(i)` by `RecordParsing.CreateString`, or by `RecordParsing.UnquoteToString` for doubled quotes; `string.Empty` for `i` outside `[0, Count)`. |
+
+Lifetime: a `RecordTokens` value, and every span `GetValue` returns, is valid until the same reader tokenizes its
+next record. All spans of one record stay valid together: the runtime sizes the scratch before it calls the
+descriptor, and `GetValue` never reallocates it (a value that does not fit is a new array). Generated code never
+stores the tokens or the spans; `RecordTokens` is a `ref struct`, so it cannot escape to the heap.
+
+The runtime tokenizes a record type only when its descriptor implements `ITokenizedDescriptor<T>`, it is
+delimited with a one-char delimiter and one line per record, no field has its own `[FieldDelimiter]`, no field is
+quoted (4.10.0 adds quoted fields in T20), it has 1 to 4096 fields, and the switch below is off. A record of
+2^30 chars or more, or with a field count out of range, takes the legacy path. 4.8 and 4.9 descriptors do not
+implement the interface and always take the legacy path.
+
+`AppContext` switches, read once into a static field before the first engine is created (a safety valve, may be
+removed in 5.0): `ModernLibs.FileHelpers.DisableTokenizedParse` (the runtime never calls
+`ITokenizedDescriptor<T>`) and `ModernLibs.FileHelpers.DisableVectorizedTokenizer` (the tokenizer uses no vector
+code of its own, only `IndexOf`, which the BCL may vectorize).
+
+Tests: `RecordTokensTests` (member semantics), `RecordTokenizerTests` (the vector and the `IndexOf` paths against
+`string.Split`, at vector block edges) and `TokenizedReadTests` (every engine reads the same records and errors on
+the tokenized and the legacy path, with a checking descriptor on the `Compat49Matrix` shapes).
+
 ## Behaviour that old descriptors rely on
 
 1. `WriteFieldNewLine` finds the engine's newline with `writer is RentedBufferWriter`

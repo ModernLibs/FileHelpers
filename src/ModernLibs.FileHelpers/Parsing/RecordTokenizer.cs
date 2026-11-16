@@ -31,7 +31,9 @@ internal static class RecordTokenizer
         if (!vectors || !Vector128.IsHardwareAccelerated)
             return TokenizeIndexOf(record, delimiter, ends);
 
-        // Bounds-checked span loads (freeze F-8); the cast reinterprets the chars, it reads nothing outside the record.
+        // Bounds-checked span loads (freeze F-8). Vector128/256 do not take char, so one MemoryMarshal.Cast reinterprets
+        // the record as ushort before the loop (lead ruling on T15: the only MemoryMarshal call; no Unsafe, no
+        // GetReference, no LoadUnsafe, which is T21's UseUnsafeLoad variant). The cast keeps the bounds.
         ReadOnlySpan<ushort> units = MemoryMarshal.Cast<char, ushort>(record);
         int length = units.Length;
         int position = 0;

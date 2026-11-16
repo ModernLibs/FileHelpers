@@ -7,6 +7,9 @@ using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
 using BenchmarkDotNet.Attributes;
 using ModernLibs.FileHelpers.Benchmarks.Data;
+#if !FILEHELPERS_BASELINE
+using ModernLibs.FileHelpers.Parsing;
+#endif
 
 namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components;
 
@@ -29,6 +32,12 @@ namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components;
 /// compare for any match before extracting its bits, which matters where extracting is expensive (Arm64).
 /// </para>
 /// <para>
+/// <see cref="Tokenizer_Runtime"/> and <see cref="Tokenizer_Runtime_IndexOfHop"/> are the shipped
+/// <c>RecordTokenizer.TokenizePlain</c> (T15) with <c>vectors: true</c> and <c>false</c>, into an <c>int[]</c> of
+/// <c>FieldCount + 1</c> entries as the runtime's <c>TokenBuffer</c> holds; the runtime then checks the count, as
+/// here. <see cref="TokenizerDataset.Columns5"/> is the short-record case of freeze S3.
+/// </para>
+/// <para>
 /// Each benchmark returns the sum of the end of the middle field over all lines; its setup compares that with a
 /// value computed with <see cref="string.Split(char, StringSplitOptions)"/>. <c>--check-prototypes</c> checks that the
 /// four tokenizers give the same ends on every line.
@@ -42,9 +51,10 @@ public class TokenizerBenchmarks
 
     private string[] _lines = [];
     private int[] _ends = [];
+    private int[] _runtimeEnds = [];
     private int _fieldCount;
 
-    [Params(TokenizerDataset.Columns25, TokenizerDataset.Columns150, TokenizerDataset.LongLines)]
+    [Params(TokenizerDataset.Columns5, TokenizerDataset.Columns25, TokenizerDataset.Columns150, TokenizerDataset.LongLines)]
     public TokenizerDataset Dataset { get; set; }
 
     private void Prepare()
@@ -52,6 +62,7 @@ public class TokenizerBenchmarks
         _lines = ComponentData.Lines(Dataset, ComponentData.DataDir());
         _fieldCount = ComponentData.FieldCount(Dataset);
         _ends = new int[_fieldCount];
+        _runtimeEnds = new int[_fieldCount + 1];
     }
 
     private void Check(string name, long checksum)
@@ -97,6 +108,24 @@ public class TokenizerBenchmarks
         Prepare();
         Check(nameof(Tokenizer_SinglePassVector_AnyMatchFirst), Tokenizer_SinglePassVector_AnyMatchFirst());
     }
+
+#if !FILEHELPERS_BASELINE
+    // RecordTokenizer is new in 4.10: a build against the 4.9.1 package or source (round.sh baselines,
+    // FILEHELPERS_BASELINE) has neither Tokenizer_Runtime nor Tokenizer_Runtime_IndexOfHop (setups and benchmarks).
+    [GlobalSetup(Target = nameof(Tokenizer_Runtime))]
+    public void SetupRuntime()
+    {
+        Prepare();
+        Check(nameof(Tokenizer_Runtime), Tokenizer_Runtime());
+    }
+
+    [GlobalSetup(Target = nameof(Tokenizer_Runtime_IndexOfHop))]
+    public void SetupRuntimeIndexOfHop()
+    {
+        Prepare();
+        Check(nameof(Tokenizer_Runtime_IndexOfHop), Tokenizer_Runtime_IndexOfHop());
+    }
+#endif
 
     [Benchmark(Baseline = true)]
     public long Tokenizer_CountPlusIndexOf()
@@ -157,6 +186,31 @@ public class TokenizerBenchmarks
         }
         return sum;
     }
+
+#if !FILEHELPERS_BASELINE
+    /// <summary>The shipped tokenizer, vector path (<c>vectors: true</c>).</summary>
+    [Benchmark]
+    public long Tokenizer_Runtime() => RunRuntime(vectors: true);
+
+    /// <summary>The shipped tokenizer, one <c>IndexOf</c> per field (<c>vectors: false</c>: the switch and no-SIMD path).</summary>
+    [Benchmark]
+    public long Tokenizer_Runtime_IndexOfHop() => RunRuntime(vectors: false);
+
+    private long RunRuntime(bool vectors)
+    {
+        long sum = 0;
+        int[] ends = _runtimeEnds;
+        int fieldCount = _fieldCount;
+        foreach (string line in _lines)
+        {
+            int n = RecordTokenizer.TokenizePlain(line, ',', ends, vectors);
+            if (n != fieldCount)
+                ThrowFieldCount(n);
+            sum += ends[n >> 1];
+        }
+        return sum;
+    }
+#endif
 
     private static void ThrowFieldCount(int n) =>
         throw new InvalidOperationException($"Benchmark correctness check failed: a line has {n} fields.");

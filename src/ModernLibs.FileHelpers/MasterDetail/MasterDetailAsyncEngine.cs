@@ -12,8 +12,8 @@ namespace ModernLibs.FileHelpers;
 public sealed class MasterDetailAsyncEngine<TMaster, TDetail> : IAsyncDisposable
 {
     private readonly MasterDetailSelector _selector;
-    private readonly FileHelperEngine<TMaster> _masterEngine = new();
-    private readonly FileHelperEngine<TDetail> _detailEngine = new();
+    private readonly FileHelperEngine<TMaster> _masterEngine;
+    private readonly FileHelperEngine<TDetail> _detailEngine;
 
     /// <summary>Error manager for read operations; cleared at the start of every read.</summary>
     public ErrorManager ErrorManager { get; } = new();
@@ -30,8 +30,8 @@ public sealed class MasterDetailAsyncEngine<TMaster, TDetail> : IAsyncDisposable
 
     /// <summary>Creates an async master/detail engine with an explicit line selector.</summary>
     public MasterDetailAsyncEngine(MasterDetailSelector selector)
+        : this(selector, EnginePaths.FromSwitches)
     {
-        _selector = selector;
     }
 
     /// <summary>
@@ -40,9 +40,30 @@ public sealed class MasterDetailAsyncEngine<TMaster, TDetail> : IAsyncDisposable
     /// </summary>
     public MasterDetailAsyncEngine(CommonSelectorMode mode, string selector)
     {
+        (_masterEngine, _detailEngine) = CreateEngines(EnginePaths.FromSwitches);
         ArgumentNullException.ThrowIfNull(selector);
         _selector = CreateFromCommonSelector(mode, selector);
     }
+
+    /// <summary>
+    /// Creates an async master/detail engine with explicit read paths for both record types: the entry of tests, fuzzing and
+    /// benchmarks (design 4.7). The public constructors pass <see cref="EnginePaths.FromSwitches"/>.
+    /// </summary>
+    internal MasterDetailAsyncEngine(MasterDetailSelector selector, EnginePaths paths)
+    {
+        (_masterEngine, _detailEngine) = CreateEngines(paths);
+        _selector = selector;
+    }
+
+    /// <summary>The engines of the two record types; their cores read the records (<see cref="MasterDetailReader{TMaster, TDetail}"/>).</summary>
+    private static (FileHelperEngine<TMaster> Master, FileHelperEngine<TDetail> Detail) CreateEngines(EnginePaths paths) =>
+        (new(FileHelperRegistry<TMaster>.Descriptor, Encoding.UTF8, paths), new(FileHelperRegistry<TDetail>.Descriptor, Encoding.UTF8, paths));
+
+    /// <summary>The record-type configuration of the master records (tests: which read path it takes).</summary>
+    internal RecordReadCore<TMaster> MasterCore => _masterEngine.Core;
+
+    /// <summary>The record-type configuration of the detail records (tests: which read path it takes).</summary>
+    internal RecordReadCore<TDetail> DetailCore => _detailEngine.Core;
 
     private static MasterDetailSelector CreateFromCommonSelector(CommonSelectorMode mode, string selector)
     {

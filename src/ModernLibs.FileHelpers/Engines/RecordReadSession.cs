@@ -37,6 +37,10 @@ internal sealed class RecordReadSession<T> : IDisposable
     private readonly bool _hasAfterRead;
     private readonly bool _singleLineRecords;
 
+    // The field ends of the record being parsed, when the record type is tokenized (one buffer per session: the
+    // core is shared by parallel chunks).
+    private readonly TokenBuffer? _tokens;
+
     // Physical line tracking.
     private int _physicalLines;
 
@@ -89,6 +93,7 @@ internal sealed class RecordReadSession<T> : IDisposable
         _hasBeforeRead = host?.BeforeReadHandler is not null || RecordReadCore<T>.HasNotifyRead;
         _hasAfterRead = host?.AfterReadHandler is not null || RecordReadCore<T>.HasNotifyRead;
         _singleLineRecords = !core.Multiline && core.LinesPerRecord == 1;
+        _tokens = core.CreateTokenBuffer();
 
         if (applyHeaderFooter)
         {
@@ -379,7 +384,7 @@ internal sealed class RecordReadSession<T> : IDisposable
         T parsed;
         try
         {
-            parsed = hasTarget ? _core.ParseInto(record, target!, AllowRecycle) : _core.Parse(record, AllowRecycle, scan);
+            parsed = hasTarget ? _core.ParseInto(record, target!, AllowRecycle, _tokens) : _core.Parse(record, AllowRecycle, scan, _tokens);
         }
         catch (Exception ex)
         {

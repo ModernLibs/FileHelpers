@@ -5,6 +5,9 @@ namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components;
 /// <summary>The plain (unquoted) datasets of the tokenizer benchmarks.</summary>
 public enum TokenizerDataset
 {
+    /// <summary>The lines of <see cref="Columns25"/> cut after their fifth field (before the fifth comma).</summary>
+    Columns5,
+
     /// <summary>10,000 lines of the 25-column PackageAssets file (header skipped).</summary>
     Columns25,
 
@@ -29,6 +32,7 @@ internal static class ComponentData
     /// <summary>The data lines of <paramref name="dataset"/>, generated in <paramref name="dataDir"/> when missing.</summary>
     public static string[] Lines(TokenizerDataset dataset, string dataDir) => dataset switch
     {
+        TokenizerDataset.Columns5 => FirstFields(Lines(TokenizerDataset.Columns25, dataDir), 5),
         TokenizerDataset.Columns25 => DataCheck.DataLines(DatasetGenerator.EnsurePackageAssets(dataDir, 10_000), hasHeader: true),
         TokenizerDataset.Columns150 => DataCheck.DataLines(DatasetGenerator.EnsureWideRecords(dataDir, 1_000), hasHeader: false),
         TokenizerDataset.LongLines => DataCheck.DataLines(DatasetGenerator.EnsureLongLines(dataDir, 5_000), hasHeader: false),
@@ -38,11 +42,31 @@ internal static class ComponentData
     /// <summary>The field count of every line of <paramref name="dataset"/>.</summary>
     public static int FieldCount(TokenizerDataset dataset) => dataset switch
     {
+        TokenizerDataset.Columns5 => 5,
         TokenizerDataset.Columns25 => 25,
         TokenizerDataset.Columns150 => DatasetGenerator.WideColumns,
         TokenizerDataset.LongLines => 8,
         _ => throw new ArgumentOutOfRangeException(nameof(dataset), dataset, "unknown dataset"),
     };
+
+    /// <summary>Each line cut before its <paramref name="fields"/>-th comma: its first <paramref name="fields"/> fields.</summary>
+    private static string[] FirstFields(string[] lines, int fields)
+    {
+        var cut = new string[lines.Length];
+        for (int i = 0; i < lines.Length; i++)
+        {
+            int end = -1;
+            for (int k = 0; k < fields; k++)
+            {
+                int at = lines[i].AsSpan(end + 1).IndexOf(',');
+                end = at < 0 ? -1 : end + 1 + at;
+                if (end < 0)
+                    throw new InvalidOperationException($"line {i} has fewer than {fields + 1} fields");
+            }
+            cut[i] = lines[i][..end];
+        }
+        return cut;
+    }
 
     /// <summary>
     /// The fields of an RFC 4180 line, with the rules of the seeded quoted set: a quote opens a quoted value only as

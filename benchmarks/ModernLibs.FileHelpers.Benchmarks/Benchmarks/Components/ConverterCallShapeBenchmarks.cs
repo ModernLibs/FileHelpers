@@ -98,8 +98,14 @@ public class ConverterCallShapeBenchmarks : IDisposable
     public void SetupWriterDirectCall()
     {
         Prepare();
+        long checksum = Format_WriterDirectCall();
         Check(nameof(Format_WriterDirectCall), (writer, i) => WriteWriterDirectCall(new BufferWriterTarget(writer), i),
-            Format_WriterDirectCall());
+            checksum);
+        // The data never fills 256 characters, so the pass above never grows. This pass starts each record with a free
+        // span of 1 to 48 characters and grows by exactly the size asked, so Grow (converter retry), Write(char) and
+        // Write(text) growth and the commit of a partial record all run, at every position of the record.
+        Check(nameof(Format_WriterDirectCall) + " with growth",
+            (writer, i) => WriteWriterDirectCall(new TightTarget(writer, (i % 48) + 1), i), checksum);
     }
 
     [GlobalCleanup]
@@ -263,6 +269,8 @@ public class ConverterCallShapeBenchmarks : IDisposable
 
     // (d) Direct converter calls on a ref struct writer over an abstract buffer: the emitted shape T22 freezes,
     // `while (!Conv.TryFormat(value, writer.FreeSpan, out n)) writer.Grow(Conv); writer.Advance(n);`.
+    // Here the writer is a local of this (inlined) method; T22's Format(T, ref RecordWriter) gets it by reference through
+    // an interface call, so this row measures the call shape, not the engine's write path.
     private void WriteWriterDirectCall(RecordBuffer target, int i)
     {
         var record = new DirectRecordWriter(target);
@@ -310,6 +318,33 @@ public class ConverterCallShapeBenchmarks : IDisposable
         {
             _writer.Advance(written);
             return _writer.GetSpan(needed);
+        }
+
+        public override void Commit(int written) => _writer.Advance(written);
+    }
+
+    /// <summary>
+    /// A <see cref="RecordBuffer"/> for the setup check only: the first span of a record has <c>startSize</c>
+    /// characters whatever the hint (below the 64 the frozen writer promises, on purpose), and each growth gives exactly
+    /// the characters asked for, so every growth path of <see cref="DirectRecordWriter"/> runs.
+    /// </summary>
+    private sealed class TightTarget : RecordBuffer
+    {
+        private readonly IBufferWriter<char> _writer;
+        private readonly int _startSize;
+
+        public TightTarget(IBufferWriter<char> writer, int startSize)
+        {
+            _writer = writer;
+            _startSize = startSize;
+        }
+
+        public override Span<char> Start(int sizeHint) => _writer.GetSpan(_startSize).Slice(0, _startSize);
+
+        public override Span<char> Grow(int written, int needed)
+        {
+            _writer.Advance(written);
+            return _writer.GetSpan(needed).Slice(0, needed);
         }
 
         public override void Commit(int written) => _writer.Advance(written);

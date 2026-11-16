@@ -316,28 +316,42 @@ showed up there.
 
 | Finding | Method | Tier1 code bytes .NET 10.0.15 / 11.0.0 | Callee no longer inlined on 11 | Effect of `DOTNET_JitInlineBudget` | Verdict: `ours` or `runtime` | Code shape that avoids it, or "none" | Hand-over |
 |---|---|---|---|---|---|---|---|
-| F3: `Format_GenericWriter` 1.292 [1.245, 1.342] `fh-amd`, 1.368 [1.365, 1.370] `fh-intel` | `ConverterCallShapeBenchmarks.Format_GenericWriter`; `SpanRecordWriter.Format<__Canon, int>` and `<__Canon, DateTime>` are inlined into it on both runtimes | 2308 / 2186 (`Format<__Canon, int>` alone 636 / 622, `Format<__Canon, DateTime>` alone 474 / 440) | None. The same callees on both runtimes; only the `CORINFO_HELP_STRCNS` calls on the throw paths are gone on 11. Inlinees with PGO data / single block / without PGO data: 34 / 52 / 13 and 32 / 53 / 12 | Budget 5 shrinks it to 584 bytes and stops inlining both `Format` instantiations, `Write` and `Commit`: the opposite of F1, it makes the method slower | Neither shown: not reproduced locally; no inline-tree change, so not the F1 mechanism | None shown. `Format_WriterDirectCall` has no generic method between caller and converter; whether it keeps .NET 11 at the .NET 10 time is measured in the T19 round | T22: use the direct-call shape (`Format_WriterDirectCall`) |
-| F4: `Format_DirectCall` 1.040 [1.015, 1.108] `fh-amd`, 1.132 [1.119, 1.146] `fh-intel` | `Format_DirectCall` with `WriteDirectCall` inlined | 1404 / 1354 | None. The same callees; inlinees 23 / 49 / 12 and 21 / 50 / 11 | Budget 5: 676 bytes, `Int32.TryFormat` and `DateTimeConverter.TryFormat` become calls; slower | Neither shown: not reproduced locally; no inline-tree change | None | See F3 |
+| F3: `Format_GenericWriter` 1.292 [1.245, 1.342] `fh-amd`, 1.368 [1.365, 1.370] `fh-intel` | `ConverterCallShapeBenchmarks.Format_GenericWriter`; `SpanRecordWriter.Format<__Canon, int>` and `<__Canon, DateTime>` are inlined into it on both runtimes | 2308 / 2186 (`Format<__Canon, int>` alone 636 / 622, `Format<__Canon, DateTime>` alone 474 / 440) | None. The same callees on both runtimes; only the `CORINFO_HELP_STRCNS` calls on the throw paths are gone on 11. Inlinees with PGO data / single block / without PGO data: 34 / 52 / 13 and 32 / 53 / 12 | Budget 5 shrinks it to 584 bytes and stops inlining both `Format` instantiations, `Write` and `Commit`: the opposite of F1; slower in one local smoke launch | Neither shown: not reproduced locally; no inline-tree change, so not the F1 mechanism | None shown. `Format_WriterDirectCall` has no generic method between caller and converter; whether it keeps .NET 11 at the .NET 10 time is measured in the T19 round | T22: use the direct-call shape (`Format_WriterDirectCall`) |
+| F4: `Format_DirectCall` 1.040 [1.015, 1.108] `fh-amd`, 1.132 [1.119, 1.146] `fh-intel` | `Format_DirectCall` with `WriteDirectCall` inlined | 1404 / 1354 | None. The same callees; inlinees 23 / 49 / 12 and 21 / 50 / 11 | Budget 5: 676 bytes, `Int32.TryFormat` and `DateTimeConverter.TryFormat` become calls; slower in one local smoke launch | Neither shown: not reproduced locally; no inline-tree change | None | See F3 |
 | F5: `Scan_LoadUnsafe` (Quoted) 1.166 [1.023, 1.171] `fh-intel` only; `fh-amd` 1.011 (no change) | `VectorLoopShapeBenchmarks.Scan_LoadUnsafe` with `ScanLoadUnsafe` inlined | 439 / 439 (AVX2). AVX-512 is not on the developer machine: a Native AOT compile of a copy of `ScanLoadUnsafe` for `x86-64-v4` (not Tier1 code) gives 363 / 344 | None (one inlinee, the same on both) | None: the listing with budget 5 equals the default one | Neither shown: the case needs AVX-512, which only `fh-intel` has. The loop body is the same on both runtimes, in the AVX2 Tier1 code and in the AVX-512 AOT code (`vpcmpeqw` into mask registers, `korw`, `kmovw`); they differ only in alignment padding and one sign extension | None | T21 and T33: load form on .NET 11 is LoadUnsafe |
-| F6: `ReadAllRows_Struct` 100K 1.056 [1.021, 1.080] `fh-amd` only (4.9.1 package, free-gains pair) | The generated `__FixedRecordStructDescriptor.Parse` (the slice code) and `ReadAllRows_Struct`, into which `ReadFile` and `ReadToArray` (the read loop) are inlined | `Parse` 1008 / 1000; `ReadAllRows_Struct` 2795 / 1614 | `Parse`: none (the same seven `string(ReadOnlySpan<char>)` calls; inlinees 29 / 28 / 5 on both). Read loop: on 11 `ChunkedArraySink<T>.Add` (one call per record) is called instead of inlined, and `TextReaderLineSource.TryReadLine` is inlined instead of called | Budget 5: `Parse` unchanged (1000); `ReadToArray` is no longer inlined into `ReadAllRows_Struct` and inlines `Add` again | Neither shown: not reproduced locally. The round places it outside the per-row code (below) | None | T30: F6 is independent of the fixed-length slice code |
+| F6: `ReadAllRows_Struct` 100K 1.056 [1.021, 1.080] `fh-amd` only (4.9.1 package, free-gains pair) | The generated `__FixedRecordStructDescriptor.Parse` (the slice code) and `ReadAllRows_Struct`, into which `ReadFile` and `ReadToArray` (the read loop) are inlined | `Parse` 1008 / 1000; `ReadAllRows_Struct` 2795 / 1614 | `Parse`: none (the same seven `string(ReadOnlySpan<char>)` calls; inlinees 29 / 28 / 5 on both). Read loop, among others: on 11 `ChunkedArraySink<T>.Add` (one call per record) is called instead of inlined, and `TextReaderLineSource.TryReadLine` is inlined instead of called; once per file, `SharedArrayPool<T>.Rent` (both instantiations) is called instead of inlined and the `RecordReadSession<T>` constructor is inlined instead of called | Budget 5: `Parse` unchanged (1000); `ReadToArray` is no longer inlined into `ReadAllRows_Struct` and inlines `Add` again | Neither shown: not reproduced locally. The round places it outside the per-row code (below) | None | T30: F6 is independent of the fixed-length slice code |
+
+Verdict "open": the cause is not found. F3 and F4 are measured on both VMs (B4) but do not reproduce on the developer
+machine, and their inline trees are the same on both runtimes, so the F1 mechanism is excluded. F5 is measured on
+`fh-intel` only. Closing them needs the Tier1 listings from the VMs, taken in the T19 round with the same call
+(`DOTNET_JitDisasm`, `DOTNET_JitDisasmSummary=1`, `DOTNET_JitStdOutFile`, default and `DOTNET_JitInlineBudget=5`); T19
+owns the verdict. Until then no finding is `ours` and none is `runtime`. The listing script that starts the process
+as `ab.py` does with these variables is `benchmarks/tools/dis.sh` (committed by T59).
 
 Why each hand-over line holds without a local reproduction:
 
 - **T22.** Step 0 measured the direct call against today's helper at 0.454 (`fh-amd`) and 0.441 (`fh-intel`) on
   .NET 10 and 0.488 and 0.529 on .NET 11; the generic writer at 0.630 and 0.584 on .NET 10, 0.842 and 0.846 on .NET 11.
-  The direct call is the faster shape on both runtimes and loses less on .NET 11. T22's condition for the alternative, a
+  The direct call is the faster shape on both runtimes and loses less on .NET 11. These ratios are for the plain-span
+  shape; the writer shape has no round data yet. T22's condition for the alternative, a
   `Format<TConverter, TValue>` shape whose Tier1 code on .NET 11 equals the direct call's, is not met: 2186 bytes and
   two generic instantiations against 1354 bytes. `Format_WriterDirectCall` (the frozen `FreeSpan` / `Advance` / `Grow`
   shape over an abstract buffer) has the same callees on both runtimes (1931 / 1882 bytes). Its span and position stay
   in stack memory in the Tier1 code (98 stack operands against 39 in `Format_DirectCall`), because the non-inlined
-  growth methods take the writer's address; T19 measures it against `Format_GenericWriter` (T22 step 1).
+  growth methods take the writer's address. In a local smoke run it ran at the level of `Format_GenericWriter`, not of
+  `Format_DirectCall`; T19 decides, by the reopening rule of T22 step 1.
 - **T21 and T33.** Inside the .NET 11 build of the round the span form is never faster than `LoadUnsafe` by B4:
   `Scan_SpanCreate` / `Scan_LoadUnsafe` is 1.012 and 1.036 on `fh-amd` (Quoted, LongLines, no change), 0.932 [0.878,
   1.062] (Quoted, no change) and 1.121 [1.096, 1.168] (LongLines, slower) on `fh-intel`. The seven .NET 11 launches of
   `Scan_LoadUnsafe` Quoted on `fh-intel` fall in three groups (about 333, 321 and 292 µs), each steady inside its launch;
-  the .NET 10 launches are all at 285 to 286 µs. With the same loop code on both runtimes, this points to something
-  that changes from process to process (code or data placement), not to the load form. A local smoke run shows the
-  same pattern on LongLines with both runtimes: identical Tier1 loop, two speed levels, chosen per launch.
+  the .NET 10 launches are all at 285 to 286 µs. The same two-level pattern is in the round on the second VM and
+  dataset: `fh-amd`, `Scan_LoadUnsafe` LongLines, .NET 10 launches 171.3 to 172.2 µs (seven), .NET 11 launches 213.5,
+  213.8, 171.8, 213.6, 214.3, 212.9, 213.9 µs. Over the two cases the slow level was hit in 13 of 14 .NET 11 launches
+  and in 0 of 14 .NET 10 launches. With the same loop code on both runtimes, this fits a placement effect (code or
+  data alignment) that depends on the runtime; it is not caused by the load form, and it is one more reason the
+  verdict stays open.
+  For T21 this means F5 gives no reason to avoid `LoadUnsafe` on .NET 11. The design's condition (it must beat the span
+  form on .NET 11) is not met by Step 0 on `fh-amd`; T21's own round sets `UseUnsafeLoad`.
 - **T30.** The same generated slice code (`line.Slice(o, Math.Min(w, line.Length - o))`, seven fields) runs in
   `ReadAllRows_Class` and in the class parse-and-discard read, and neither moved on .NET 11 (100K: 0.994 and 0.983 on
   `fh-amd`, 0.993 and 0.994 on `fh-intel`). `ReadAllRows_Struct` itself shows no change at 10K rows (1.002 `fh-amd`,
@@ -346,8 +360,8 @@ Why each hand-over line holds without a local reproduction:
   1000 per 1,000 operations and 41.82 MB are allocated per operation, the same on both runtimes, and that part of the
   time (about 36 of the 48 ms; the parse-and-discard read takes about 12 ms) is where the 2.7 ms difference has room.
 
-No verdict is `runtime`, so T58 drafts no comment for dotnet/runtime#137552. The listings are kept outside the
-repository (T58 report).
+No verdict is `runtime`, so no comment for dotnet/runtime#137552 is required; an optional note on the F6 inline shift
+is in the T58 report, not posted. The listings are kept outside the repository (T58 report).
 
 ## Not run
 

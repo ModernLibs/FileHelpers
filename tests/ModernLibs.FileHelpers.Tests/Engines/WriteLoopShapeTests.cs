@@ -11,7 +11,7 @@ using TUnit.Core;
 namespace ModernLibs.FileHelpers.Tests.Engines;
 
 /// <summary>
-/// The per-record write methods stay out of the write loops (dotnet/runtime#137552): .NET 11 Tier1 inlines
+/// The per-record write method of the synchronous loops stays out of them (dotnet/runtime#137552): .NET 11 Tier1 inlines
 /// them into the loop and then stops inlining the writer call.
 /// </summary>
 [Category("Engines")]

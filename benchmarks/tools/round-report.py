@@ -104,6 +104,7 @@ COMPONENTS = [
     ("CreateStringBenchmarks", "CreateString_New", ["CreateString_Cached"]),
     ("FixedSliceBenchmarks", "Slice_MathMin", ["Slice_Direct"]),     # gate G5 (T30) reads this row
     ("FormatOneRecordBenchmarks", "FormatRecord_Current", ["FormatRecord_SingleSpan"]),
+    ("TokensPassingBenchmarks", "Parse_In", ["Parse_ByValue"]),
 ]
 METHOD_CLASSES = {cls for _, cls, _, _ in PATTERN_CHOICES} | {cls for cls, _, _ in COMPONENTS} | {
     "R6UpperBoundBenchmarks", "G2PrototypeBenchmarks"}

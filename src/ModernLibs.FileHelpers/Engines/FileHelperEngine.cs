@@ -1387,6 +1387,8 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     /// Raises the write events and writes the formatted <paramref name="record"/> without its terminator;
     /// <see langword="false"/> when an event skipped it.
     /// </summary>
+    // .NET 11 Tier1 inlines this into the write loop and then stops inlining the writer's Write (dotnet/runtime#137552).
+    [MethodImpl(MethodImplOptions.NoInlining)]
     private bool WriteRecordText(TextWriter writer, T record, int recordNumber, RentedBufferWriter buf)
     {
         if (!FormatRecord(record, recordNumber, buf, out string? eventLine))

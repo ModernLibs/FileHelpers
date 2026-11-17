@@ -103,8 +103,9 @@ COMPONENTS = [
     ("UnquoteBenchmarks", "Unquote_Current", ["Unquote_IndexOf"]),
     ("CreateStringBenchmarks", "CreateString_New", ["CreateString_Cached"]),
     ("FixedSliceBenchmarks", "Slice_MathMin", ["Slice_Direct"]),     # gate G5 (T30) reads this row
-    ("FormatOneRecordBenchmarks", "FormatRecord_Current", ["FormatRecord_SingleSpan"]),
+    ("FormatOneRecordBenchmarks", "FormatRecord_Current", ["FormatRecord_SingleSpan", "FormatRecord_Writer"]),
     ("TokensPassingBenchmarks", "Parse_In", ["Parse_ByValue"]),
+    ("QuoteBenchmarks", "Write_Only", ["Quote_Clean", "Quote_WithQuotes", "WriteQuoted_Clean", "WriteQuoted_WithQuotes"]),
 ]
 METHOD_CLASSES = {cls for _, cls, _, _ in PATTERN_CHOICES} | {cls for cls, _, _ in COMPONENTS} | {
     "R6UpperBoundBenchmarks", "G2PrototypeBenchmarks"}

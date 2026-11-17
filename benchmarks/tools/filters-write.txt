@@ -4,3 +4,28 @@
 #
 # filters-write.txt: the write-path round
 # No filter line yet: T25 fills it.
+#
+# The six write lines of filters-step0.txt and MultiRecordWriteBenchmarks (T25 step 1, F20). The base pairs need
+# round.sh --base-commit 96df9b255394c8365206c224db61cf3bee70b02b (the T19 round SHA).
+write      v410-net10,v410-net11,ra,runtime-410,base-net10,base-net11 *WriteBenchmarks.WriteString_FileHelpers
+write      v410-net10,v410-net11,ra,runtime-410,base-net10,base-net11 *WriteBenchmarks.WriteFile_FileHelpers
+write      v410-net10,v410-net11,ra,runtime-410,base-net10,base-net11 *QuotedWriteBenchmarks.WriteString
+write      v410-net10,v410-net11,ra,runtime-410,base-net10,base-net11 *QuotedWriteBenchmarks.WriteStream_Null
+write      v410-net10,v410-net11,ra,runtime-410,base-net10,base-net11 *FixedWidthWriteBenchmarks.WriteString
+write      v410-net10,v410-net11,ra,runtime-410,base-net10,base-net11 *FixedWidthWriteBenchmarks.WriteStream_Null
+write      v410-net10,v410-net11,ra,runtime-410,base-net10,base-net11 *MultiRecordWriteBenchmarks.WriteStream_Null
+
+# 4.10-only write API: the 4.9.1 builds have no WriteStreamAsync, so only the pairs with a 4.10 build or a base commit run
+write      ra,runtime-410,base-net10,base-net11                *EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null
+async,exception ra,runtime-410,base-net10,base-net11           *EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null_SourceThrows
+
+# Components of the write path (T23): the 4.10 build on both runtimes
+component  runtime-410                                          *Components.FormatOneRecordBenchmarks*
+component  runtime-410                                          *Components.ConverterCallShapeBenchmarks*
+component  runtime-410                                          *Components.QuoteBenchmarks*
+
+# Exception line
+exception  v410-net10,ra                                        *EngineAsyncBenchmarks.Engine_ReadAsync_Path_ExceptionEvery100
+
+# Native AOT write (T59): the 25-column WriteString of WriteBenchmarks under Native AOT
+aot        aot-v410-net10,aot-v410-net11,aot-ra                 *PackageAssets_WriteString

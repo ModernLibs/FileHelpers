@@ -521,6 +521,26 @@ class T59Tests(unittest.TestCase):
         self.assertEqual(len(g5), 2)                                        # net10 and net11-ra-on
         self.assertTrue(any("0.900" in l for l in g5))
 
+    def test_t23_component_rows_quote_and_format_record_writer(self):
+        quote = NS + "Components.QuoteBenchmarks."
+        rows = [bench(quote + m, scaled(1_000), scaled(1_000 * f)) for m, f in
+                (("Write_Only", 1.0), ("Quote_Clean", 1.2), ("Quote_WithQuotes", 1.4),
+                 ("WriteQuoted_Clean", 1.1), ("WriteQuoted_WithQuotes", 1.3))]
+        write(os.path.join(self.vm, "runtime-410", "052-component-q.json"),
+              doc("/w/bin/net10", "/w/bin/net11-ra-on", "*Components.QuoteBenchmarks*", rows))
+        fmt = NS + "Components.FormatOneRecordBenchmarks."
+        rows = [bench(fmt + m, scaled(1_000), scaled(1_000 * f)) for m, f in
+                (("FormatRecord_Current", 1.0), ("FormatRecord_SingleSpan", 0.9), ("FormatRecord_Writer", 0.8))]
+        write(os.path.join(self.vm, "runtime-410", "053-component-f.json"),
+              doc("/w/bin/net10", "/w/bin/net11-ra-on", "*Components.FormatOneRecordBenchmarks*", rows))
+        markdown = round_report.build(self.round)
+        for line in ("QuoteBenchmarks.Quote_Clean against Write_Only",
+                     "QuoteBenchmarks.Quote_WithQuotes against Write_Only",
+                     "QuoteBenchmarks.WriteQuoted_Clean against Write_Only",
+                     "QuoteBenchmarks.WriteQuoted_WithQuotes against Write_Only",
+                     "FormatOneRecordBenchmarks.FormatRecord_Writer against FormatRecord_Current"):
+            self.assertEqual(len([l for l in markdown.splitlines() if line in l]), 2, line)  # net10 and net11-ra-on
+
     def test_the_base_commit_pairs_have_their_own_section(self):
         glob = "*QuotedFieldsBenchmarks.FileHelpers_ParseAndDiscard"
         write(os.path.join(self.vm, "base-net10", "003-quoted-x.json"), doc(

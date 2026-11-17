@@ -22,9 +22,23 @@ internal static class PrototypeEngine
         var engine = new FileHelperEngine<T>();
         Replace(engine, "_descriptor", descriptor);
         Replace(engine, "_core", new RecordReadCore<T>(descriptor));
+        ClearWriterDescriptor(engine);
         if (!ReferenceEquals(engine.Core.Descriptor, descriptor))
             throw new InvalidOperationException("PrototypeEngine: the engine does not read through the prototype descriptor.");
         return engine;
+    }
+
+    // A 4.10 engine formats through _writerDescriptor (the RecordWriter path) when it is set, and takes _descriptor.Format
+    // only when it is null (the 4.9 write path). A prototype has no RecordWriter Format, so the field is cleared: the
+    // engine then writes through the prototype. A 4.9.1 build has no such field.
+    private static void ClearWriterDescriptor<T>(FileHelperEngine<T> engine)
+    {
+        var field = typeof(FileHelperEngine<T>).GetField("_writerDescriptor", BindingFlags.Instance | BindingFlags.NonPublic);
+        if (field is null)
+            return;
+        field.SetValue(engine, null);
+        if (field.GetValue(engine) is not null)
+            throw new InvalidOperationException("PrototypeEngine: field _writerDescriptor was not cleared.");
     }
 
     private static void Replace<T>(FileHelperEngine<T> engine, string name, object value)

@@ -223,8 +223,9 @@ public sealed class WriterEmissionTests
     }
 
     /// <summary>
-    /// A delimited record reads <see cref="RecordWriter.Position"/> only for a quoted or an aligned field; a plain
-    /// field is the converter loop or one <c>Write</c>, and each delimiter one <c>Write</c>.
+    /// A delimited record reads <see cref="RecordWriter.Position"/> only for an aligned field or a quoted field with a
+    /// converter; a quoted string field is one <c>WriteQuoted</c>, a plain field the converter loop or one
+    /// <c>Write</c>, and each delimiter one <c>Write</c>.
     /// </summary>
     [Test]
     public async Task Delimited_Fields_Read_Position_Only_To_Quote_Or_Pad()
@@ -249,9 +250,7 @@ public sealed class WriterEmissionTests
             + "            writer.Grow(global::ModernLibs.FileHelpers.Converters.Int32Converter.Instance);\n"
             + "        writer.Advance(__n0);\n"
             + "        writer.Write(',');\n"
-            + "        int __s1 = writer.Position;\n"
-            + "        writer.Write(global::System.MemoryExtensions.AsSpan(record.Name));\n"
-            + "        writer.Quote(__s1, '\"', false, true, \",\", \"Name\");\n"
+            + "        writer.WriteQuoted(global::System.MemoryExtensions.AsSpan(record.Name), '\"', false, true, \",\", \"Name\");\n"
             + "        writer.Write(',');\n"
             + "        writer.Write(global::System.MemoryExtensions.AsSpan(record.Plain));\n"
             + "        writer.Write(\"::\");\n"
@@ -382,6 +381,95 @@ public sealed class WriterEmissionTests
         string body = WriterFormat(await Generate(shape), "Unchecked");
         await Assert.That(body).Contains("        writer.Reserve(64);\n        int __n1;\n        while (!__Conv.__conv_field1.TryFormat(");
         await Assert.That(Regex.Count(body, @"writer\.Reserve\(64\);", RegexOptions.None, Timeout)).IsEqualTo(1);
+    }
+
+    /// <summary>
+    /// Freeze Revision 1 (Ruling P25): every quoted <c>string</c> field of a delimited record is one
+    /// <see cref="RecordWriter.WriteQuoted"/> call with the arguments <c>Quote</c> had, in every quote mode, also after
+    /// a <c>[FieldDelimiter]</c> and in a <c>[FieldInNewLine]</c> field; quoted converted fields (built-in, custom
+    /// <c>ISpanConverter&lt;T&gt;</c>, <c>ConverterBase</c> string) keep <c>Quote</c>; a quoted string with
+    /// <c>[FieldAlign]</c> is quoted and not padded, as in 4.9. (A fixed-length record cannot have a quoted field: the
+    /// analyzer rejects it.)
+    /// </summary>
+    [Test]
+    public async Task Quoted_String_Fields_Use_WriteQuoted()
+    {
+        string quoted = WriterFormat(await Generate(TokenizedEmissionTests.QuotedShape), "QuotedShape");
+        await Assert.That(quoted).Contains("        writer.WriteQuoted(global::System.MemoryExtensions.AsSpan(record.Always), '\"', true, true, \",\", \"Always\");\n");
+        await Assert.That(quoted).Contains("        writer.WriteQuoted(global::System.MemoryExtensions.AsSpan(record.ForRead), '\"', true, true, \",\", \"ForRead\");\n");
+        await Assert.That(quoted).Contains("        writer.WriteQuoted(global::System.MemoryExtensions.AsSpan(record.ForWrite), '\"', false, true, \",\", \"ForWrite\");\n");
+        await Assert.That(quoted).Contains("        writer.Quote(__s3, '\"', false, true, \",\", \"ForBoth\");\n");
+        await Assert.That(Regex.Count(quoted, @"writer\.WriteQuoted\(", RegexOptions.None, Timeout)).IsEqualTo(3);
+        await Assert.That(Regex.Count(quoted, @"= writer\.Position;", RegexOptions.None, Timeout)).IsEqualTo(1);
+
+        const string shape = """
+            [DelimitedRecord(";", MultilineMode = MultilineMode.NotAllow)] public class Mixed
+            {
+                [FieldQuoted('\'', QuoteMode.OptionalForBoth), FieldDelimiter("||")] public string? A;
+                [FieldInNewLine, FieldQuoted] public string B = "";
+                [FieldQuoted, FieldConverter(typeof(Upper))] public string C = "";
+                [FieldQuoted(QuoteMode.AlwaysQuoted)] public DateTime D;
+                [FieldQuoted, FieldFixedLength(4), FieldAlign(AlignMode.Right)] public string E = "";
+            }
+            public sealed class Upper : ConverterBase { public override object? StringToField(string from) => from.ToUpperInvariant(); }
+            """;
+        string text = await Generate(shape);
+        string body = WriterFormat(text, "Mixed");
+        await Assert.That(body).Contains("        writer.WriteQuoted(global::System.MemoryExtensions.AsSpan(record.A), '\\'', false, false, \"||\", \"A\");\n        writer.Write(\"||\");\n");
+        await Assert.That(body).Contains("        writer.WriteNewLine();\n        writer.WriteQuoted(global::System.MemoryExtensions.AsSpan(record.B), '\"', true, false, \";\", \"B\");\n");
+        await Assert.That(body).Contains("        writer.Quote(__s2, '\"', true, false, \";\", \"C\");\n");
+        await Assert.That(body).Contains("        writer.Quote(__s3, '\"', true, false, \";\", \"D\");\n");
+        await Assert.That(body).Contains("        writer.WriteQuoted(global::System.MemoryExtensions.AsSpan(record.E), '\"', true, false, \";\", \"E\");\n");
+        await Assert.That(body).DoesNotContain("writer.Pad(");
+        await Assert.That(Regex.Count(body, @"writer\.WriteQuoted\(", RegexOptions.None, Timeout)).IsEqualTo(3);
+    }
+
+    /// <summary>
+    /// The call check of freeze Revision 1 (preflight F14 for the new member): a record whose quoted string fields the
+    /// generator writes with <c>WriteQuoted</c> (checked in the emitted text), written by a public engine on the record
+    /// writer path and through the legacy adapter, gives the 4.9 text: quoted where the mode asks, quote chars
+    /// doubled, line breaks kept, <c>""</c> for an always-quoted <see langword="null"/>, nothing for an optional one.
+    /// </summary>
+    [Test]
+    public async Task WriteQuoted_Fields_Write_The_4_9_Text_Through_The_Engine()
+    {
+        const string shape = """
+            [DelimitedRecord(",")] public class Q
+            {
+                [FieldQuoted(QuoteMode.AlwaysQuoted)] public string? A;
+                [FieldQuoted(QuoteMode.OptionalForWrite)] public string? B;
+                public int N;
+            }
+            public static class Probe
+            {
+                public static string Run()
+                {
+                    var records = new[]
+                    {
+                        new Q { A = "plain", B = "plain", N = 1 },
+                        new Q { A = "say \"hi\"", B = "a,b", N = 2 },
+                        new Q { A = null, B = null, N = 3 },
+                        new Q { A = "x\r\ny", B = "q\"q", N = 4 },
+                        new Q { A = new string('a', 300) + "\"", B = new string('b', 5000) + ",", N = 5 },
+                    };
+                    var engine = new FileHelperEngine<Q> { NewLineForWrite = "\n" };
+                    string text = engine.WriteString(records);
+                    var buffer = new System.Buffers.ArrayBufferWriter<char>();
+                    FileHelperRegistry<Q>.Descriptor.Format(records[1], buffer);
+                    return text + "|" + buffer.WrittenSpan.ToString();
+                }
+            }
+            """;
+        string body = WriterFormat(await Generate(shape), "Q");
+        await Assert.That(Regex.Count(body, @"writer\.WriteQuoted\(", RegexOptions.None, Timeout)).IsEqualTo(2);
+
+        string expected = "\"plain\",plain,1\n"
+            + "\"say \"\"hi\"\"\",\"a,b\",2\n"
+            + "\"\",,3\n"
+            + "\"x\r\ny\",q\"q,4\n"
+            + "\"" + new string('a', 300) + "\"\"\",\"" + new string('b', 5000) + ",\",5\n"
+            + "|\"say \"\"hi\"\"\",\"a,b\",2";
+        await Assert.That(GeneratorHarness.Execute(Usings + shape)).IsEqualTo(expected);
     }
 
     /// <summary>

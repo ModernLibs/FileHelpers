@@ -41,6 +41,7 @@ public sealed class RecordWriterTests
         await Assert.That(() => { var w = default(RecordWriter); w.Write("a".AsSpan()); }).ThrowsExactly<InvalidOperationException>();
         await Assert.That(() => { var w = default(RecordWriter); w.WriteNewLine(); }).ThrowsExactly<InvalidOperationException>();
         await Assert.That(() => { var w = default(RecordWriter); w.Quote(0, '"', true, true, ",", "Name"); }).ThrowsExactly<InvalidOperationException>();
+        await Assert.That(() => { var w = default(RecordWriter); w.WriteQuoted("a".AsSpan(), '"', true, true, ",", "Name"); }).ThrowsExactly<InvalidOperationException>();
         await Assert.That(() => { var w = default(RecordWriter); w.Pad(0, 5, 0, ' ', false, "Name"); }).ThrowsExactly<InvalidOperationException>();
     }
 
@@ -147,6 +148,114 @@ public sealed class RecordWriterTests
                 await Assert.That(actual).IsEqualTo(expected).Because($"length {text.Length}, initial size {initialSize}");
             }
         }
+    }
+
+    /// <summary>
+    /// Freeze Revision 1: <see cref="RecordWriter.WriteQuoted"/> writes what <see cref="RecordWriter.Write(ReadOnlySpan{char})"/>
+    /// followed by <see cref="RecordWriter.Quote"/> writes, and what the 4.9 helper writes, for fuzzed text (quote
+    /// chars of two kinds, line breaks, separators, empty text) with every flag combination, three separators (also
+    /// an empty one, which quotes every value), many field offsets and first buffer sizes; exceptions and the
+    /// committed text included.
+    /// </summary>
+    [Test]
+    public async Task WriteQuoted_Equals_Write_Then_Quote_And_The_4_9_Helper_On_Fuzzed_Text()
+    {
+        char[] alphabet = ['"', '\'', 'a', ',', ';', '\r', '\n', 'é'];
+        string[] separators = [",", ";;", string.Empty];
+        var random = new Random(2311);
+        var failures = new List<string>();
+        int cases = 0;
+
+        for (int i = 0; i < 20_000; i++)
+        {
+            var chars = new char[random.Next(41)];
+            for (int c = 0; c < chars.Length; c++)
+                chars[c] = alphabet[random.Next(alphabet.Length)];
+            string text = new(chars);
+            string committed = new('c', random.Next(20));
+            string before = new('b', random.Next(4));
+            int initialSize = random.Next(2) == 0 ? 1 : random.Next(1, 100);
+            char quote = random.Next(4) == 0 ? '\'' : '"';
+
+            foreach (bool always in (bool[])[false, true])
+            {
+                foreach (bool multilineWrite in (bool[])[false, true])
+                {
+                    foreach (string separator in separators)
+                    {
+                        cases++;
+                        string expected = Expect(committed, before + "|", () =>
+                        {
+                            var buffer = new ArrayBufferWriter<char>();
+                            LegacyEmittedWriteCopies.WriteQuotedField(buffer, text, quote, always, multilineWrite, separator, "Name");
+                            return buffer.WrittenSpan.ToString();
+                        });
+                        string writeThenQuote = Run(committed, initialSize, (ref RecordWriter w) =>
+                        {
+                            w.Write(before.AsSpan());
+                            int start = w.Position;
+                            w.Write(text.AsSpan());
+                            w.Quote(start, quote, always, multilineWrite, separator, "Name");
+                            w.Write('|');
+                        });
+                        string actual = Run(committed, initialSize, (ref RecordWriter w) =>
+                        {
+                            w.Write(before.AsSpan());
+                            w.WriteQuoted(text.AsSpan(), quote, always, multilineWrite, separator, "Name");
+                            w.Write('|');
+                        });
+                        if ((!string.Equals(expected, actual, StringComparison.Ordinal) || !string.Equals(writeThenQuote, actual, StringComparison.Ordinal)) && failures.Count < 5)
+                            failures.Add($"text '{Show(text)}', quote {quote}, always {always}, multilineWrite {multilineWrite}, separator '{separator}': 4.9 '{Show(expected)}', Write+Quote '{Show(writeThenQuote)}', WriteQuoted '{Show(actual)}'");
+                    }
+                }
+            }
+        }
+
+        await Assert.That(cases).IsEqualTo(240_000);
+        await Assert.That(string.Join("\n", failures)).IsEqualTo(string.Empty);
+    }
+
+    /// <summary>
+    /// Freeze Revision 1: <see cref="RecordWriter.WriteQuoted"/> on long text (blocks between quote chars, runs of
+    /// quote chars, quote chars at either end, a separator only) and on empty text, with growth from three first
+    /// buffer sizes.
+    /// </summary>
+    [Test]
+    public async Task WriteQuoted_Equals_The_4_9_Helper_On_Long_And_Empty_Text()
+    {
+        string run = new('q', 300);
+        string[] texts =
+        [
+            string.Empty, run, "\"" + run, run + "\"", "\"\"\"" + run + "\"\"" + run, run + "\"" + run + "\"" + run,
+            new string('"', 200), run + "," + run, new string('q', 5000) + ",", "a\r\n" + run,
+        ];
+
+        foreach (string text in texts)
+        {
+            foreach (bool always in (bool[])[false, true])
+            {
+                foreach (int initialSize in (int[])[1, text.Length + 2, 8192])
+                {
+                    string expected = Expect("c", "b|", () =>
+                    {
+                        var buffer = new ArrayBufferWriter<char>();
+                        LegacyEmittedWriteCopies.WriteQuotedField(buffer, text, '"', always, true, ",", "Name");
+                        return buffer.WrittenSpan.ToString();
+                    });
+                    string actual = Run("c", initialSize, (ref RecordWriter w) =>
+                    {
+                        w.Write('b');
+                        w.WriteQuoted(text.AsSpan(), '"', always, true, ",", "Name");
+                        w.Write('|');
+                    });
+                    await Assert.That(actual).IsEqualTo(expected).Because($"length {text.Length}, always {always}, initial size {initialSize}");
+                }
+            }
+        }
+
+        // The error text, once more by name; the committed text stays.
+        string error = Run("kept", 16, (ref RecordWriter w) => w.WriteQuoted("a\nb".AsSpan(), '"', false, false, ",", "Name"));
+        await Assert.That(error).IsEqualTo("throw:BadUsageException:" + NewLineMessage + "|committed:kept");
     }
 
     [Test]

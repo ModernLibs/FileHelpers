@@ -1290,7 +1290,8 @@ internal static class DescriptorEmitter
     /// <summary>
     /// Emits <c>Format(T, ref RecordWriter)</c> (design 5.1, T22 freeze). Every field (including
     /// <c>[FieldValueDiscarded]</c>, which 3.x writes like any other field) is written straight into the writer: a
-    /// string with one <c>Write</c>, a converted value by the converter into <c>FreeSpan</c>. A quoted, fixed-length or
+    /// string with one <c>Write</c> (one <c>WriteQuoted</c> when it is a quoted field of a delimited record), a
+    /// converted value by the converter into <c>FreeSpan</c>. A quoted converted field, a fixed-length field or an
     /// aligned field is then quoted or padded in place from the <c>Position</c> read before it. A fixed-length record
     /// reserves its width first.
     /// </summary>
@@ -1346,11 +1347,20 @@ internal static class DescriptorEmitter
         // The 4.9 order of the cases: fixed-length padding, then quoting, then [FieldAlign] padding of a delimited field.
         // 3.x: AlwaysQuoted / OptionalForRead always quote; the optional-for-write modes quote values that contain the
         // separator or a line break. A line break needs a multiline mode that allows writing.
+        string quoteArguments = $"{CharLiteral(field.QuoteChar)}, {Bool(field.QuoteMode is 0 or 1)}, {Bool(field.QuoteMultiline is 0 or 2)}, {Literal(separatorAfter)}, {name}";
+        if (!isFixed && field.IsQuoted && plan is null)
+        {
+            // A quoted string field: tested in the string and copied once, quoted (freeze Revision 1). A quoted field
+            // with a converter is formatted into the writer first and quoted in place below.
+            sb.AppendLine($"        writer.WriteQuoted({Memory}AsSpan({value}), {quoteArguments});");
+            return;
+        }
+
         string? after;
         if (isFixed)
             after = $"writer.Pad(__s{i}, {FixedWidth(field)}, {field.AlignMode ?? 0}, {pad}, {Bool(field.OverflowMode == 1)}, {name});";
         else if (field.IsQuoted)
-            after = $"writer.Quote(__s{i}, {CharLiteral(field.QuoteChar)}, {Bool(field.QuoteMode is 0 or 1)}, {Bool(field.QuoteMultiline is 0 or 2)}, {Literal(separatorAfter)}, {name});";
+            after = $"writer.Quote(__s{i}, {quoteArguments});";
         else if (field.AlignMode.HasValue && field.FixedLength > 0)
             after = $"writer.Pad(__s{i}, {field.FixedLength}, {field.AlignMode.Value}, {pad}, false, {name});";
         else

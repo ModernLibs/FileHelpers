@@ -11,7 +11,9 @@ namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components;
 /// <see cref="RecordWriter"/>, as a generated always-quoted string field writes it. <see cref="Write_Only"/> writes the
 /// value without quoting; <see cref="Quote_Clean"/> quotes values without quote chars (one scan and a shift by one);
 /// <see cref="Quote_WithQuotes"/> quotes values with a quote char every 8 chars (the doubling of G3). The difference to
-/// <see cref="Write_Only"/> is the cost of <see cref="RecordWriter.Quote"/>.
+/// <see cref="Write_Only"/> is the cost of <see cref="RecordWriter.Quote"/>. <see cref="WriteQuoted_Clean"/> and
+/// <see cref="WriteQuoted_WithQuotes"/> write the same values with <see cref="RecordWriter.WriteQuoted"/> (freeze
+/// Revision 1), the call a generated quoted string field makes: tested in the string and copied once.
 /// </summary>
 /// <remarks>
 /// <see cref="RecordWriter"/> and <c>IRecordWriterDescriptor&lt;T&gt;</c> are new in 4.10: a build against the 4.9.1
@@ -30,7 +32,7 @@ public class QuoteBenchmarks : IDisposable
     [Params(16, 64, 256)]
     public int Length { get; set; }
 
-    private void Prepare(bool withQuotes, bool quote)
+    private void Prepare(bool withQuotes, QuoteKind quote)
     {
         var random = new Random(2311);
         _values = new string[Values];
@@ -54,7 +56,7 @@ public class QuoteBenchmarks : IDisposable
         {
             _buffer.Reset();
             _buffer.Format(_descriptor, value);
-            string text = _descriptor.Quoting ? "\"" + value.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"" : value;
+            string text = _descriptor.Kind != QuoteKind.None ? "\"" + value.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"" : value;
             DataCheck.Equal(text, _buffer.WrittenSpan.ToString(), name);
             expected += text.Length;
         }
@@ -65,22 +67,36 @@ public class QuoteBenchmarks : IDisposable
     [GlobalSetup(Target = nameof(Write_Only))]
     public void SetupWriteOnly()
     {
-        Prepare(withQuotes: false, quote: false);
+        Prepare(withQuotes: false, QuoteKind.None);
         Check(nameof(Write_Only), Write_Only());
     }
 
     [GlobalSetup(Target = nameof(Quote_Clean))]
     public void SetupClean()
     {
-        Prepare(withQuotes: false, quote: true);
+        Prepare(withQuotes: false, QuoteKind.InPlace);
         Check(nameof(Quote_Clean), Quote_Clean());
     }
 
     [GlobalSetup(Target = nameof(Quote_WithQuotes))]
     public void SetupWithQuotes()
     {
-        Prepare(withQuotes: true, quote: true);
+        Prepare(withQuotes: true, QuoteKind.InPlace);
         Check(nameof(Quote_WithQuotes), Quote_WithQuotes());
+    }
+
+    [GlobalSetup(Target = nameof(WriteQuoted_Clean))]
+    public void SetupWriteQuotedClean()
+    {
+        Prepare(withQuotes: false, QuoteKind.WriteQuoted);
+        Check(nameof(WriteQuoted_Clean), WriteQuoted_Clean());
+    }
+
+    [GlobalSetup(Target = nameof(WriteQuoted_WithQuotes))]
+    public void SetupWriteQuotedWithQuotes()
+    {
+        Prepare(withQuotes: true, QuoteKind.WriteQuoted);
+        Check(nameof(WriteQuoted_WithQuotes), WriteQuoted_WithQuotes());
     }
 
     [GlobalCleanup]
@@ -101,6 +117,12 @@ public class QuoteBenchmarks : IDisposable
     [Benchmark]
     public long Quote_WithQuotes() => FormatAll();
 
+    [Benchmark]
+    public long WriteQuoted_Clean() => FormatAll();
+
+    [Benchmark]
+    public long WriteQuoted_WithQuotes() => FormatAll();
+
     private long FormatAll()
     {
         long written = 0;
@@ -116,10 +138,18 @@ public class QuoteBenchmarks : IDisposable
         return written;
     }
 
-    /// <summary>One string field, written as a generated always-quoted field is (or unquoted).</summary>
-    private sealed class ValueDescriptor(bool quoting) : IRecordWriterDescriptor<string>
+    /// <summary>How <see cref="ValueDescriptor"/> writes its field.</summary>
+    private enum QuoteKind
     {
-        public bool Quoting => quoting;
+        None,
+        InPlace,
+        WriteQuoted,
+    }
+
+    /// <summary>One string field: unquoted, quoted in place with <c>Quote</c>, or written with <c>WriteQuoted</c>.</summary>
+    private sealed class ValueDescriptor(QuoteKind kind) : IRecordWriterDescriptor<string>
+    {
+        public QuoteKind Kind => kind;
 
         public ReadOnlySpan<FieldDescriptor> Fields => throw new NotSupportedException();
 
@@ -133,9 +163,15 @@ public class QuoteBenchmarks : IDisposable
 
         public void Format(string record, ref RecordWriter writer)
         {
+            if (kind == QuoteKind.WriteQuoted)
+            {
+                writer.WriteQuoted(record.AsSpan(), '"', true, true, ",", "Value");
+                return;
+            }
+
             int start = writer.Position;
             writer.Write(record.AsSpan());
-            if (quoting)
+            if (kind == QuoteKind.InPlace)
                 writer.Quote(start, '"', true, true, ",", "Value");
         }
     }

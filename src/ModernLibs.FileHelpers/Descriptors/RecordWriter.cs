@@ -178,25 +178,19 @@ public ref struct RecordWriter
         ThrowIfDefault();
         CheckFieldStart(fieldStart);
         ReadOnlySpan<char> text = _span[fieldStart.._position];
-
-        // One scan for the first quote char or line break: a value with neither is not scanned again (G2).
-        int first = text.IndexOfAny(quote, '\r', '\n');
-        bool newLine = first >= 0 && text[first..].IndexOfAny('\r', '\n') >= 0;
-        if (newLine && !multilineWrite)
-            throw new BadUsageException("One value for the field " + field + " has a new line inside. To allow this value to be written you must add a FieldQuoted attribute with the multiline option set.");
-        if (!always && !newLine && text.IndexOf(separator, StringComparison.Ordinal) < 0)
+        if (!MustQuote(text, quote, always, multilineWrite, separator, field, out int quotes))
             return;
 
         int length = text.Length;
-        int quotes = first < 0 ? 0 : text[first..].Count(quote);
         int added = quotes + 2;
         if (added > _span.Length - _position)
             GrowFree(added);
 
         // The quoted text is longer, so the text moves right in place, from the end. Short text: one scalar loop that
-        // writes each quote char twice (the limit depends on whether the text holds a quote char). Longer text: without a quote char it shifts by one; otherwise the blocks between
-        // quote chars are copied, each quote char written twice (G3). Every destination lies right of the text not yet
-        // moved; CopyTo handles the overlap of a block with its own destination.
+        // writes each quote char twice (the limit depends on whether the text holds a quote char). Longer text: without
+        // a quote char it shifts by one; otherwise the blocks between quote chars are copied, each quote char written
+        // twice (G3). Every destination lies right of the text not yet moved; CopyTo handles the overlap of a block
+        // with its own destination.
         Span<char> target = _span.Slice(fieldStart, length + added);
         if (length <= (quotes == 0 ? ScalarShiftLength : ScalarQuoteLength))
         {
@@ -234,6 +228,89 @@ public ref struct RecordWriter
         target[0] = quote;
         target[^1] = quote;
         _position = fieldStart + length + added;
+    }
+
+    /// <summary>
+    /// Appends <paramref name="text"/> as a quoted field, as the 4.9 helper <c>__WriteQuotedField</c> did: the same
+    /// text, <see cref="Position"/> and errors as <see cref="Write(ReadOnlySpan{char})"/> followed by
+    /// <see cref="Quote"/> from the <see cref="Position"/> before the call, but the text is tested in
+    /// <paramref name="text"/> and copied once (freeze Revision 1). The writer does not keep <paramref name="text"/>,
+    /// which must not be part of the writer's own storage.
+    /// </summary>
+    /// <param name="text">The field value.</param>
+    /// <param name="quote">The quote char.</param>
+    /// <param name="always">Quote every value.</param>
+    /// <param name="multilineWrite">A value with a line break may be written (quoted).</param>
+    /// <param name="separator">The delimiter after the field; a value that holds it is quoted.</param>
+    /// <param name="field">The field name, for the exception text.</param>
+    /// <exception cref="BadUsageException">The value holds a line break and <paramref name="multilineWrite"/> is
+    /// <see langword="false"/> (the 4.9 text).</exception>
+    /// <exception cref="InvalidOperationException">The writer is <c>default</c>.</exception>
+    public void WriteQuoted(scoped ReadOnlySpan<char> text, char quote, bool always, bool multilineWrite, string separator, string field)
+    {
+        ThrowIfDefault();
+        if (!MustQuote(text, quote, always, multilineWrite, separator, field, out int quotes))
+        {
+            Write(text);
+            return;
+        }
+
+        int total = text.Length + quotes + 2;
+        if (total > _span.Length - _position)
+            GrowFree(total);
+
+        // Source and destination do not overlap: one copy without a quote char, otherwise forward copies of the blocks
+        // up to and including each quote char, which is then written once more.
+        Span<char> target = _span.Slice(_position, total);
+        target[0] = quote;
+        if (quotes == 0)
+        {
+            text.CopyTo(target[1..]);
+        }
+        else
+        {
+            int to = 1;
+            ReadOnlySpan<char> rest = text;
+            int at;
+            while ((at = rest.IndexOf(quote)) >= 0)
+            {
+                rest[..(at + 1)].CopyTo(target[to..]);
+                to += at + 1;
+                target[to++] = quote;
+                rest = rest[(at + 1)..];
+            }
+
+            rest.CopyTo(target[to..]);
+        }
+
+        target[^1] = quote;
+        _position += total;
+    }
+
+    /// <summary>
+    /// The quoting rule of 4.9's <c>__WriteQuotedField</c>, shared by <see cref="Quote"/> and <see cref="WriteQuoted"/>:
+    /// a line break without <paramref name="multilineWrite"/> throws; otherwise the value is quoted when
+    /// <paramref name="always"/> is set, it holds a line break or it holds <paramref name="separator"/>.
+    /// <paramref name="quotes"/> is the number of quote chars in a value that is quoted. One scan finds the first quote
+    /// char or line break, so a value with neither is not scanned again (G2).
+    /// </summary>
+    private static bool MustQuote(ReadOnlySpan<char> text, char quote, bool always, bool multilineWrite, string separator, string field, out int quotes)
+    {
+        quotes = 0;
+        int first = text.IndexOfAny(quote, '\r', '\n');
+        bool newLine = first >= 0 && text[first..].IndexOfAny('\r', '\n') >= 0;
+        if (newLine && !multilineWrite)
+        {
+            throw new BadUsageException("One value for the field " + field + " has a new line inside. "
+                + "To allow this value to be written you must add a FieldQuoted attribute with the multiline option set.");
+        }
+
+        if (!always && !newLine && text.IndexOf(separator, StringComparison.Ordinal) < 0)
+            return false;
+
+        if (first >= 0)
+            quotes = text[first..].Count(quote);
+        return true;
     }
 
     /// <summary>

@@ -393,8 +393,10 @@ public class DelimitedParseBenchmarks
     }
 
     /// <summary>
-    /// <see cref="FileHelpers_ParseAndDiscard"/> with <c>DisableTokenizedParse</c> set (its setup): on 4.10 the scan
-    /// path that T20 moved to a generic recorder, without the tokenized parse.
+    /// <see cref="FileHelpers_ParseAndDiscard"/> with <c>DisableTokenizedParse</c> set (its setup): on 4.10 the
+    /// 4.9-shaped read (field count, then the generated <c>Parse</c>), without the tokenized parse. The name
+    /// <c>_ScanOnly</c> is that of the <c>QuotedFields</c> twin, where the switch leaves the quote scan; it is kept so
+    /// that both twins carry one name in the result files, though this record has no quoted field.
     /// </summary>
     [Benchmark]
     public long FileHelpers_ParseAndDiscard_ScanOnly()

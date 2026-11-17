@@ -157,7 +157,9 @@ methods measure parsing on its own; they are the primary metric of the 4.10 read
 `QuotedFields` also has `FileHelpers_ParseAndDiscard_ScanOnly` (T21): the same read, with the AppContext switch
 `ModernLibs.FileHelpers.DisableTokenizedParse` set in its setup before the first engine, so a 4.10 build reads
 through the scan path without the tokenized parse (the setup checks that). The library reads its switches once per
-process: run this method in a process of its own, as `ab.py` does.
+process: run this method in a process of its own, as `ab.py` does. `DelimitedParse` has the same twin (R2G) for the
+25-column record: with the switch set, a 4.10 build reads it through the 4.9-shaped path (field count, then the
+generated `Parse`).
 
 ### Competitor libraries added in 4.10 (T11)
 

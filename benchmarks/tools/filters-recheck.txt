@@ -25,10 +25,11 @@ async      v410-net10,v410-net11,ra,base-net10,base-net11       *OptimizedParseB
 # one file only). Here: the pairs it lacks, net11 and the base commit.
 exception  v410-net11,base-net10,base-net11                     *EngineAsyncBenchmarks.Engine_ReadAsync_Path_ExceptionEvery100
 
-# Legacy (non-tokenized) multi-record read path: the MultiRecordEngine sync read and the MultiRecordAsyncEngine read,
+# Multi-record read path: the MultiRecordEngine sync read and the MultiRecordAsyncEngine read,
 # plain and with a cancellation token (ReadAsync_MultiRecord, ReadSync_MultiRecord,
 # ReadAsync_MultiRecord_WithCancellation, interleaved in one run per pair). These are the only multi-record and
-# master-detail read benchmarks of the repo.
+# master-detail read benchmarks of the repo. (Both readers tokenize: MultiRecordReader and MasterDetailReader create
+# token buffers, so this line does not measure the legacy path; the read25 line below does.)
 async      v410-net10,v410-net11,ra,base-net10,base-net11       *AsyncStreamingBenchmarks*
 
 # SDK and compiler effect on the multi-record write (T19 did not run it): the 4.9.1 package against the control build
@@ -36,9 +37,10 @@ async      v410-net10,v410-net11,ra,base-net10,base-net11       *AsyncStreamingB
 write      sdk-net10,sdk-net11                                  *MultiRecordWriteBenchmarks.WriteStream_Null
 
 # Legacy-path 25-column read (R2G; D1b review M4, D1 review I1): the PackageAssets parse-and-discard with the AppContext
-# switch DisableTokenizedParse set in its setup, so the 4.10 build reads with the tokenized parse off (the path of
-# multi-record, master-detail, BeforeReadRecord/INotifyRead and DisableTokenizedParse). A slowdown against base-net10 or
-# base-net11 is a T20/T21 finding on that path. The base pairs run: round.sh builds the base side with this checkout's
+# switch DisableTokenizedParse set in its setup, so the 4.10 build reads with the tokenized parse off: the 4.9-shaped
+# path, which a record type without a tokenized descriptor and DisableTokenizedParse take. The base pairs show the
+# change on this path since 96df9b2: T20 and T21 (RecordReadCore), and D1b item 1 (CreateString inlined into the
+# generated Parse), which is expected as a gain. The base pairs run: round.sh builds the base side with this checkout's
 # benchmark sources against the base library (FILEHELPERS_BASELINE), so the method exists on both sides. The 4.9.1
 # builds have no such switch (their side reads as FileHelpers_ParseAndDiscard does). No ra pair: a synchronous read,
 # runtime async does not change it (as the quoted ScanOnly line in filters-simd.txt). No aot line: the AOT harness

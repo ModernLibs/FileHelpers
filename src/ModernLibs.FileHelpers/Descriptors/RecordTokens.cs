@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using ModernLibs.FileHelpers.Parsing;
 
 namespace ModernLibs.FileHelpers;
@@ -55,17 +56,36 @@ public readonly ref struct RecordTokens
     /// </summary>
     /// <param name="index">The field index.</param>
     /// <returns>The field value.</returns>
+    /// <remarks>
+    /// An unquoted value is sliced inline (D1): generated code calls this method once per field, and as a call (IL
+    /// above the JIT's inline limit) the span came back in RAX:RDX on x64 Unix through a stack temporary written with
+    /// a 4-byte length store and read back with an 8-byte load. That reload cannot take the value from the store
+    /// (failed store-to-load forwarding); on AMD Zen 4 it cost about 30 % of the 25-column read. Quoted values take
+    /// <see cref="QuotedValue"/>.
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public ReadOnlySpan<char> GetValue(int index)
+    {
+        if ((uint)index < (uint)_ends.Length && _ends[index] is var entry && entry >= 0)
+        {
+            int start = index == 0 ? 0 : (_ends[index - 1] & TokenBuffer.EndMask) + _delimiterLength;
+            return _record.Slice(start, entry - start);
+        }
+
+        return QuotedValue(index);
+    }
+
+    /// <summary>
+    /// <see cref="GetValue"/> for the cases it does not slice inline: a quoted value (its entry is negative), or an
+    /// empty span for an index outside <c>[0, Count)</c>.
+    /// </summary>
+    private ReadOnlySpan<char> QuotedValue(int index)
     {
         if ((uint)index >= (uint)_ends.Length)
             return default;
 
         int entry = _ends[index];
-        var raw = Raw(index, entry);
-        if (entry >= 0)
-            return raw;
-
-        var inner = Inner(raw);
+        var inner = Inner(Raw(index, entry));
         if ((entry & TokenBuffer.DoubledBit) == 0)
             return inner;
 

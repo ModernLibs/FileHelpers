@@ -1418,8 +1418,21 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     /// terminator (nothing when an event skips the record). Each record is record number 1, as it was when the
     /// multi-record engine wrote every record with its own <c>WriteString</c> call.
     /// </summary>
-    internal void WriteMultiRecordText(TextWriter writer, T record, RentedBufferWriter buffer) =>
-        WriteRecordText(writer, record, recordNumber: 1, buffer);
+    /// <remarks>
+    /// The body of <see cref="WriteRecordText"/>, not a call to it: that method is NoInlining to keep it out of this
+    /// engine's write loops, which made it one more call per record here (Ruling P7, D2). This method is not called
+    /// from a loop of this engine but once per record through <see cref="IMultiRecordTypeWriter"/>.
+    /// </remarks>
+    internal void WriteMultiRecordText(TextWriter writer, T record, RentedBufferWriter buffer)
+    {
+        if (!FormatRecord(record, recordNumber: 1, buffer, out string? eventLine))
+            return;
+
+        if (eventLine is not null)
+            writer.Write(eventLine);
+        else
+            writer.Write(buffer.WrittenSpan);
+    }
 
     /// <summary>
     /// Raises the write events and writes the formatted <paramref name="record"/> without its terminator;

@@ -217,8 +217,8 @@ public sealed class RecordWriterTests
 
     /// <summary>
     /// Freeze Revision 1: <see cref="RecordWriter.WriteQuoted"/> on long text (blocks between quote chars, runs of
-    /// quote chars, quote chars at either end, a separator only) and on empty text, with growth from three first
-    /// buffer sizes.
+    /// quote chars, quote chars at either end, a separator only), on text of 64 and 65 chars around the end of the
+    /// scalar loop, and on empty text, with growth from three first buffer sizes.
     /// </summary>
     [Test]
     public async Task WriteQuoted_Equals_The_4_9_Helper_On_Long_And_Empty_Text()
@@ -228,6 +228,9 @@ public sealed class RecordWriterTests
         [
             string.Empty, run, "\"" + run, run + "\"", "\"\"\"" + run + "\"\"" + run, run + "\"" + run + "\"" + run,
             new string('"', 200), run + "," + run, new string('q', 5000) + ",", "a\r\n" + run,
+
+            // Around the end of the scalar loop (64 chars).
+            new string('q', 63) + "\"", "\"" + new string('q', 63), "\"" + new string('q', 64), new string('q', 64) + "\"",
         ];
 
         foreach (string text in texts)

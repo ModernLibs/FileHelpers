@@ -28,8 +28,9 @@ public ref struct RecordWriter
     private const int MinGrowth = 64;
 
     /// <summary>
-    /// Up to this length <see cref="Quote"/> moves text that holds a quote char with one scalar loop instead of the
-    /// <c>LastIndexOf</c> block copies of G3 (G2, T23 review; local smoke: faster at 16 and 64 chars).
+    /// Up to this length <see cref="Quote"/> moves, and <see cref="WriteQuoted"/> copies, text that holds a quote char
+    /// with one scalar loop instead of the block copies between quote chars (G2, T23 review; local smoke: faster at 16
+    /// and 64 chars).
     /// </summary>
     private const int ScalarQuoteLength = 64;
 
@@ -259,13 +260,25 @@ public ref struct RecordWriter
         if (total > _span.Length - _position)
             GrowFree(total);
 
-        // Source and destination do not overlap: one copy without a quote char, otherwise forward copies of the blocks
-        // up to and including each quote char, which is then written once more.
+        // Source and destination do not overlap: one copy without a quote char; with quote chars, a scalar loop for
+        // short text, otherwise forward copies of the blocks up to and including each quote char, which is then written
+        // once more (local smoke: the loop is faster at 16 and 64 chars with a quote char every 8).
         Span<char> target = _span.Slice(_position, total);
         target[0] = quote;
         if (quotes == 0)
         {
             text.CopyTo(target[1..]);
+        }
+        else if (text.Length <= ScalarQuoteLength)
+        {
+            int to = 1;
+            for (int from = 0; from < text.Length; from++)
+            {
+                char c = text[from];
+                target[to++] = c;
+                if (c == quote)
+                    target[to++] = quote;
+            }
         }
         else
         {

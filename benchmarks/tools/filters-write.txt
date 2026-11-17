@@ -15,9 +15,10 @@ write      v410-net10,v410-net11,ra,runtime-410,base-net10,base-net11 *FixedWidt
 write      v410-net10,v410-net11,ra,runtime-410,base-net10,base-net11 *FixedWidthWriteBenchmarks.WriteStream_Null
 write      v410-net10,v410-net11,ra,runtime-410,base-net10,base-net11 *MultiRecordWriteBenchmarks.WriteStream_Null
 
-# 4.10-only write API: the 4.9.1 builds have no WriteStreamAsync, so only the pairs with a 4.10 build or a base commit run
-write      ra,runtime-410,base-net10,base-net11                *EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null
-async,exception ra,runtime-410,base-net10,base-net11           *EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null_SourceThrows
+# 4.10-only write API (T43): EngineAsyncBenchmarks compiles these two benchmarks out of every FILEHELPERS_BASELINE build,
+# and the base folders are such builds, so they have no base pairs; the 4.9.1 builds have no WriteStreamAsync either
+write      ra,runtime-410                *EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null
+async,exception ra,runtime-410           *EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null_SourceThrows
 
 # Components of the write path (T23): the 4.10 build on both runtimes
 component  runtime-410                                          *Components.FormatOneRecordBenchmarks*

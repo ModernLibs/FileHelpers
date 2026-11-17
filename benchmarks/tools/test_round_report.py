@@ -533,6 +533,11 @@ class T59Tests(unittest.TestCase):
                 (("FormatRecord_Current", 1.0), ("FormatRecord_SingleSpan", 0.9), ("FormatRecord_Writer", 0.8))]
         write(os.path.join(self.vm, "runtime-410", "053-component-f.json"),
               doc("/w/bin/net10", "/w/bin/net11-ra-on", "*Components.FormatOneRecordBenchmarks*", rows))
+        self.assertIn(("QuoteBenchmarks", "Write_Only", ["Quote_Clean", "Quote_WithQuotes", "WriteQuoted_Clean",
+                                                          "WriteQuoted_WithQuotes"]), round_report.COMPONENTS)
+        self.assertIn(("FormatOneRecordBenchmarks", "FormatRecord_Current", ["FormatRecord_SingleSpan",
+                                                                              "FormatRecord_Writer"]),
+                      round_report.COMPONENTS)
         markdown = round_report.build(self.round)
         for line in ("QuoteBenchmarks.Quote_Clean against Write_Only",
                      "QuoteBenchmarks.Quote_WithQuotes against Write_Only",

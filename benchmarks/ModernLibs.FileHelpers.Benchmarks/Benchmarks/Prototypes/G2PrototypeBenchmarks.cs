@@ -10,9 +10,11 @@ namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks.Prototypes;
 /// the same engine (<see cref="G2_SingleSpan"/>).
 /// </summary>
 /// <remarks>
-/// The two benchmark bodies are the same call; only the engine's descriptor differs (see <see cref="PrototypeEngine"/>),
-/// so the engine's write pipeline (header, the rented record buffer, the newline, <c>PooledStringWriter</c>, the result
-/// string) is measured in both. Each setup loads the records with a separate engine through the callback read (no
+/// The two benchmark bodies are the same call; only the engine's descriptor differs (see <see cref="PrototypeEngine"/>).
+/// Since T22 and T23 the generated descriptor has a record writer, so <see cref="G2_Current"/> in a 4.10 build writes
+/// through the record-writer path (chunks of <c>PooledStringWriter</c>) and <see cref="G2_SingleSpan"/> through the
+/// 4.9-style <c>Format</c> into the rented record buffer and a copy. A rerun therefore compares the shipped write path
+/// with the prototype, not the 4.9 <c>Format</c> with the prototype as the G2 gate of design 3.2 did. Each setup loads the records with a separate engine through the callback read (no
 /// pooled record buffer stays in the process), copies the header it read, writes once and compares the text with the
 /// file line by line (<see cref="DataCheck.WrittenPackageAssets"/>); the prototype's setup also checks that the
 /// prototype formatted every record (<see cref="PackageAssetSpanFormat.FormatCalls"/>). <c>--check-prototypes</c>

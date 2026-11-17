@@ -28,11 +28,18 @@ public ref struct RecordWriter
     private const int MinGrowth = 64;
 
     /// <summary>
-    /// Up to this length <see cref="Quote"/> moves the text with a scalar loop: the source and the destination of the
-    /// move overlap, and an overlapping <c>CopyTo</c> leaves the managed copy for the native <c>memmove</c>, a fixed cost
-    /// a short field does not earn back (G2, T23 review).
+    /// Up to this length <see cref="Quote"/> moves text that holds a quote char with one scalar loop instead of the
+    /// <c>LastIndexOf</c> block copies of G3 (G2, T23 review; local smoke: faster at 16 and 64 chars).
     /// </summary>
     private const int ScalarQuoteLength = 64;
+
+    /// <summary>
+    /// Up to this length <see cref="Quote"/> shifts text without a quote char with a scalar loop: the source and the
+    /// destination overlap, and an overlapping <c>CopyTo</c> leaves the managed copy for the native <c>memmove</c>, a
+    /// fixed cost a short field does not earn back (G2, T23 review; local smoke: the loop is faster at 16 chars and
+    /// slower at 64).
+    /// </summary>
+    private const int ScalarShiftLength = 16;
 
     private readonly RecordWriteBuffer? _buffer;
 
@@ -187,11 +194,11 @@ public ref struct RecordWriter
             GrowFree(added);
 
         // The quoted text is longer, so the text moves right in place, from the end. Short text: one scalar loop that
-        // writes each quote char twice. Longer text: without a quote char it shifts by one; otherwise the blocks between
+        // writes each quote char twice (the limit depends on whether the text holds a quote char). Longer text: without a quote char it shifts by one; otherwise the blocks between
         // quote chars are copied, each quote char written twice (G3). Every destination lies right of the text not yet
         // moved; CopyTo handles the overlap of a block with its own destination.
         Span<char> target = _span.Slice(fieldStart, length + added);
-        if (length <= ScalarQuoteLength)
+        if (length <= (quotes == 0 ? ScalarShiftLength : ScalarQuoteLength))
         {
             int to = length + quotes;
             for (int from = length - 1; from >= 0; from--)

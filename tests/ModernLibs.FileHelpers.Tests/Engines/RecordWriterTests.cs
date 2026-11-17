@@ -108,8 +108,8 @@ public sealed class RecordWriterTests
 
     /// <summary>
     /// G3 (T23): the block copies of <see cref="RecordWriter.Quote"/> on long text, with quote chars at the start, at
-    /// the end, in runs and far apart, against the 4.9 helper; G2 (T23 review): texts of 63 to 65 chars around the
-    /// end of the scalar loop, with a quote char or a line break at either end.
+    /// the end, in runs and far apart, against the 4.9 helper; G2 (T23 review): texts around the ends of the scalar
+    /// loops (16 and 64 chars), with a quote char or a line break at either end.
     /// </summary>
     [Test]
     public async Task Quote_Block_Copies_Equal_The_4_9_Helper_On_Long_Text()
@@ -120,9 +120,10 @@ public sealed class RecordWriterTests
             "\"" + run, run + "\"", "\"" + run + "\"", "\"\"\"" + run + "\"\"" + run, run + "\"" + run + "\"" + run,
             new string('"', 200), "a" + new string('"', 199), run + "," + run, run,
 
-            // G2: the scalar loop ends at 64 chars, the copies start at 65.
+            // G2: the scalar loop ends at 64 chars (16 without a quote char), the copies start after it.
             new string('q', 63) + "\"", "\"" + new string('q', 63), new string('q', 64), new string('q', 65),
             "\"" + new string('q', 64), new string('q', 64) + "\"", "\r" + new string('q', 63), new string('q', 64) + "\n",
+            new string('q', 15), new string('q', 16), new string('q', 17), "\n" + new string('q', 16),
         ];
 
         foreach (string text in texts)

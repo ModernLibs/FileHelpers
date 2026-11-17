@@ -1,0 +1,36 @@
+# Filter file for benchmarks/tools/round.sh, same format as filters-step0.txt (read its header for the columns, the
+# pair names and the "not run" rule). Part 2 of the 4.10 plan (R2F). Run with --max-rows 100000 (design D10) and
+# --max-iterations 20.
+#
+# filters-recheck.txt: round 2 recheck of the T19 slower lines and the D1/D2 review gaps. Run it together with
+# filters-simd.txt and filters-write.txt (round.sh takes one filter file: concatenate the three, or run this one as a
+# separate round on the same commit), with --base-commit 96df9b255394c8365206c224db61cf3bee70b02b (the T19 round
+# commit; the base-net10 and base-net11 pairs need it). Lines already in those two files are not repeated: where a
+# glob is in one of them, this file adds only the pairs it lacks.
+#
+# T19 (round-t19/data/section-fh-{amd,intel}.md, "4.10 build against the 4.9.1 package") found these lines slower than
+# 4.9.1: DelimitedParseBenchmarks.FileHelpers_ParseAndDiscard and OptimizedParseBenchmarks.ReadFile (v410-net10 and
+# v410-net11, fh-amd; both in filters-simd.txt), QuotedWriteBenchmarks.WriteString and MultiRecordWriteBenchmarks.
+# WriteStream_Null (both in filters-write.txt; MultiRecord on both VMs), EngineAsyncBenchmarks.Engine_ReadAsync_Path and
+# ..._ExceptionEvery100 (v410-net10, fh-amd), EngineAsyncBenchmarks.Engine_ReadFileAsync_Callback and
+# OptimizedParseBenchmarks.ReadFileAsync_Callback_ProcessAndDiscard (v410-net11, fh-amd). The lines below are the ones
+# not in the other two files. The AOT and tokenizer-component "slower" rows of T19 are in filters-simd.txt.
+
+# T19 slower async lines (the 4.10 engine against 4.9.1 on both runtimes, runtime async, and the base commit)
+async      v410-net10,v410-net11,ra,base-net10,base-net11       *EngineAsyncBenchmarks.Engine_ReadAsync_Path
+async      v410-net10,v410-net11,ra,base-net10,base-net11       *EngineAsyncBenchmarks.Engine_ReadFileAsync_Callback
+async      v410-net10,v410-net11,ra,base-net10,base-net11       *OptimizedParseBenchmarks.ReadFileAsync_Callback_ProcessAndDiscard
+
+# The exception line is in filters-simd.txt with the pairs v410-net10,ra (the copy in filters-write.txt was removed:
+# one file only). Here: the pairs it lacks, net11 and the base commit.
+exception  v410-net11,base-net10,base-net11                     *EngineAsyncBenchmarks.Engine_ReadAsync_Path_ExceptionEvery100
+
+# Legacy (non-tokenized) multi-record read path: the MultiRecordEngine sync read and the MultiRecordAsyncEngine read,
+# plain and with a cancellation token (ReadAsync_MultiRecord, ReadSync_MultiRecord,
+# ReadAsync_MultiRecord_WithCancellation, interleaved in one run per pair). These are the only multi-record and
+# master-detail read benchmarks of the repo.
+async      v410-net10,v410-net11,ra,base-net10,base-net11       *AsyncStreamingBenchmarks*
+
+# SDK and compiler effect on the multi-record write (T19 did not run it): the 4.9.1 package against the control build
+# (the 4.9.1 source built with this SDK) on .NET 10 and .NET 11. Pair names: see the header of filters-step0.txt.
+write      sdk-net10,sdk-net11                                  *MultiRecordWriteBenchmarks.WriteStream_Null

@@ -1419,9 +1419,9 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     /// multi-record engine wrote every record with its own <c>WriteString</c> call.
     /// </summary>
     /// <remarks>
-    /// The body of <see cref="WriteRecordText"/>, not a call to it: that method is NoInlining to keep it out of this
-    /// engine's write loops, which made it one more call per record here (Ruling P7, D2). This method is not called
-    /// from a loop of this engine but once per record through <see cref="IMultiRecordTypeWriter"/>.
+    /// The body of <see cref="WriteRecordText"/>, not a call to it (Ruling P7, D2): that method is NoInlining, which
+    /// made it one more call per record here. The JIT can inline this body into the loop of
+    /// <c>MultiRecordEngine.WriteStream</c>; that loop is not covered by the T57 marking (D2, round 2 measures it).
     /// </remarks>
     internal void WriteMultiRecordText(TextWriter writer, T record, RentedBufferWriter buffer)
     {
@@ -1438,6 +1438,7 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     /// Raises the write events and writes the formatted <paramref name="record"/> without its terminator;
     /// <see langword="false"/> when an event skipped it.
     /// </summary>
+    // WriteMultiRecordText has a copy of this body: change both.
     // .NET 11 Tier1 inlines this into the write loop and then stops inlining the writer's Write (dotnet/runtime#137552).
     [MethodImpl(MethodImplOptions.NoInlining)]
     private bool WriteRecordText(TextWriter writer, T record, int recordNumber, RentedBufferWriter buf)

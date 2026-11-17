@@ -30,8 +30,10 @@ public static class RecordParsing
     /// </summary>
     /// <param name="value">The characters of the field.</param>
     /// <returns>A string equal to <paramref name="value"/>; short values may share one instance.</returns>
-    // Inlined into the generated Parse (one call per string field): as a call of its own it cost the 4.9-shaped read
-    // about 0.7 % on AMD Zen 4 against the direct new string of 4.9.1. new string gives string.Empty for no characters.
+    // Inlined into the generated Parse (one call per string field), but not in very large generated methods, where
+    // the JIT stops inlining (a 150-column record keeps every call). As a call of its own, the 4.9-shaped 25-column
+    // read was about 4 % slower on AMD Zen 4 (A/B); the profile attributes only part of that to the call itself.
+    // new string gives string.Empty for no characters.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static string CreateString(ReadOnlySpan<char> value) =>
         value.Length == 1 ? OneChar(value[0]) : new string(value);

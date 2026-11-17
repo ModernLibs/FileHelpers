@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using ModernLibs.FileHelpers.Parsing;
 
@@ -56,30 +57,32 @@ public readonly ref struct RecordTokens
     /// </summary>
     /// <param name="index">The field index.</param>
     /// <returns>The field value.</returns>
-    /// <remarks>
-    /// An unquoted value is sliced inline (D1): generated code calls this method once per field, and as a call (IL
-    /// above the JIT's inline limit) the span came back in RAX:RDX on x64 Unix through a stack temporary written with
-    /// a 4-byte length store and read back with an 8-byte load. That reload cannot take the value from the store
-    /// (failed store-to-load forwarding); on AMD Zen 4 it cost about 30 % of the 25-column read. Quoted values take
-    /// <see cref="QuotedValue"/>.
-    /// </remarks>
+    // An unquoted value is sliced inline: generated code calls this method once per field. As a call (its IL was above
+    // the JIT's inline limit), the span came back in RAX:RDX on x64 Unix through a stack temporary written with a
+    // 4-byte length store and read back with an 8-byte load, which cannot take the value from the store (failed
+    // store-to-load forwarding). As a call, GetValue took about 30 % of the 25-column read on AMD Zen 4, most of it on
+    // this reload. Quoted values and an index out of range take GetValueSlow.
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public ReadOnlySpan<char> GetValue(int index)
     {
         if ((uint)index < (uint)_ends.Length && _ends[index] is var entry && entry >= 0)
         {
+            // Bit 31 clear: the tokenizer sets DoubledBit only with QuotedBit and ends fit in bits 0-29, so entry is
+            // the end offset.
+            Debug.Assert((entry & TokenBuffer.DoubledBit) == 0);
             int start = index == 0 ? 0 : (_ends[index - 1] & TokenBuffer.EndMask) + _delimiterLength;
             return _record.Slice(start, entry - start);
         }
 
-        return QuotedValue(index);
+        return GetValueSlow(index);
     }
 
     /// <summary>
     /// <see cref="GetValue"/> for the cases it does not slice inline: a quoted value (its entry is negative), or an
     /// empty span for an index outside <c>[0, Count)</c>.
     /// </summary>
-    private ReadOnlySpan<char> QuotedValue(int index)
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private ReadOnlySpan<char> GetValueSlow(int index)
     {
         if ((uint)index >= (uint)_ends.Length)
             return default;

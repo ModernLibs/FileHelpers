@@ -9,10 +9,10 @@ namespace ModernLibs.FileHelpers.Benchmarks.Benchmarks.Prototypes;
 /// <remarks>
 /// The engine takes its descriptor from <see cref="FileHelperRegistry{T}"/>, which holds the generated one and cannot
 /// be replaced. A 4.10 build uses the internal constructor that takes a descriptor. A baseline build (4.9.1 package or
-/// source) has no such constructor: the helper builds a normal engine and replaces its two private read-only fields by
-/// reflection: <c>_descriptor</c> (the write path calls its <c>Format</c>) and
-/// <c>_core</c> (a <c>RecordReadCore&lt;T&gt;</c> built over the prototype; the read path calls its <c>Parse</c>).
-/// A baseline build of a 4.10 commit also has <c>_writerDescriptor</c>, which is replaced too.
+/// source) has no such constructor: the helper builds a normal engine and replaces its private read-only fields by
+/// reflection. There are two, three in a baseline build of a 4.10 commit: <c>_descriptor</c> (the write path calls
+/// its <c>Format</c>), <c>_core</c> (a <c>RecordReadCore&lt;T&gt;</c> built over the prototype; the read path calls
+/// its <c>Parse</c>) and, from 4.10 on, <c>_writerDescriptor</c>.
 /// Everything else, such as the line reader, the multiline assembler and its quote scan, the field-count check,
 /// the error handling and the <c>TextWriter</c> pipeline, stays the engine's own. Benchmark code only; when the
 /// engine's fields change, the lookup throws instead of measuring the generated descriptor.

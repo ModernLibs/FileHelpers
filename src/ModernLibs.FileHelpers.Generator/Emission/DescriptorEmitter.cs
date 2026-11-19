@@ -1369,7 +1369,7 @@ internal static class DescriptorEmitter
 
         string? after;
         if (isFixed)
-            after =$"writer.Pad(__s{i}, {FixedWidth(field)}, {field.AlignMode ?? 0}, {pad}, {Bool(field.OverflowMode == 1)}, {name});";
+            after = $"writer.Pad(__s{i}, {FixedWidth(field)}, {field.AlignMode ?? 0}, {pad}, {Bool(field.OverflowMode == 1)}, {name});";
         else if (field.IsQuoted)
             after = $"writer.Quote(__s{i}, {quoteArguments});";
         else if (field.AlignMode.HasValue && field.FixedLength > 0)

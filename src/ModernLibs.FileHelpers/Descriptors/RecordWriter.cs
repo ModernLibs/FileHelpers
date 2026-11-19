@@ -373,8 +373,9 @@ public ref struct RecordWriter
     /// Appends <paramref name="text"/> as a field of <paramref name="width"/> chars: the same text,
     /// <see cref="Position"/> and errors as <see cref="Write(ReadOnlySpan{char})"/> followed by <see cref="Pad"/> from
     /// the <see cref="Position"/> before the call, in one call that copies the text to its final place (a string
-    /// field of a fixed-length record costs one call instead of three). The writer does not keep
-    /// <paramref name="text"/>, which must not be part of the writer's own storage.
+    /// field of a fixed-length record costs one call instead of three). <see cref="Position"/> after the
+    /// <see cref="InvalidOperationException"/> for a longer value is not specified (the engine discards the record).
+    /// The writer does not keep <paramref name="text"/>, which must not be part of the writer's own storage.
     /// </summary>
     /// <param name="text">The field value.</param>
     /// <param name="width">The field width.</param>
@@ -402,6 +403,8 @@ public ref struct RecordWriter
         Span<char> target = _span.Slice(_position, width);
         int padding = width - text.Length;
         int left = align == 2 ? padding : align == 1 ? padding / 2 : 0;
+
+        // Stryker disable once all : the test is for speed only (a value of the field width skips two Fill calls); without it both fills have length 0 and the text is the same.
         if (padding != 0)
         {
             target[..left].Fill(pad);

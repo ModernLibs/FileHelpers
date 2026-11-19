@@ -403,8 +403,6 @@ public ref struct RecordWriter
         Span<char> target = _span.Slice(_position, width);
         int padding = width - text.Length;
         int left = align == 2 ? padding : align == 1 ? padding / 2 : 0;
-
-        // Stryker disable once all : the test is for speed only (a value of the field width skips two Fill calls); without it both fills have length 0 and the text is the same.
         if (padding != 0)
         {
             target[..left].Fill(pad);

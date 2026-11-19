@@ -1291,9 +1291,9 @@ internal static class DescriptorEmitter
     /// Emits <c>Format(T, ref RecordWriter)</c> (design 5.1, T22 freeze). Every field (including
     /// <c>[FieldValueDiscarded]</c>, which 3.x writes like any other field) is written straight into the writer: a
     /// string with one <c>Write</c> (one <c>WriteQuoted</c> when it is a quoted field of a delimited record), a
-    /// converted value by the converter into <c>FreeSpan</c>. A quoted converted field, a fixed-length field or an
-    /// aligned field is then quoted or padded in place from the <c>Position</c> read before it. A fixed-length record
-    /// reserves its width first.
+    /// converted value by the converter into <c>FreeSpan</c>. A string of a fixed-length or aligned field is written
+    /// with one <c>WritePadded</c>; a converted field that is quoted, fixed-length or aligned is then quoted or padded
+    /// in place from the <c>Position</c> read before it. A fixed-length record reserves its width first.
     /// </summary>
     private static void EmitFormatBody(StringBuilder sb, RecordModel model, string fqType, ConverterPlan?[] plans)
     {
@@ -1356,9 +1356,20 @@ internal static class DescriptorEmitter
             return;
         }
 
+        if (plan is null && (isFixed || (!field.IsQuoted && field.AlignMode.HasValue && field.FixedLength > 0)))
+        {
+            // A padded string field: copied to its place and padded in one call. A padded field with a converter is
+            // formatted into the writer first and padded in place below.
+            string paddedArguments = isFixed
+                ? $"{FixedWidth(field)}, {field.AlignMode ?? 0}, {pad}, {Bool(field.OverflowMode == 1)}, {name}"
+                : $"{field.FixedLength}, {field.AlignMode!.Value}, {pad}, false, {name}";
+            sb.AppendLine($"        writer.WritePadded({Memory}AsSpan({value}), {paddedArguments});");
+            return;
+        }
+
         string? after;
         if (isFixed)
-            after = $"writer.Pad(__s{i}, {FixedWidth(field)}, {field.AlignMode ?? 0}, {pad}, {Bool(field.OverflowMode == 1)}, {name});";
+            after =$"writer.Pad(__s{i}, {FixedWidth(field)}, {field.AlignMode ?? 0}, {pad}, {Bool(field.OverflowMode == 1)}, {name});";
         else if (field.IsQuoted)
             after = $"writer.Quote(__s{i}, {quoteArguments});";
         else if (field.AlignMode.HasValue && field.FixedLength > 0)

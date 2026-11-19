@@ -43,6 +43,7 @@ public sealed class RecordWriterTests
         await Assert.That(() => { var w = default(RecordWriter); w.Quote(0, '"', true, true, ",", "Name"); }).ThrowsExactly<InvalidOperationException>();
         await Assert.That(() => { var w = default(RecordWriter); w.WriteQuoted("a".AsSpan(), '"', true, true, ",", "Name"); }).ThrowsExactly<InvalidOperationException>();
         await Assert.That(() => { var w = default(RecordWriter); w.Pad(0, 5, 0, ' ', false, "Name"); }).ThrowsExactly<InvalidOperationException>();
+        await Assert.That(() => { var w = default(RecordWriter); w.WritePadded("a".AsSpan(), 5, 0, ' ', false, "Name"); }).ThrowsExactly<InvalidOperationException>();
     }
 
     [Test]
@@ -313,6 +314,74 @@ public sealed class RecordWriterTests
             w.Pad(0, 5, 2, '0', true, "Amount");
         });
         await Assert.That(overflow).IsEqualTo("throw:InvalidOperationException:Field 'Amount' exceeds fixed length 5 (actual: 7 characters).|committed:");
+    }
+
+    /// <summary>
+    /// <see cref="RecordWriter.WritePadded"/> writes what <see cref="RecordWriter.Write(ReadOnlySpan{char})"/> followed
+    /// by <see cref="RecordWriter.Pad"/> writes, and what 4.9's <c>__WritePadded</c> wrote: the same text and the same
+    /// exception, also when the field does not fit in the buffer and the writer grows.
+    /// </summary>
+    [Test]
+    public async Task WritePadded_Equals_Write_Then_Pad_And_The_4_9_Helper()
+    {
+        var failures = new List<string>();
+        int cases = 0;
+        foreach (int width in (int[])[0, 1, 5, 10, 70])
+        {
+            string[] texts = [string.Empty, "a", new string('s', Math.Max(width - 1, 0)), new string('e', width), "x" + new string('l', width + 1)];
+            foreach (string text in texts.Distinct(StringComparer.Ordinal))
+            {
+                foreach (int align in (int[])[0, 1, 2])
+                {
+                    foreach (char pad in (char[])[' ', '0'])
+                    {
+                        foreach (bool overflowError in (bool[])[false, true])
+                        {
+                            foreach (int initialSize in (int[])[1, 64, 256])
+                            {
+                                cases++;
+                                string expected = Expect("cc", "b|", () =>
+                                {
+                                    var buffer = new ArrayBufferWriter<char>();
+                                    LegacyEmittedWriteCopies.WritePadded(buffer, text, width, align, pad, overflowError, "Amount");
+                                    return buffer.WrittenSpan.ToString();
+                                });
+                                string writeThenPad = Run("cc", initialSize, (ref RecordWriter w) =>
+                                {
+                                    w.Write('b');
+                                    int start = w.Position;
+                                    w.Write(text.AsSpan());
+                                    w.Pad(start, width, align, pad, overflowError, "Amount");
+                                    w.Write('|');
+                                });
+                                string actual = Run("cc", initialSize, (ref RecordWriter w) =>
+                                {
+                                    w.Write('b');
+                                    int start = w.Position;
+                                    w.WritePadded(text.AsSpan(), width, align, pad, overflowError, "Amount");
+                                    Check(w.Position == start + width, "Position is the field start plus the width");
+                                    w.Write('|');
+                                });
+                                if (!string.Equals(expected, actual, StringComparison.Ordinal) || !string.Equals(writeThenPad, actual, StringComparison.Ordinal))
+                                    failures.Add($"width {width}, text '{text}', align {align}, pad '{pad}', overflowError {overflowError}, buffer {initialSize}: 4.9 '{expected}', Write+Pad '{writeThenPad}', WritePadded '{actual}'");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        await Assert.That(cases).IsGreaterThan(700);
+        await Assert.That(string.Join("\n", failures)).IsEqualTo(string.Empty);
+
+        string overflow = Run("kept", 16, (ref RecordWriter w) => w.WritePadded("1234567".AsSpan(), 5, 2, '0', true, "Amount"));
+        await Assert.That(overflow).IsEqualTo("throw:InvalidOperationException:Field 'Amount' exceeds fixed length 5 (actual: 7 characters).|committed:kept");
+
+        // A negative width throws as Write followed by Pad does.
+        await Assert.That(Run(string.Empty, 16, (ref RecordWriter w) => w.WritePadded("ab".AsSpan(), -1, 0, ' ', false, "Amount")))
+            .StartsWith("throw:ArgumentOutOfRangeException:");
+        await Assert.That(Run(string.Empty, 16, (ref RecordWriter w) => w.WritePadded(default, -1, 0, ' ', false, "Amount")))
+            .StartsWith("throw:ArgumentOutOfRangeException:");
     }
 
     [Test]

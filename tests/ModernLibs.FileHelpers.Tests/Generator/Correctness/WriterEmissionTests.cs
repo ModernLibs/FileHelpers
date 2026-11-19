@@ -200,8 +200,9 @@ public sealed class WriterEmissionTests
     }
 
     /// <summary>
-    /// The fixed-length record: each field pads in place from its start; <c>[FieldAlign]</c>, <c>OverflowMode.Error</c>
-    /// and the line break of <c>[FieldInNewLine]</c> keep the 4.9 arguments.
+    /// The fixed-length record: a field with a converter pads in place from its start, a string field is one
+    /// <c>WritePadded</c>; <c>[FieldAlign]</c>, <c>OverflowMode.Error</c> and the line break of
+    /// <c>[FieldInNewLine]</c> keep the 4.9 arguments.
     /// </summary>
     [Test]
     public async Task FixedLength_Fields_Pad_In_Place()
@@ -210,22 +211,25 @@ public sealed class WriterEmissionTests
 
         await Assert.That(body).Contains("        writer.Pad(__s0, 6, 2, '0', false, \"Id\");\n");
         await Assert.That(body).Contains(
-            "        int __s1 = writer.Position;\n"
-            + "        writer.Write(global::System.MemoryExtensions.AsSpan(record.Name));\n"
-            + "        writer.Pad(__s1, 10, 0, ' ', false, \"Name\");\n");
-        await Assert.That(body).Contains("        writer.Pad(__s3, 5, 0, ' ', true, \"Code\");\n");
+            "        writer.WritePadded(global::System.MemoryExtensions.AsSpan(record.Name), 10, 0, ' ', false, \"Name\");\n");
+        await Assert.That(body).Contains("        writer.Pad(__s2, 8, 0, ' ', false, \"Day\");\n");
+        await Assert.That(body).Contains(
+            "        writer.WritePadded(global::System.MemoryExtensions.AsSpan(record.Code), 5, 0, ' ', true, \"Code\");\n");
         await Assert.That(body).Contains("        writer.Pad(__s4, 7, 1, '*', false, \"Amount\");\n");
         await Assert.That(body).Contains(
             "        writer.WriteNewLine();\n"
-            + "        int __s5 = writer.Position;\n");
-        await Assert.That(Regex.Count(body, @"= writer\.Position;", RegexOptions.None, Timeout)).IsEqualTo(6);
+            + "        writer.WritePadded(global::System.MemoryExtensions.AsSpan(record.Tail), 3, 0, ' ', false, \"Tail\");\n");
+
+        // Position is read only for the three fields with a converter.
+        await Assert.That(Regex.Count(body, @"= writer\.Position;", RegexOptions.None, Timeout)).IsEqualTo(3);
+        await Assert.That(Regex.Count(body, @"writer\.WritePadded\(", RegexOptions.None, Timeout)).IsEqualTo(3);
         await Assert.That(body).Contains("writer.Grow(__Conv.__conv_field2);");
     }
 
     /// <summary>
-    /// A delimited record reads <see cref="RecordWriter.Position"/> only for an aligned field or a quoted field with a
-    /// converter; a quoted string field is one <c>WriteQuoted</c>, a plain field the converter loop or one
-    /// <c>Write</c>, and each delimiter one <c>Write</c>.
+    /// A delimited record reads <see cref="RecordWriter.Position"/> only for an aligned or quoted field with a
+    /// converter; a quoted string field is one <c>WriteQuoted</c>, an aligned string field one <c>WritePadded</c>, a
+    /// plain field the converter loop or one <c>Write</c>, and each delimiter one <c>Write</c>.
     /// </summary>
     [Test]
     public async Task Delimited_Fields_Read_Position_Only_To_Quote_Or_Pad()
@@ -254,9 +258,7 @@ public sealed class WriterEmissionTests
             + "        writer.Write(',');\n"
             + "        writer.Write(global::System.MemoryExtensions.AsSpan(record.Plain));\n"
             + "        writer.Write(\"::\");\n"
-            + "        int __s3 = writer.Position;\n"
-            + "        writer.Write(global::System.MemoryExtensions.AsSpan(record.Aligned));\n"
-            + "        writer.Pad(__s3, 4, 0, '.', false, \"Aligned\");\n"
+            + "        writer.WritePadded(global::System.MemoryExtensions.AsSpan(record.Aligned), 4, 0, '.', false, \"Aligned\");\n"
             + "        writer.Write(',');\n"
             + "        int __n4;\n"
             + "        while (!global::ModernLibs.FileHelpers.Converters.Int64Converter.Instance.TryFormat(record.Last, writer.FreeSpan, out __n4))\n"

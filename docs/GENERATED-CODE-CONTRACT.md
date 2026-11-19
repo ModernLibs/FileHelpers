@@ -180,6 +180,7 @@ public ref struct RecordWriter   // the constructor with arguments is internal
     public void Quote(int fieldStart, char quote, bool always, bool multilineWrite, string separator, string field);
     public void WriteQuoted(scoped ReadOnlySpan<char> text, char quote, bool always, bool multilineWrite, string separator, string field);
     public void Pad(int fieldStart, int width, int align, char pad, bool overflowError, string field);
+    public void WritePadded(scoped ReadOnlySpan<char> text, int width, int align, char pad, bool overflowError, string field);
 }
 
 [EditorBrowsable(EditorBrowsableState.Never)]
@@ -205,6 +206,7 @@ A converted field is written as
 | `Quote(fieldStart, ...)` | Quotes the chars from `fieldStart` to `Position` in place; result and `BadUsageException` text equal `__WriteQuotedField` and `__WriteQuoted` of 4.9. |
 | `WriteQuoted(text, ...)` | Appends `text` as a quoted field (freeze Revision 1, T23). The text written, `Position` afterwards and the errors equal `Write(text)` followed by `Quote` from the `Position` before the call: `__WriteQuotedField` of 4.9 for `text`. The text is tested in `text` and copied once. `Position` after the `BadUsageException` is not specified (the engine discards the record). Does not keep `text`, which must not be part of the writer's own storage. |
 | `Pad(fieldStart, ...)` | Pads or cuts the chars from `fieldStart` to `Position` in place; result and `InvalidOperationException` text equal `__WritePadded` of 4.9; afterwards `Position` is `fieldStart + width`. |
+| `WritePadded(text, ...)` | Appends `text` as a field of `width` chars (proposed freeze Revision 2, round 2 diagnosis). The text written, `Position` afterwards and the errors equal `Write(text)` followed by `Pad` from the `Position` before the call: `__WritePadded` of 4.9 for `text`. The text is copied once, to its final place. Does not keep `text`, which must not be part of the writer's own storage. |
 | `RecordFormatting.Format<T>` | The body of the legacy `Format(T, IBufferWriter<char>)` of a 4.10 descriptor: appends what `Format(record, ref writer)` writes. Into an engine write buffer it takes the buffer's `NewLine`; `null` for `descriptor` or `writer` throws `ArgumentNullException`. When the descriptor throws, nothing is written. |
 
 The runtime keeps the text of a record only when `Format(record, ref writer)` returns: a record whose formatting
@@ -231,10 +233,11 @@ buffer per field, `ArrayPool<char>`, or the call of `RecordFormatting.WriteField
 | `Reserve(int)`: first statement of a fixed-length record, with the sum of the field widths; `Reserve(64)` before the converter loop of a custom `ISpanConverter<T>` field | `EmitFormatBody`, `EmitConverterLoop` |
 | `Write(char)` for a one-char delimiter, `Write(ReadOnlySpan<char>)` for a longer one (a string literal) and for a `string` field (`MemoryExtensions.AsSpan(record.Name)`, empty for `null`) | `EmitDelimiterWrite`, `EmitFieldWrite` |
 | `WriteNewLine()` before a `[FieldInNewLine]` field (after its delimiter) | `EmitFormatBody` |
-| `Position`, read into `int __s{i}` before a quoted field with a converter, a fixed-length field or a `[FieldAlign]` field only | `EmitFieldWrite` |
+| `Position`, read into `int __s{i}` before a field with a converter that is quoted, fixed-length or `[FieldAlign]` only | `EmitFieldWrite` |
+| `WritePadded(ReadOnlySpan<char>, int, int, char, bool, string)` for a `string` field of a fixed-length record and for an unquoted `[FieldAlign]` `string` field of a delimited record (`MemoryExtensions.AsSpan(record.Name)`, empty for `null`), with the arguments of 4.9's `__WritePadded`; no `__s{i}` for it | `EmitFieldWrite` |
 | `WriteQuoted(ReadOnlySpan<char>, char, bool, bool, string, string)` for a quoted `string` field of a delimited record (`MemoryExtensions.AsSpan(record.Name)`, empty for `null`), with the arguments of 4.9's `__WriteQuotedField`; no `__s{i}` for it | `EmitFieldWrite` |
 | `FreeSpan`, `Grow(object)`, `Advance(int)`: the converter loop above, with the converter expression (`.Instance` of a built-in converter or the `static readonly` field of the generated holder) as receiver and as argument of `Grow`; for a `Nullable<T>` field the loop and `Advance` are inside `if (record.X is { } __nv{i}) { ... }` | `EmitConverterLoop`, `EmitFieldWrite` |
-| `Quote(int, char, bool, bool, string, string)` after a quoted field with a converter, with the arguments of 4.9's `__WriteQuotedField`; `Pad(int, int, int, char, bool, string)` after a fixed-length or `[FieldAlign]` field, with those of `__WritePadded`. Both run for a `null` value too. | `EmitFieldWrite` |
+| `Quote(int, char, bool, bool, string, string)` after a quoted field with a converter, with the arguments of 4.9's `__WriteQuotedField`; `Pad(int, int, int, char, bool, string)` after a fixed-length or `[FieldAlign]` field with a converter, with those of `__WritePadded`. Both run for a `null` value too. | `EmitFieldWrite` |
 
 The converter is called directly (`converter.TryFormat(...)`). Two exceptions keep what custom converters had in
 4.9 (T22 freeze, notes of Ruling P24):

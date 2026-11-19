@@ -369,6 +369,53 @@ public ref struct RecordWriter
         _position = end;
     }
 
+    /// <summary>
+    /// Appends <paramref name="text"/> as a field of <paramref name="width"/> chars: the same text,
+    /// <see cref="Position"/> and errors as <see cref="Write(ReadOnlySpan{char})"/> followed by <see cref="Pad"/> from
+    /// the <see cref="Position"/> before the call, in one call that copies the text to its final place (a string
+    /// field of a fixed-length record costs one call instead of three). The writer does not keep
+    /// <paramref name="text"/>, which must not be part of the writer's own storage.
+    /// </summary>
+    /// <param name="text">The field value.</param>
+    /// <param name="width">The field width.</param>
+    /// <param name="align">0 left, 1 center, 2 right.</param>
+    /// <param name="pad">The fill char.</param>
+    /// <param name="overflowError">Throw instead of cutting a longer value.</param>
+    /// <param name="field">The field name, for the exception text.</param>
+    /// <exception cref="InvalidOperationException">The value is longer than <paramref name="width"/> and
+    /// <paramref name="overflowError"/> is set (the 4.9 text), or the writer is <c>default</c>.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="width"/> is below 0.</exception>
+    public void WritePadded(scoped ReadOnlySpan<char> text, int width, int align, char pad, bool overflowError, string field)
+    {
+        ThrowIfDefault();
+        if (text.Length > width)
+        {
+            if (overflowError)
+                ThrowFieldTooLong(field, width, text.Length);
+            ArgumentOutOfRangeException.ThrowIfNegative(width);
+            text = text[..width];
+        }
+
+        if (width > _span.Length - _position)
+            GrowFree(width);
+
+        Span<char> target = _span.Slice(_position, width);
+        int padding = width - text.Length;
+        int left = align == 2 ? padding : align == 1 ? padding / 2 : 0;
+        if (padding != 0)
+        {
+            target[..left].Fill(pad);
+            target.Slice(left + text.Length, padding - left).Fill(pad);
+        }
+
+        text.CopyTo(target[left..]);
+        _position += width;
+    }
+
+    [DoesNotReturn]
+    private static void ThrowFieldTooLong(string field, int width, int length) =>
+        throw new InvalidOperationException($"Field '{field}' exceeds fixed length {width} (actual: {length} characters).");
+
     /// <summary>Makes at least <paramref name="minFree"/> chars free after <see cref="Position"/>; keeps the record.</summary>
     [MethodImpl(MethodImplOptions.NoInlining)]
     private void GrowFree(int minFree) => _span = _buffer!.GrowRecord(_position, minFree);

@@ -241,6 +241,7 @@ public sealed class WriterEmissionTests
                 [FieldQuoted(QuoteMode.OptionalForWrite)] public string Name = "";
                 [FieldDelimiter("::")] public string Plain = "";
                 [FieldFixedLength(4), FieldAlign(AlignMode.Left, '.')] public string Aligned = "";
+                [FieldFixedLength(6), FieldAlign(AlignMode.Right, '0')] public int Padded;
                 public long Last;
             }
             """;
@@ -260,10 +261,17 @@ public sealed class WriterEmissionTests
             + "        writer.Write(\"::\");\n"
             + "        writer.WritePadded(global::System.MemoryExtensions.AsSpan(record.Aligned), 4, 0, '.', false, \"Aligned\");\n"
             + "        writer.Write(',');\n"
+            + "        int __s4 = writer.Position;\n"
             + "        int __n4;\n"
-            + "        while (!global::ModernLibs.FileHelpers.Converters.Int64Converter.Instance.TryFormat(record.Last, writer.FreeSpan, out __n4))\n"
-            + "            writer.Grow(global::ModernLibs.FileHelpers.Converters.Int64Converter.Instance);\n"
+            + "        while (!global::ModernLibs.FileHelpers.Converters.Int32Converter.Instance.TryFormat(record.Padded, writer.FreeSpan, out __n4))\n"
+            + "            writer.Grow(global::ModernLibs.FileHelpers.Converters.Int32Converter.Instance);\n"
             + "        writer.Advance(__n4);\n"
+            + "        writer.Pad(__s4, 6, 2, '0', false, \"Padded\");\n"
+            + "        writer.Write(',');\n"
+            + "        int __n5;\n"
+            + "        while (!global::ModernLibs.FileHelpers.Converters.Int64Converter.Instance.TryFormat(record.Last, writer.FreeSpan, out __n5))\n"
+            + "            writer.Grow(global::ModernLibs.FileHelpers.Converters.Int64Converter.Instance);\n"
+            + "        writer.Advance(__n5);\n"
             + "    }\n");
     }
 

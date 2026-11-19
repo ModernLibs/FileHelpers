@@ -204,9 +204,11 @@ public sealed class WriteStringChunkTests
     }
 
     /// <summary>
-    /// A record that uses <see cref="RecordWriter.Quote"/>, <see cref="RecordWriter.Pad"/> and
-    /// <see cref="RecordWriter.WriteNewLine"/> with the newline <c>"|\n"</c>, after a header that leaves 0 to 80 chars
-    /// free: the chunk end falls inside the quoted field, the padded field and the line breaks, so each of them moves
+    /// A record that uses <see cref="RecordWriter.Quote"/>, <see cref="RecordWriter.Pad"/>,
+    /// <see cref="RecordWriter.WritePadded"/> (without a <c>Reserve</c> before it, as for a <c>[FieldAlign]</c> string
+    /// field of a delimited record) and <see cref="RecordWriter.WriteNewLine"/> with the newline <c>"|\n"</c>, after
+    /// a header that leaves 0 to 80 chars free: the chunk end falls inside the quoted field, the padded fields and
+    /// the line breaks, so each of them moves
     /// the record to a new chunk. The text equals the hand-built one and the T22 path through
     /// <see cref="RentedBufferWriter"/>.
     /// </summary>
@@ -223,13 +225,24 @@ public sealed class WriteStringChunkTests
             int padStart = writer.Position;
             writer.Write(record.Text.Length.ToString(CultureInfo.InvariantCulture));
             writer.Pad(padStart, 8, 2, '0', overflowError: false, "Length");
+            writer.Write(',');
+            writer.WritePadded(record.Text.AsSpan(0, Math.Min(record.Text.Length, 5)), 12, 1, '*', overflowError: false, "Tail");
             writer.WriteNewLine();
             writer.Write("end");
         });
 
+        // The centered tail: up to 5 chars of the text in 12, the smaller half of the padding on the left.
+        static string Tail(string text)
+        {
+            string head = text[..Math.Min(text.Length, 5)];
+            int left = (12 - head.Length) / 2;
+            return new string('*', left) + head + new string('*', 12 - head.Length - left);
+        }
+
         ChunkLine[] records = [.. Enumerable.Range(1, 40).Select(n => new ChunkLine { Text = Line(n, n).Text.Replace('e', '"') })];
         string body = string.Concat(records.Select(r =>
-            "\"" + r.Text.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"," + r.Text.Length.ToString("D8", CultureInfo.InvariantCulture) + newLine + "end" + newLine));
+            "\"" + r.Text.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"," + r.Text.Length.ToString("D8", CultureInfo.InvariantCulture)
+            + "," + Tail(r.Text) + newLine + "end" + newLine));
 
         for (int free = 0; free <= 80; free++)
         {

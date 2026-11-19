@@ -373,7 +373,16 @@ public sealed class RecordWriterTests
 
         await Assert.That(cases).IsGreaterThan(700);
         await Assert.That(string.Join("\n", failures)).IsEqualTo(string.Empty);
+    }
 
+    /// <summary>
+    /// The errors of <see cref="RecordWriter.WritePadded"/> and its empty value: the exceptions of
+    /// <see cref="RecordWriter.Write(ReadOnlySpan{char})"/> followed by <see cref="RecordWriter.Pad"/>, and a record
+    /// that throws leaves nothing.
+    /// </summary>
+    [Test]
+    public async Task WritePadded_Errors_And_Default_Span_Equal_Write_Then_Pad()
+    {
         string overflow = Run("kept", 16, (ref RecordWriter w) => w.WritePadded("1234567".AsSpan(), 5, 2, '0', true, "Amount"));
         await Assert.That(overflow).IsEqualTo("throw:InvalidOperationException:Field 'Amount' exceeds fixed length 5 (actual: 7 characters).|committed:kept");
 
@@ -382,6 +391,19 @@ public sealed class RecordWriterTests
             .StartsWith("throw:ArgumentOutOfRangeException:");
         await Assert.That(Run(string.Empty, 16, (ref RecordWriter w) => w.WritePadded(default, -1, 0, ' ', false, "Amount")))
             .StartsWith("throw:ArgumentOutOfRangeException:");
+
+        // With overflowError a negative width is "too long" first: the 4.9 exception, as from Write followed by Pad.
+        await Assert.That(Run("kept", 16, (ref RecordWriter w) => w.WritePadded("ab".AsSpan(), -1, 0, ' ', true, "Amount")))
+            .IsEqualTo("throw:InvalidOperationException:Field 'Amount' exceeds fixed length -1 (actual: 2 characters).|committed:kept");
+        await Assert.That(Run("kept", 16, (ref RecordWriter w) =>
+        {
+            w.Write("ab".AsSpan());
+            w.Pad(0, -1, 0, ' ', true, "Amount");
+        })).IsEqualTo("throw:InvalidOperationException:Field 'Amount' exceeds fixed length -1 (actual: 2 characters).|committed:kept");
+
+        // The default span (a null string in generated code) is an empty value: the field is all padding.
+        await Assert.That(Run(string.Empty, 1, (ref RecordWriter w) => w.WritePadded(default, 5, 2, '0', false, "Amount")))
+            .IsEqualTo("00000");
     }
 
     [Test]

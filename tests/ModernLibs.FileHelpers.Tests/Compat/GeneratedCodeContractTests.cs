@@ -169,6 +169,7 @@ public sealed class GeneratedCodeContractTests
         Method(typeof(RecordWriter), "Quote", typeof(void), typeof(int), typeof(char), typeof(bool), typeof(bool), typeof(string), typeof(string)),
         Method(typeof(RecordWriter), "WriteQuoted", typeof(void), SpanOfChar, typeof(char), typeof(bool), typeof(bool), typeof(string), typeof(string)),
         Method(typeof(RecordWriter), "Pad", typeof(void), typeof(int), typeof(int), typeof(int), typeof(char), typeof(bool), typeof(string)),
+        Method(typeof(RecordWriter), "WritePadded", typeof(void), SpanOfChar, typeof(int), typeof(int), typeof(char), typeof(bool), typeof(string)),
     ];
 
     [Test]

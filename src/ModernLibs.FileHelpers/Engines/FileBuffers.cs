@@ -17,6 +17,15 @@ internal static class FileBuffers
     /// <summary>Buffer size, in bytes for readers and in characters for writers.</summary>
     public const int Size = 16 * 1024;
 
+    /// <summary>
+    /// Bytes a <see cref="Parsing.PipelineLineReader"/> asks of its stream per read. Every read of a stream that does
+    /// not complete synchronously resumes the reader on a thread-pool thread (on Unix a file read is itself a
+    /// thread-pool work item), so each read costs a hand-off between pool workers. With <see cref="Size"/> that is
+    /// one hand-off per 16 KB of input; this size makes it one per 64 KB. The buffer is rented from the shared pool
+    /// and stays below the large object heap threshold.
+    /// </summary>
+    public const int PipeReadSize = 64 * 1024;
+
     /// <summary>The smallest buffer a <see cref="StreamReader"/> uses.</summary>
     private const int MinimumReaderSize = 128;
 

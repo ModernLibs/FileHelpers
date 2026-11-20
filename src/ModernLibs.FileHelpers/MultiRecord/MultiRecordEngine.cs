@@ -20,9 +20,16 @@ public sealed class MultiRecordEngine
 
     /// <summary>
     /// Line terminator written after each record (and inside records with <see cref="FieldInNewLineAttribute"/>
-    /// fields). Defaults to <c>"\r\n"</c> on every platform, like <see cref="FileHelperEngine{T}.NewLineForWrite"/>.
+    /// fields). Defaults to <see cref="Environment.NewLine"/>, as in FileHelpers 3.x, like
+    /// <see cref="FileHelperEngine{T}.NewLineForWrite"/>; set <c>"\r\n"</c> to keep the 4.8 to 4.9.1 output.
     /// </summary>
-    public string NewLineForWrite { get; set; } = "\r\n";
+    /// <exception cref="ArgumentException">Thrown when the value is <see langword="null"/> or empty, with the
+    /// FileHelpers 3.x message <c>NewLine string must not be null or empty</c>.</exception>
+    public string NewLineForWrite
+    {
+        get;
+        set => field = WriteFraming.CheckNewLine(value);
+    } = Environment.NewLine;
 
     /// <summary>Creates a multi-record engine over an AOT-safe closed record set.</summary>
     public MultiRecordEngine(params IMultiRecordType[] recordTypes)

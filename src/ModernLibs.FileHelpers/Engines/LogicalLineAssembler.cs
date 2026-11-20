@@ -13,7 +13,15 @@ namespace ModernLibs.FileHelpers;
 /// <param name="Known">A scan was made; <see langword="false"/> (the default) means the validation scans itself.</param>
 /// <param name="LastField">Index of the field the line ends in.</param>
 /// <param name="EndsInside">The line ends inside an open quoted value.</param>
-internal readonly record struct QuoteScan(bool Known, int LastField, bool EndsInside);
+/// <param name="TokenCount">
+/// The tokens of the text for <see cref="RecordReadCore{T}.Parse"/> (T20). 0 (also <c>default(QuoteScan)</c>, which
+/// the session uses on purpose after <c>BeforeReadRecord</c>): not tried, so <c>Parse</c> tokenizes the whole text
+/// it is given; readers that pass no scan always tokenize themselves. Above 0: the reader's
+/// <see cref="TokenBuffer"/> holds the tokens of exactly this text. -1: the buffer does not hold this text's tokens
+/// and <c>Parse</c> must not tokenize (the tokenizer refused the line, or the assembler joined several physical
+/// lines, of which it tokenized the first only); the legacy path reads it.
+/// </param>
+internal readonly record struct QuoteScan(bool Known, int LastField, bool EndsInside, int TokenCount = 0);
 
 /// <summary>Per-record-type rules the <see cref="LogicalLineAssembler"/> needs.</summary>
 internal interface ILogicalLineRules
@@ -30,12 +38,16 @@ internal interface ILogicalLineRules
     /// The line of the record it would be (0 for the first line; <see cref="FieldInNewLineAttribute"/> records
     /// have one line per group of fields).
     /// </param>
+    /// <param name="tokens">
+    /// The reader's buffer for this record type, or <see langword="null"/>. A tokenized record type with one line per
+    /// record then tokenizes <paramref name="line"/> during the same scan and sets <see cref="QuoteScan.TokenCount"/>.
+    /// </param>
     /// <param name="openField">Index of the open field.</param>
     /// <param name="scan">
     /// The scan of <paramref name="line"/> as a whole record, when the rules made one that the field count
     /// validation can reuse; otherwise <c>default</c>.
     /// </param>
-    bool OpensMultiline(ReadOnlySpan<char> line, int groupLine, out int openField, out QuoteScan scan);
+    bool OpensMultiline(ReadOnlySpan<char> line, int groupLine, TokenBuffer? tokens, out int openField, out QuoteScan scan);
 
     /// <summary>
     /// A continuation line leaves the open quoted field still open. <paramref name="openField"/> is the index
@@ -61,8 +73,16 @@ internal interface ILogicalLineRules
 /// appended verbatim, joined by their original terminator), then <see cref="FieldInNewLineAttribute"/> groups.
 /// Shared by the single-type pipeline and the multi-record / master-detail readers.
 /// </summary>
-internal sealed class LogicalLineAssembler : IDisposable
+/// <param name="tokens">
+/// The token buffer of the one record type whose rules this assembler gets (a read session), passed to every
+/// <see cref="ILogicalLineRules.OpensMultiline"/>; <see langword="null"/> for the multi-record and master-detail
+/// readers, whose buffers are per record type and whose <c>Parse</c> calls tokenize themselves.
+/// </param>
+internal sealed class LogicalLineAssembler(TokenBuffer? tokens = null) : IDisposable
 {
+    /// <summary>The scan of a record of several physical lines: the buffer holds the tokens of the first line only (T20).</summary>
+    private static readonly QuoteScan SeveralLines = new(Known: false, LastField: 0, EndsInside: false, TokenCount: -1);
+
     private PooledCharBuilder? _multiline;
     private bool _multilineActive;
     private int _multilineStart;
@@ -95,7 +115,11 @@ internal sealed class LogicalLineAssembler : IDisposable
     /// <summary>Every assembled line of the record is empty.</summary>
     public bool AllLinesEmpty { get; private set; }
 
-    /// <summary>The quote scan of the completed record when it is one physical line the rules scanned; otherwise <c>default</c>.</summary>
+    /// <summary>
+    /// The quote scan of the completed record when it is one physical line the rules scanned; a scan with
+    /// <see cref="QuoteScan.TokenCount"/> -1 when a multiline value joined several physical lines; otherwise
+    /// <c>default</c>.
+    /// </summary>
     public QuoteScan RecordScan { get; private set; }
 
     /// <summary>
@@ -126,7 +150,7 @@ internal sealed class LogicalLineAssembler : IDisposable
         }
 
         // A comment line never opens a multiline record (its quotes are not data).
-        if (active.OpensMultiline(line, _groupCount, out int openField, out var scan) && !(_groupCount == 0 && active.IsComment(line)))
+        if (active.OpensMultiline(line, _groupCount, tokens, out int openField, out var scan) && !(_groupCount == 0 && active.IsComment(line)))
         {
             _multiline ??= new PooledCharBuilder();
             _multiline.Clear();
@@ -183,7 +207,8 @@ internal sealed class LogicalLineAssembler : IDisposable
 
     private bool AddAssembledLine(ILogicalLineRules rules, ReadOnlySpan<char> line, int startLine, int endLine, out ReadOnlySpan<char> record)
     {
-        RecordScan = default;
+        // A multiline value joined several physical lines: the scan (and the tokens) covered the first one only.
+        RecordScan = startLine == endLine ? default : SeveralLines;
         int linesPerRecord = rules.LinesPerRecord;
         if (linesPerRecord <= 1)
         {

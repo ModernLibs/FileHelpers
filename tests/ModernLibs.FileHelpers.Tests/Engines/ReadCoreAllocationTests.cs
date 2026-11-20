@@ -132,7 +132,129 @@ public sealed class ReadCoreAllocationTests
 
         // Assert: the ring reuses its buffers (no per-line string)
         await Assert.That(largeBytes - smallBytes).IsLessThan(1024L);
-        await Assert.That(engine.FooterText).IsEqualTo("9999,19998");
+        await Assert.That(engine.FooterText).IsEqualTo("9999,19998" + Environment.NewLine);
         await Assert.That(sum).IsGreaterThan(0L);
+    }
+
+    // Allocation budgets (T13). Measured on the 4.9.1 read core: bytes per row, identical on net10.0 and
+    // net11.0 (runtime async did not change it), identical across three runs. Budget = measured * 1.10, rounded up.
+
+    private static string BuildFiveInts(int rows)
+    {
+        var sb = new StringBuilder();
+        for (int i = 0; i < rows; i++)
+            sb.Append(i).Append(',').Append(i + 1).Append(',').Append(i + 2).Append(',').Append(i + 3).Append(',').Append(i + 4).Append("\r\n");
+        return sb.ToString();
+    }
+
+    private static string BuildMixed(int rows)
+    {
+        var sb = new StringBuilder();
+        for (int i = 0; i < rows; i++)
+            sb.Append("alpha").Append(i).Append(',').Append(i).Append(",beta").Append(i).Append(',').Append(i * 2).Append(",gamma").Append(i).Append("\r\n");
+        return sb.ToString();
+    }
+
+    // Half the rows carry a doubled quote ("") inside the first field.
+    private static string BuildQuoted(int rows)
+    {
+        var sb = new StringBuilder();
+        for (int i = 0; i < rows; i++)
+        {
+            if (i % 2 == 0)
+                sb.Append("\"say \"\"hi\"\" ").Append(i).Append("\",\"plain ").Append(i).Append('"');
+            else
+                sb.Append("\"first ").Append(i).Append("\",\"second ").Append(i).Append('"');
+            sb.Append("\r\n");
+        }
+        return sb.ToString();
+    }
+
+    private static long MeasureStable(Action action)
+    {
+        GC.Collect();
+        action(); // warm-up (JIT, pools)
+        GC.Collect();
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        action();
+        return GC.GetAllocatedBytesForCurrentThread() - before;
+    }
+
+    /// <summary>
+    /// Heap bytes per row: (bytes for 10,000 rows - bytes for 100 rows) / 9,900. <paramref name="read"/> returns the
+    /// number of rows it read; a read that stops early would allocate less and pass, so the counts are checked.
+    /// </summary>
+    private static long BytesPerRow(Func<string, int> read, Func<int, string> build)
+    {
+        string small = build(100);
+        string large = build(10_000);
+        int smallRows = 0, largeRows = 0;
+        long smallBytes = MeasureStable(() => smallRows = read(small));
+        long largeBytes = MeasureStable(() => largeRows = read(large));
+        if (smallRows != 100 || largeRows != 10_000)
+            throw new InvalidOperationException($"Rows read: expected 100 and 10000, got {smallRows} and {largeRows}.");
+        return (largeBytes - smallBytes) / 9_900;
+    }
+
+    private static long ReadArray<T>(Func<int, string> build)
+        where T : new()
+    {
+        var engine = new FileHelperEngine<T>();
+        return BytesPerRow(s => engine.ReadString(s).Length, build);
+    }
+
+    private static long Callback<T>(Func<int, string> build)
+        where T : new()
+    {
+        var engine = new FileHelperEngine<T>();
+        return BytesPerRow(s =>
+        {
+            int count = 0;
+            engine.ReadString(s, (T _) => count++);
+            return count;
+        }, build);
+    }
+
+    private static long Streaming<T>(Func<int, string> build)
+        where T : new()
+    {
+        var engine = new FileHelperEngine<T>();
+        return BytesPerRow(s =>
+        {
+            int count = 0;
+            foreach (var _ in engine.ReadSync(s))
+                count++;
+            return count;
+        }, build);
+    }
+
+    public static IEnumerable<Func<(string Name, Func<long> BytesPerRow, long Budget)>> BudgetCases()
+    {
+        // measured 24
+        yield return () => ("5-int struct, array", () => ReadArray<RcFiveInts>(BuildFiveInts), 27L);
+        // measured 0
+        yield return () => ("5-int struct, callback", () => Callback<RcFiveInts>(BuildFiveInts), 0L);
+        // measured 0
+        yield return () => ("5-int struct, ReadSync", () => Streaming<RcFiveInts>(BuildFiveInts), 0L);
+        // measured 176
+        yield return () => ("3 strings + 2 ints, array", () => ReadArray<RcMixed>(BuildMixed), 194L);
+        // measured 168
+        yield return () => ("3 strings + 2 ints, callback", () => Callback<RcMixed>(BuildMixed), 185L);
+        // measured 168
+        yield return () => ("3 strings + 2 ints, ReadSync", () => Streaming<RcMixed>(BuildMixed), 185L);
+        // measured 135
+        yield return () => ("2 quoted strings, array", () => ReadArray<RcQuotedPair>(BuildQuoted), 149L);
+        // measured 127
+        yield return () => ("2 quoted strings, callback", () => Callback<RcQuotedPair>(BuildQuoted), 140L);
+        // measured 127
+        yield return () => ("2 quoted strings, ReadSync", () => Streaming<RcQuotedPair>(BuildQuoted), 140L);
+    }
+
+    [Test]
+    [MethodDataSource(nameof(BudgetCases))]
+    public async Task Read_Allocates_At_Most_Its_Budget_Per_Row(string name, Func<long> bytesPerRow, long budget)
+    {
+        long actual = bytesPerRow();
+        await Assert.That(actual).IsLessThanOrEqualTo(budget).Because($"{name}: {actual} bytes per row, budget {budget}");
     }
 }

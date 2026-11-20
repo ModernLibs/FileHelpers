@@ -759,6 +759,12 @@ internal static class RecordModelExtractor
                     // TrimMode int values 0=None, 1=Both, 2=Left, 3=Right.
                     data.TrimMode = tm;
                     data.TrimChars = ReadTrimChars(mAttr);
+                    data.ExplicitTrimChars = mAttr.ConstructorArguments.Length >= 2 && mAttr.ConstructorArguments[1].Kind == TypedConstantKind.Array && !mAttr.ConstructorArguments[1].IsNull;
+                    foreach (var namedArg in mAttr.NamedArguments)
+                    {
+                        if (string.Equals(namedArg.Key, "TrimGivenChars", StringComparison.Ordinal) && namedArg.Value.Value is bool given)
+                            data.TrimGivenChars = given;
+                    }
                     break;
                 case "ModernLibs.FileHelpers.FieldOptionalAttribute":
                     data.IsOptional = true;
@@ -870,6 +876,7 @@ internal static class RecordModelExtractor
             {
                 data.DirectSpanConverter = true;
                 data.ConverterTargetsUnderlying = targetsUnderlying!.Value;
+                data.ConstrainedTryFormat = NeedsConstrainedTryFormat(typeSym, targetsUnderlying.Value ? UnwrapNullable(data.Type) : data.Type, compilation);
             }
         }
         else if (firstArg.Kind == TypedConstantKind.Enum && firstArg.Value is int kindInt)
@@ -1133,6 +1140,29 @@ internal static class RecordModelExtractor
     }
 
     /// <summary>
+    /// True when the generated write code cannot call <c>TryFormat</c> on <paramref name="converterType"/> directly:
+    /// its implementation of <c>ISpanConverter&lt;T&gt;.TryFormat</c> for <paramref name="valueType"/> is explicit or
+    /// not public. Such a field calls the converter through a constrained generic helper, as 4.9 did for every field
+    /// (T22 freeze, note of Ruling P24).
+    /// </summary>
+    private static bool NeedsConstrainedTryFormat(INamedTypeSymbol converterType, ITypeSymbol valueType, Compilation compilation)
+    {
+        INamedTypeSymbol? ifaceTemplate = compilation.GetTypeByMetadataName("ModernLibs.FileHelpers.Converters.ISpanConverter`1");
+        if (ifaceTemplate is null)
+            return false;
+
+        INamedTypeSymbol iface = ifaceTemplate.Construct(valueType.WithNullableAnnotation(NullableAnnotation.NotAnnotated));
+        ISymbol? member = iface.GetMembers("TryFormat").FirstOrDefault();
+        if (member is null)
+            return false;
+
+        return converterType.FindImplementationForInterfaceMember(member) is not IMethodSymbol implementation
+            || implementation.MethodKind == MethodKind.ExplicitInterfaceImplementation
+            || implementation.DeclaredAccessibility != Accessibility.Public
+            || !string.Equals(implementation.Name, "TryFormat", StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The public constructor the generated code calls for a custom converter with
     /// <paramref name="argCount"/> string arguments: 0 = parameterless, 1 = exactly that many <c>string</c>
     /// parameters, 2 = a single <c>params string[]</c> parameter; -1 when there is none.
@@ -1337,6 +1367,8 @@ internal static class RecordModelExtractor
         public int? Order;
         public int? TrimMode;
         public string? TrimChars;
+        public bool ExplicitTrimChars;
+        public bool TrimGivenChars;
         public bool IsOptional;
         public bool IsHidden;
         public bool IsValueDiscarded;
@@ -1348,6 +1380,7 @@ internal static class RecordModelExtractor
         public string? ConverterTypeName;
         public bool DirectSpanConverter;
         public bool ConverterTargetsUnderlying;
+        public bool ConstrainedTryFormat;
         public EquatableArray<string> ConverterArgs;
         public bool IsQuoted;
         public char QuoteChar = '"';
@@ -1405,9 +1438,12 @@ internal static class RecordModelExtractor
                 UnderlyingTypeName: underlying.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                 ValueKind: ValueKind,
                 ConverterTargetsUnderlying: ConverterTargetsUnderlying,
+                ConstrainedTryFormat: ConstrainedTryFormat,
                 Assign: IsCtorBound ? FieldAssignKind.Constructor : Assign,
                 Location: Location,
-                TrimChars: TrimChars);
+                TrimChars: TrimChars,
+                ExplicitTrimChars: ExplicitTrimChars,
+                TrimGivenChars: TrimGivenChars);
         }
     }
 }

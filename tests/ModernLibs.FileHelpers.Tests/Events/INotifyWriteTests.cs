@@ -90,7 +90,7 @@ public sealed class INotifyWriteTests
     public async Task BeforeWrite_SkipThisRecord_ExcludesRecord()
     {
         // Arrange: Use fixture with skip logic for negative IDs
-        var engine = new FileHelperEngine<NotifiableWriteRecord>();
+        var engine = new FileHelperEngine<NotifiableWriteRecord> { NewLineForWrite = "\r\n" };
         var records = new[]
         {
             new NotifiableWriteRecord { Id = 1, Name = "Keep" },
@@ -113,7 +113,7 @@ public sealed class INotifyWriteTests
     public async Task AfterWrite_ModifyRecordLine_AffectsOutput()
     {
         // Arrange: Use fixture that adds comment to ID=42 records
-        var engine = new FileHelperEngine<NotifiableWriteRecord>();
+        var engine = new FileHelperEngine<NotifiableWriteRecord> { NewLineForWrite = "\r\n" };
         var records = new[]
         {
             new NotifiableWriteRecord { Id = 1, Name = "Normal" },

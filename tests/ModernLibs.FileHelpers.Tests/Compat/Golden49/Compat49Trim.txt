@@ -1,0 +1,324 @@
+#### 0 valid read
+record:Id=1|Name="ab,c"|Code="xxCODExx"|Count=3
+record:Id=2|Name="plain"|Code="y"|Count=4
+record:Id=3|Name="q"uote"|Code="x"|Count=5
+record:Id=4|Name=""|Code="xx"|Count=6
+header:<null>
+footer:<null>
+line:4
+total:4
+recycled-record:Id=1|Name="ab,c"|Code="xxCODExx"|Count=3
+recycled-record:Id=2|Name="plain"|Code="y"|Count=4
+recycled-record:Id=3|Name="q"uote"|Code="x"|Count=5
+recycled-record:Id=4|Name=""|Code="xx"|Count=6
+recycled-count:4
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:4
+recycled-total:4
+thrown-count:4
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:4
+thrown-total:4
+#### 0 valid round-trip
+written:1,"ab,c",xxCODExx,3\r\n2,"plain",y,4\r\n3,"q""uote",x,5\r\n4,"",xx,6\r\n
+header:<null>
+footer:<null>
+line:4
+total:4
+written-extra:line-break-in-quoted:1,"a\nb",c,0\r\n
+written-extra:nulls:2,"",,0\r\n
+written-extra:trim-chars:3,"xx q x", x ,0\r\n
+#### 1 short-row read
+record:Id=1|Name="ab,c"|Code="xxCODExx"|Count=3
+record:Id=1|Name="ab,c"|Code="xxCODExx"|Count=3
+record:Id=2|Name="plain"|Code="y"|Count=4
+record:Id=3|Name="q"uote"|Code="x"|Count=5
+record:Id=4|Name=""|Code="xx"|Count=6
+error:2:FileHelpersException:Line: 2. Expected 4 fields but found 2 in line: '5,"n"'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:5,"n"
+header:<null>
+footer:<null>
+line:6
+total:5
+recycled-record:Id=1|Name="ab,c"|Code="xxCODExx"|Count=3
+recycled-record:Id=1|Name="ab,c"|Code="xxCODExx"|Count=3
+recycled-record:Id=2|Name="plain"|Code="y"|Count=4
+recycled-record:Id=3|Name="q"uote"|Code="x"|Count=5
+recycled-record:Id=4|Name=""|Code="xx"|Count=6
+recycled-count:5
+recycled-error:2:FileHelpersException:Line: 2. Expected 4 fields but found 2 in line: '5,"n"'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:5,"n"
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:6
+recycled-total:5
+thrown-throw:FileHelpersException:Line: 2. Expected 4 fields but found 2 in line: '5,"n"'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 1 short-row round-trip
+written:1,"ab,c",xxCODExx,3\r\n1,"ab,c",xxCODExx,3\r\n2,"plain",y,4\r\n3,"q""uote",x,5\r\n4,"",xx,6\r\n
+error:2:FileHelpersException:Line: 2. Expected 4 fields but found 2 in line: '5,"n"'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:5,"n"
+header:<null>
+footer:<null>
+line:6
+total:5
+written-extra:line-break-in-quoted:1,"a\nb",c,0\r\n
+written-extra:nulls:2,"",,0\r\n
+written-extra:trim-chars:3,"xx q x", x ,0\r\n
+#### 2 long-row read
+record:Id=1|Name="ab,c"|Code="xxCODExx"|Count=3
+record:Id=1|Name="ab,c"|Code="xxCODExx"|Count=3
+record:Id=2|Name="plain"|Code="y"|Count=4
+record:Id=3|Name="q"uote"|Code="x"|Count=5
+record:Id=4|Name=""|Code="xx"|Count=6
+error:2:BadUsageException:Line: 2. Expected 4 fields but found 5 in line: '6,"n",c,1,9'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:6,"n",c,1,9
+header:<null>
+footer:<null>
+line:6
+total:5
+recycled-record:Id=1|Name="ab,c"|Code="xxCODExx"|Count=3
+recycled-record:Id=1|Name="ab,c"|Code="xxCODExx"|Count=3
+recycled-record:Id=2|Name="plain"|Code="y"|Count=4
+recycled-record:Id=3|Name="q"uote"|Code="x"|Count=5
+recycled-record:Id=4|Name=""|Code="xx"|Count=6
+recycled-count:5
+recycled-error:2:BadUsageException:Line: 2. Expected 4 fields but found 5 in line: '6,"n",c,1,9'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:6,"n",c,1,9
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:6
+recycled-total:5
+thrown-throw:BadUsageException:Line: 2. Expected 4 fields but found 5 in line: '6,"n",c,1,9'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 2 long-row round-trip
+written:1,"ab,c",xxCODExx,3\r\n1,"ab,c",xxCODExx,3\r\n2,"plain",y,4\r\n3,"q""uote",x,5\r\n4,"",xx,6\r\n
+error:2:BadUsageException:Line: 2. Expected 4 fields but found 5 in line: '6,"n",c,1,9'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:6,"n",c,1,9
+header:<null>
+footer:<null>
+line:6
+total:5
+written-extra:line-break-in-quoted:1,"a\nb",c,0\r\n
+written-extra:nulls:2,"",,0\r\n
+written-extra:trim-chars:3,"xx q x", x ,0\r\n
+#### 3 bad-values read
+record:Id=1|Name="ab,c"|Code="xxCODExx"|Count=3
+record:Id=1|Name="ab,c"|Code="xxCODExx"|Count=3
+record:Id=2|Name="plain"|Code="y"|Count=4
+record:Id=3|Name="q"uote"|Code="x"|Count=5
+record:Id=4|Name=""|Code="xx"|Count=6
+error:2:ConvertException:Line: 2. Column: 9. Field: Count. Error Converting 'z' to type: 'Int32'. :7,"n",c,z
+error:3:BadUsageException:Line: 3 Column: 3. The field 'Name' is quoted but the quote char " is not just before the separator (You can use [FieldTrim] to avoid this error).:8,"n" junk,c,1
+header:<null>
+footer:<null>
+line:7
+total:5
+recycled-record:Id=1|Name="ab,c"|Code="xxCODExx"|Count=3
+recycled-record:Id=1|Name="ab,c"|Code="xxCODExx"|Count=3
+recycled-record:Id=2|Name="plain"|Code="y"|Count=4
+recycled-record:Id=3|Name="q"uote"|Code="x"|Count=5
+recycled-record:Id=4|Name=""|Code="xx"|Count=6
+recycled-count:5
+recycled-error:2:ConvertException:Line: 2. Column: 9. Field: Count. Error Converting 'z' to type: 'Int32'. :7,"n",c,z
+recycled-error:3:BadUsageException:Line: 3 Column: 3. The field 'Name' is quoted but the quote char " is not just before the separator (You can use [FieldTrim] to avoid this error).:8,"n" junk,c,1
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:7
+recycled-total:5
+thrown-throw:ConvertException:Line: 2. Column: 9. Field: Count. Error Converting 'z' to type: 'Int32'. 
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 3 bad-values round-trip
+written:1,"ab,c",xxCODExx,3\r\n1,"ab,c",xxCODExx,3\r\n2,"plain",y,4\r\n3,"q""uote",x,5\r\n4,"",xx,6\r\n
+error:2:ConvertException:Line: 2. Column: 9. Field: Count. Error Converting 'z' to type: 'Int32'. :7,"n",c,z
+error:3:BadUsageException:Line: 3 Column: 3. The field 'Name' is quoted but the quote char " is not just before the separator (You can use [FieldTrim] to avoid this error).:8,"n" junk,c,1
+header:<null>
+footer:<null>
+line:7
+total:5
+written-extra:line-break-in-quoted:1,"a\nb",c,0\r\n
+written-extra:nulls:2,"",,0\r\n
+written-extra:trim-chars:3,"xx q x", x ,0\r\n
+#### 4 unclosed-quote read
+record:Id=1|Name="ab,c"|Code="xxCODExx"|Count=3
+record:Id=2|Name="plain"|Code="y"|Count=4
+record:Id=3|Name="q"uote"|Code="x"|Count=5
+record:Id=4|Name=""|Code="xx"|Count=6
+error:2:BadUsageException:Line: 2. Expected 4 fields but found 5 in line: '9,x"open,c,1\r\n1,xx "ab,c" x,xxCODExx ,3'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:9,x"open,c,1\r\n1,xx "ab,c" x,xxCODExx ,3
+header:<null>
+footer:<null>
+line:6
+total:4
+recycled-record:Id=1|Name="ab,c"|Code="xxCODExx"|Count=3
+recycled-record:Id=2|Name="plain"|Code="y"|Count=4
+recycled-record:Id=3|Name="q"uote"|Code="x"|Count=5
+recycled-record:Id=4|Name=""|Code="xx"|Count=6
+recycled-count:4
+recycled-error:2:BadUsageException:Line: 2. Expected 4 fields but found 5 in line: '9,x"open,c,1\r\n1,xx "ab,c" x,xxCODExx ,3'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:9,x"open,c,1\r\n1,xx "ab,c" x,xxCODExx ,3
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:6
+recycled-total:4
+thrown-throw:BadUsageException:Line: 2. Expected 4 fields but found 5 in line: '9,x"open,c,1\r\n1,xx "ab,c" x,xxCODExx ,3'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 4 unclosed-quote round-trip
+written:1,"ab,c",xxCODExx,3\r\n2,"plain",y,4\r\n3,"q""uote",x,5\r\n4,"",xx,6\r\n
+error:2:BadUsageException:Line: 2. Expected 4 fields but found 5 in line: '9,x"open,c,1\r\n1,xx "ab,c" x,xxCODExx ,3'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:9,x"open,c,1\r\n1,xx "ab,c" x,xxCODExx ,3
+header:<null>
+footer:<null>
+line:6
+total:4
+written-extra:line-break-in-quoted:1,"a\nb",c,0\r\n
+written-extra:nulls:2,"",,0\r\n
+written-extra:trim-chars:3,"xx q x", x ,0\r\n
+#### 5 empty-line read
+record:Id=1|Name="ab,c"|Code="xxCODExx"|Count=3
+record:Id=1|Name="ab,c"|Code="xxCODExx"|Count=3
+record:Id=2|Name="plain"|Code="y"|Count=4
+record:Id=3|Name="q"uote"|Code="x"|Count=5
+record:Id=4|Name=""|Code="xx"|Count=6
+error:2:FileHelpersException:Line: 2. Expected 4 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+header:<null>
+footer:<null>
+line:6
+total:5
+recycled-record:Id=1|Name="ab,c"|Code="xxCODExx"|Count=3
+recycled-record:Id=1|Name="ab,c"|Code="xxCODExx"|Count=3
+recycled-record:Id=2|Name="plain"|Code="y"|Count=4
+recycled-record:Id=3|Name="q"uote"|Code="x"|Count=5
+recycled-record:Id=4|Name=""|Code="xx"|Count=6
+recycled-count:5
+recycled-error:2:FileHelpersException:Line: 2. Expected 4 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:6
+recycled-total:5
+thrown-throw:FileHelpersException:Line: 2. Expected 4 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 5 empty-line round-trip
+written:1,"ab,c",xxCODExx,3\r\n1,"ab,c",xxCODExx,3\r\n2,"plain",y,4\r\n3,"q""uote",x,5\r\n4,"",xx,6\r\n
+error:2:FileHelpersException:Line: 2. Expected 4 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+header:<null>
+footer:<null>
+line:6
+total:5
+written-extra:line-break-in-quoted:1,"a\nb",c,0\r\n
+written-extra:nulls:2,"",,0\r\n
+written-extra:trim-chars:3,"xx q x", x ,0\r\n
+#### 6 empty-input read
+header:<null>
+footer:<null>
+line:0
+total:0
+recycled-count:0
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:0
+recycled-total:0
+thrown-count:0
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:0
+thrown-total:0
+#### 6 empty-input round-trip
+written:
+header:<null>
+footer:<null>
+line:0
+total:0
+written-extra:line-break-in-quoted:1,"a\nb",c,0\r\n
+written-extra:nulls:2,"",,0\r\n
+written-extra:trim-chars:3,"xx q x", x ,0\r\n
+#### 7 lf-no-final-line-end read
+record:Id=1|Name="ab,c"|Code="xxCODExx"|Count=3
+record:Id=2|Name="plain"|Code="y"|Count=4
+record:Id=3|Name="q"uote"|Code="x"|Count=5
+record:Id=4|Name=""|Code="xx"|Count=6
+header:<null>
+footer:<null>
+line:4
+total:4
+recycled-record:Id=1|Name="ab,c"|Code="xxCODExx"|Count=3
+recycled-record:Id=2|Name="plain"|Code="y"|Count=4
+recycled-record:Id=3|Name="q"uote"|Code="x"|Count=5
+recycled-record:Id=4|Name=""|Code="xx"|Count=6
+recycled-count:4
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:4
+recycled-total:4
+thrown-count:4
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:4
+thrown-total:4
+#### 7 lf-no-final-line-end round-trip
+written:1,"ab,c",xxCODExx,3\r\n2,"plain",y,4\r\n3,"q""uote",x,5\r\n4,"",xx,6\r\n
+header:<null>
+footer:<null>
+line:4
+total:4
+written-extra:line-break-in-quoted:1,"a\nb",c,0\r\n
+written-extra:nulls:2,"",,0\r\n
+written-extra:trim-chars:3,"xx q x", x ,0\r\n
+#### 8 all-together read
+record:Id=1|Name="ab,c"|Code="xxCODExx"|Count=3
+record:Id=2|Name="plain"|Code="y"|Count=4
+record:Id=3|Name="q"uote"|Code="x"|Count=5
+record:Id=4|Name=""|Code="xx"|Count=6
+error:5:FileHelpersException:Line: 5. Expected 4 fields but found 2 in line: '5,"n"'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:5,"n"
+error:6:BadUsageException:Line: 6. Expected 4 fields but found 5 in line: '6,"n",c,1,9'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:6,"n",c,1,9
+error:7:ConvertException:Line: 7. Column: 9. Field: Count. Error Converting 'z' to type: 'Int32'. :7,"n",c,z
+error:8:BadUsageException:Line: 8 Column: 3. The field 'Name' is quoted but the quote char " is not just before the separator (You can use [FieldTrim] to avoid this error).:8,"n" junk,c,1
+error:9:FileHelpersException:Line: 9. Expected 4 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+error:10:BadUsageException:Line: 10. Expected 4 fields but found 5 in line: '9,x"open,c,1\r\n1,xx "ab,c" x,xxCODExx ,3'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:9,x"open,c,1\r\n1,xx "ab,c" x,xxCODExx ,3
+header:<null>
+footer:<null>
+line:4
+total:4
+recycled-record:Id=1|Name="ab,c"|Code="xxCODExx"|Count=3
+recycled-record:Id=2|Name="plain"|Code="y"|Count=4
+recycled-record:Id=3|Name="q"uote"|Code="x"|Count=5
+recycled-record:Id=4|Name=""|Code="xx"|Count=6
+recycled-count:4
+recycled-error:5:FileHelpersException:Line: 5. Expected 4 fields but found 2 in line: '5,"n"'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:5,"n"
+recycled-error:6:BadUsageException:Line: 6. Expected 4 fields but found 5 in line: '6,"n",c,1,9'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:6,"n",c,1,9
+recycled-error:7:ConvertException:Line: 7. Column: 9. Field: Count. Error Converting 'z' to type: 'Int32'. :7,"n",c,z
+recycled-error:8:BadUsageException:Line: 8 Column: 3. The field 'Name' is quoted but the quote char " is not just before the separator (You can use [FieldTrim] to avoid this error).:8,"n" junk,c,1
+recycled-error:9:FileHelpersException:Line: 9. Expected 4 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+recycled-error:10:BadUsageException:Line: 10. Expected 4 fields but found 5 in line: '9,x"open,c,1\r\n1,xx "ab,c" x,xxCODExx ,3'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:9,x"open,c,1\r\n1,xx "ab,c" x,xxCODExx ,3
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:4
+recycled-total:4
+thrown-throw:FileHelpersException:Line: 5. Expected 4 fields but found 2 in line: '5,"n"'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:4
+thrown-total:4
+#### 8 all-together round-trip
+written:1,"ab,c",xxCODExx,3\r\n2,"plain",y,4\r\n3,"q""uote",x,5\r\n4,"",xx,6\r\n
+error:5:FileHelpersException:Line: 5. Expected 4 fields but found 2 in line: '5,"n"'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:5,"n"
+error:6:BadUsageException:Line: 6. Expected 4 fields but found 5 in line: '6,"n",c,1,9'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:6,"n",c,1,9
+error:7:ConvertException:Line: 7. Column: 9. Field: Count. Error Converting 'z' to type: 'Int32'. :7,"n",c,z
+error:8:BadUsageException:Line: 8 Column: 3. The field 'Name' is quoted but the quote char " is not just before the separator (You can use [FieldTrim] to avoid this error).:8,"n" junk,c,1
+error:9:FileHelpersException:Line: 9. Expected 4 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+error:10:BadUsageException:Line: 10. Expected 4 fields but found 5 in line: '9,x"open,c,1\r\n1,xx "ab,c" x,xxCODExx ,3'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:9,x"open,c,1\r\n1,xx "ab,c" x,xxCODExx ,3
+header:<null>
+footer:<null>
+line:4
+total:4
+written-extra:line-break-in-quoted:1,"a\nb",c,0\r\n
+written-extra:nulls:2,"",,0\r\n
+written-extra:trim-chars:3,"xx q x", x ,0\r\n

@@ -1,0 +1,227 @@
+#### 0 valid read
+record:Id=1|Name="a"|Day=2026-11-08|Ratio=0.5
+record:Id=2|Name="b"|Day=2024-02-29|Ratio=1000
+error:3:FileHelpersException:Line: 3. Expected 4 fields but found 1 in line: '   '. Check that all delimiters are present and no fields contain unescaped delimiter characters.:   
+header:<null>
+footer:<null>
+line:2
+total:2
+recycled-skipped:no ParseInto
+thrown-throw:FileHelpersException:Line: 3. Expected 4 fields but found 1 in line: '   '. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:2
+thrown-total:2
+#### 0 valid round-trip
+written:1;a;11/08/2026;0.5\r\n2;b;02/29/2024;1000\r\n
+error:3:FileHelpersException:Line: 3. Expected 4 fields but found 1 in line: '   '. Check that all delimiters are present and no fields contain unescaped delimiter characters.:   
+header:<null>
+footer:<null>
+line:2
+total:2
+written-extra:default:0;;01/01/0001;0\r\n
+written-extra:separator:1;a;b;12/31/9999;NaN\r\n
+#### 1 short-row read
+record:Id=1|Name="a"|Day=2026-11-08|Ratio=0.5
+record:Id=1|Name="a"|Day=2026-11-08|Ratio=0.5
+record:Id=2|Name="b"|Day=2024-02-29|Ratio=1000
+error:2:FileHelpersException:Line: 2. Expected 4 fields but found 2 in line: '3;c'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:3;c
+error:5:FileHelpersException:Line: 5. Expected 4 fields but found 1 in line: '   '. Check that all delimiters are present and no fields contain unescaped delimiter characters.:   
+header:<null>
+footer:<null>
+line:4
+total:3
+recycled-skipped:no ParseInto
+thrown-throw:FileHelpersException:Line: 2. Expected 4 fields but found 2 in line: '3;c'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 1 short-row round-trip
+written:1;a;11/08/2026;0.5\r\n1;a;11/08/2026;0.5\r\n2;b;02/29/2024;1000\r\n
+error:2:FileHelpersException:Line: 2. Expected 4 fields but found 2 in line: '3;c'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:3;c
+error:5:FileHelpersException:Line: 5. Expected 4 fields but found 1 in line: '   '. Check that all delimiters are present and no fields contain unescaped delimiter characters.:   
+header:<null>
+footer:<null>
+line:4
+total:3
+written-extra:default:0;;01/01/0001;0\r\n
+written-extra:separator:1;a;b;12/31/9999;NaN\r\n
+#### 2 long-row read
+record:Id=1|Name="a"|Day=2026-11-08|Ratio=0.5
+record:Id=1|Name="a"|Day=2026-11-08|Ratio=0.5
+record:Id=2|Name="b"|Day=2024-02-29|Ratio=1000
+error:2:BadUsageException:Line: 2. Expected 4 fields but found 5 in line: '4;d;01/01/2026;1;x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:4;d;01/01/2026;1;x
+error:5:FileHelpersException:Line: 5. Expected 4 fields but found 1 in line: '   '. Check that all delimiters are present and no fields contain unescaped delimiter characters.:   
+header:<null>
+footer:<null>
+line:4
+total:3
+recycled-skipped:no ParseInto
+thrown-throw:BadUsageException:Line: 2. Expected 4 fields but found 5 in line: '4;d;01/01/2026;1;x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 2 long-row round-trip
+written:1;a;11/08/2026;0.5\r\n1;a;11/08/2026;0.5\r\n2;b;02/29/2024;1000\r\n
+error:2:BadUsageException:Line: 2. Expected 4 fields but found 5 in line: '4;d;01/01/2026;1;x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:4;d;01/01/2026;1;x
+error:5:FileHelpersException:Line: 5. Expected 4 fields but found 1 in line: '   '. Check that all delimiters are present and no fields contain unescaped delimiter characters.:   
+header:<null>
+footer:<null>
+line:4
+total:3
+written-extra:default:0;;01/01/0001;0\r\n
+written-extra:separator:1;a;b;12/31/9999;NaN\r\n
+#### 3 bad-values read
+record:Id=1|Name="a"|Day=2026-11-08|Ratio=0.5
+record:Id=1|Name="a"|Day=2026-11-08|Ratio=0.5
+record:Id=2|Name="b"|Day=2024-02-29|Ratio=1000
+error:2:ConvertException:Line: 2. Column: 5. Field: Day. Error Converting '13/01/2026' to type: 'DateOnly'. :5;e;13/01/2026;1
+error:3:NullValueNotFoundException:Line: 3 Column: 16. No value found for the value type field: 'Ratio' Class: 'T'. You must use the [FieldNullValue] attribute because this is a value type and can't be null or use a Nullable Type instead of the current type.:6;f;01/01/2026;
+error:6:FileHelpersException:Line: 6. Expected 4 fields but found 1 in line: '   '. Check that all delimiters are present and no fields contain unescaped delimiter characters.:   
+header:<null>
+footer:<null>
+line:5
+total:3
+recycled-skipped:no ParseInto
+thrown-throw:ConvertException:Line: 2. Column: 5. Field: Day. Error Converting '13/01/2026' to type: 'DateOnly'. 
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 3 bad-values round-trip
+written:1;a;11/08/2026;0.5\r\n1;a;11/08/2026;0.5\r\n2;b;02/29/2024;1000\r\n
+error:2:ConvertException:Line: 2. Column: 5. Field: Day. Error Converting '13/01/2026' to type: 'DateOnly'. :5;e;13/01/2026;1
+error:3:NullValueNotFoundException:Line: 3 Column: 16. No value found for the value type field: 'Ratio' Class: 'T'. You must use the [FieldNullValue] attribute because this is a value type and can't be null or use a Nullable Type instead of the current type.:6;f;01/01/2026;
+error:6:FileHelpersException:Line: 6. Expected 4 fields but found 1 in line: '   '. Check that all delimiters are present and no fields contain unescaped delimiter characters.:   
+header:<null>
+footer:<null>
+line:5
+total:3
+written-extra:default:0;;01/01/0001;0\r\n
+written-extra:separator:1;a;b;12/31/9999;NaN\r\n
+#### 4 unclosed-quote read
+record:Id=1|Name="a"|Day=2026-11-08|Ratio=0.5
+record:Id=7|Name=""g"|Day=2026-01-01|Ratio=1
+record:Id=1|Name="a"|Day=2026-11-08|Ratio=0.5
+record:Id=2|Name="b"|Day=2024-02-29|Ratio=1000
+error:5:FileHelpersException:Line: 5. Expected 4 fields but found 1 in line: '   '. Check that all delimiters are present and no fields contain unescaped delimiter characters.:   
+header:<null>
+footer:<null>
+line:4
+total:4
+recycled-skipped:no ParseInto
+thrown-throw:FileHelpersException:Line: 5. Expected 4 fields but found 1 in line: '   '. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:4
+thrown-total:4
+#### 4 unclosed-quote round-trip
+written:1;a;11/08/2026;0.5\r\n7;"g;01/01/2026;1\r\n1;a;11/08/2026;0.5\r\n2;b;02/29/2024;1000\r\n
+error:5:FileHelpersException:Line: 5. Expected 4 fields but found 1 in line: '   '. Check that all delimiters are present and no fields contain unescaped delimiter characters.:   
+header:<null>
+footer:<null>
+line:4
+total:4
+written-extra:default:0;;01/01/0001;0\r\n
+written-extra:separator:1;a;b;12/31/9999;NaN\r\n
+#### 5 empty-line read
+record:Id=1|Name="a"|Day=2026-11-08|Ratio=0.5
+record:Id=1|Name="a"|Day=2026-11-08|Ratio=0.5
+record:Id=2|Name="b"|Day=2024-02-29|Ratio=1000
+error:5:FileHelpersException:Line: 5. Expected 4 fields but found 1 in line: '   '. Check that all delimiters are present and no fields contain unescaped delimiter characters.:   
+header:<null>
+footer:<null>
+line:4
+total:3
+recycled-skipped:no ParseInto
+thrown-throw:FileHelpersException:Line: 5. Expected 4 fields but found 1 in line: '   '. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:4
+thrown-total:3
+#### 5 empty-line round-trip
+written:1;a;11/08/2026;0.5\r\n1;a;11/08/2026;0.5\r\n2;b;02/29/2024;1000\r\n
+error:5:FileHelpersException:Line: 5. Expected 4 fields but found 1 in line: '   '. Check that all delimiters are present and no fields contain unescaped delimiter characters.:   
+header:<null>
+footer:<null>
+line:4
+total:3
+written-extra:default:0;;01/01/0001;0\r\n
+written-extra:separator:1;a;b;12/31/9999;NaN\r\n
+#### 6 empty-input read
+header:<null>
+footer:<null>
+line:0
+total:0
+recycled-skipped:no ParseInto
+thrown-count:0
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:0
+thrown-total:0
+#### 6 empty-input round-trip
+written:
+header:<null>
+footer:<null>
+line:0
+total:0
+written-extra:default:0;;01/01/0001;0\r\n
+written-extra:separator:1;a;b;12/31/9999;NaN\r\n
+#### 7 lf-no-final-line-end read
+record:Id=1|Name="a"|Day=2026-11-08|Ratio=0.5
+record:Id=2|Name="b"|Day=2024-02-29|Ratio=1000
+error:3:FileHelpersException:Line: 3. Expected 4 fields but found 1 in line: '   '. Check that all delimiters are present and no fields contain unescaped delimiter characters.:   
+header:<null>
+footer:<null>
+line:2
+total:2
+recycled-skipped:no ParseInto
+thrown-throw:FileHelpersException:Line: 3. Expected 4 fields but found 1 in line: '   '. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:2
+thrown-total:2
+#### 7 lf-no-final-line-end round-trip
+written:1;a;11/08/2026;0.5\r\n2;b;02/29/2024;1000\r\n
+error:3:FileHelpersException:Line: 3. Expected 4 fields but found 1 in line: '   '. Check that all delimiters are present and no fields contain unescaped delimiter characters.:   
+header:<null>
+footer:<null>
+line:2
+total:2
+written-extra:default:0;;01/01/0001;0\r\n
+written-extra:separator:1;a;b;12/31/9999;NaN\r\n
+#### 8 all-together read
+record:Id=1|Name="a"|Day=2026-11-08|Ratio=0.5
+record:Id=2|Name="b"|Day=2024-02-29|Ratio=1000
+record:Id=7|Name=""g"|Day=2026-01-01|Ratio=1
+record:Id=1|Name="a"|Day=2026-11-08|Ratio=0.5
+error:3:FileHelpersException:Line: 3. Expected 4 fields but found 1 in line: '   '. Check that all delimiters are present and no fields contain unescaped delimiter characters.:   
+error:4:FileHelpersException:Line: 4. Expected 4 fields but found 2 in line: '3;c'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:3;c
+error:5:BadUsageException:Line: 5. Expected 4 fields but found 5 in line: '4;d;01/01/2026;1;x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:4;d;01/01/2026;1;x
+error:6:ConvertException:Line: 6. Column: 5. Field: Day. Error Converting '13/01/2026' to type: 'DateOnly'. :5;e;13/01/2026;1
+error:7:NullValueNotFoundException:Line: 7 Column: 16. No value found for the value type field: 'Ratio' Class: 'T'. You must use the [FieldNullValue] attribute because this is a value type and can't be null or use a Nullable Type instead of the current type.:6;f;01/01/2026;
+header:<null>
+footer:<null>
+line:10
+total:4
+recycled-skipped:no ParseInto
+thrown-throw:FileHelpersException:Line: 3. Expected 4 fields but found 1 in line: '   '. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:2
+thrown-total:2
+#### 8 all-together round-trip
+written:1;a;11/08/2026;0.5\r\n2;b;02/29/2024;1000\r\n7;"g;01/01/2026;1\r\n1;a;11/08/2026;0.5\r\n
+error:3:FileHelpersException:Line: 3. Expected 4 fields but found 1 in line: '   '. Check that all delimiters are present and no fields contain unescaped delimiter characters.:   
+error:4:FileHelpersException:Line: 4. Expected 4 fields but found 2 in line: '3;c'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:3;c
+error:5:BadUsageException:Line: 5. Expected 4 fields but found 5 in line: '4;d;01/01/2026;1;x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:4;d;01/01/2026;1;x
+error:6:ConvertException:Line: 6. Column: 5. Field: Day. Error Converting '13/01/2026' to type: 'DateOnly'. :5;e;13/01/2026;1
+error:7:NullValueNotFoundException:Line: 7 Column: 16. No value found for the value type field: 'Ratio' Class: 'T'. You must use the [FieldNullValue] attribute because this is a value type and can't be null or use a Nullable Type instead of the current type.:6;f;01/01/2026;
+header:<null>
+footer:<null>
+line:10
+total:4
+written-extra:default:0;;01/01/0001;0\r\n
+written-extra:separator:1;a;b;12/31/9999;NaN\r\n

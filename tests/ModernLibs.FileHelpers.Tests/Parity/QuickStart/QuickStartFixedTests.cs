@@ -126,7 +126,7 @@ public sealed class QuickStartFixedTests
         var output = engine.WriteString(records);
 
         // Assert: Each line is exactly 33 characters (20+3+10)
-        var lines = output.Split(["\r\n"], StringSplitOptions.RemoveEmptyEntries);
+        var lines = output.Split([Environment.NewLine], StringSplitOptions.RemoveEmptyEntries);
         await Assert.That(lines.Length).IsEqualTo(3);
 
         foreach (var line in lines)
@@ -156,7 +156,7 @@ public sealed class QuickStartFixedTests
 
         // Act
         var output = engine.WriteString(records);
-        var line = output.Split(["\r\n"], StringSplitOptions.RemoveEmptyEntries)[0];
+        var line = output.Split([Environment.NewLine], StringSplitOptions.RemoveEmptyEntries)[0];
 
         // Assert: Name is left-aligned (starts at position 0)
         await Assert.That(line.Substring(0, 4)).IsEqualTo("John");
@@ -186,7 +186,7 @@ public sealed class QuickStartFixedTests
 
             // Assert: File contains exactly 33 characters per line
             var content = await File.ReadAllTextAsync(tempFile);
-            var lines = content.Split(["\r\n"], StringSplitOptions.RemoveEmptyEntries);
+            var lines = content.Split([Environment.NewLine], StringSplitOptions.RemoveEmptyEntries);
             await Assert.That(lines[0].Length).IsEqualTo(33);
         }
         finally
@@ -215,7 +215,7 @@ public sealed class QuickStartFixedTests
 
         // Assert
         var output = writer.ToString();
-        var lines = output.Split(["\r\n"], StringSplitOptions.RemoveEmptyEntries);
+        var lines = output.Split([Environment.NewLine], StringSplitOptions.RemoveEmptyEntries);
         await Assert.That(lines[0].Length).IsEqualTo(33);
     }
 

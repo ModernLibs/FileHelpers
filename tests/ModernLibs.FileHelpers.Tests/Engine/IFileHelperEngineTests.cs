@@ -92,7 +92,7 @@ public sealed class IFileHelperEngineTests
         // Assert: Properties return expected values
         await Assert.That(engine.HeaderText).IsEqualTo("header");
         await Assert.That(engine.Encoding).IsEqualTo(Encoding.UTF8);
-        await Assert.That(engine.NewLineForWrite).IsEqualTo("\r\n");
+        await Assert.That(engine.NewLineForWrite).IsEqualTo(Environment.NewLine);
         await Assert.That(engine.ErrorManager).IsNotNull();
     }
 

@@ -51,11 +51,10 @@ public sealed class FixedWidthStructAllocationTests
         // Warm-up: JIT the generated Parse before measuring.
         _ = descriptor.Parse(golden.AsSpan());
 
-        long before = GC.GetAllocatedBytesForCurrentThread();
-        _ = descriptor.Parse(golden.AsSpan());
-        long after = GC.GetAllocatedBytesForCurrentThread();
+        // Smallest of several windows: one noisy window (allocation-context refill, parallel GC) cannot fail it.
+        long allocated = AllocationProbe.MinAllocated(() => _ = descriptor.Parse(golden.AsSpan()));
 
-        await Assert.That(after - before).IsLessThanOrEqualTo(64L);
+        await Assert.That(allocated).IsLessThanOrEqualTo(64L);
 
         var parsed = descriptor.Parse(golden.AsSpan());
         await Assert.That(parsed.Quantity).IsEqualTo(12);

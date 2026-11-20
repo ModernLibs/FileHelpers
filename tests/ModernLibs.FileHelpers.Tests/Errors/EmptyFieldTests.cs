@@ -136,6 +136,6 @@ public sealed class EmptyFieldTests
         // Assert: T? gets null, the non-nullable int raises NullValueNotFoundException
         await Assert.That(generated).Contains("int? __v0;");
         await Assert.That(generated).Contains("__v0 = null;");
-        await Assert.That(generated).Contains("throw __NullValueNotFound(lines, __f1, \"Total\");");
+        await Assert.That(generated).Contains("throw global::ModernLibs.FileHelpers.RecordParsing.NullValueNotFound(lines, __f1, \"Total\", \"NullableRec\");");
     }
 }

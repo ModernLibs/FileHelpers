@@ -17,12 +17,28 @@ internal static class FileBuffers
     /// <summary>Buffer size, in bytes for readers and in characters for writers.</summary>
     public const int Size = 16 * 1024;
 
+    /// <summary>
+    /// Bytes a <see cref="Parsing.PipelineLineReader"/> asks of its stream per read. Every read of a stream that does
+    /// not complete synchronously resumes the reader on a thread-pool thread (on Unix a file read is itself a
+    /// thread-pool work item), so each read costs a hand-off between pool workers. With <see cref="Size"/> that is
+    /// one hand-off per 16 KB of input; this size makes it one per 64 KB. The buffer is rented from the shared pool
+    /// and stays below the large object heap threshold.
+    /// </summary>
+    public const int PipeReadSize = 64 * 1024;
+
     /// <summary>The smallest buffer a <see cref="StreamReader"/> uses.</summary>
     private const int MinimumReaderSize = 128;
 
     /// <summary>A reader over <paramref name="filePath"/>; a byte order mark wins over <paramref name="encoding"/>.</summary>
     public static StreamReader OpenReader(string filePath, Encoding encoding) =>
         OpenReader(filePath, encoding, FileOptions.SequentialScan);
+
+    /// <summary>
+    /// A reader over the caller's <paramref name="stream"/>, from its current position; a byte order mark wins
+    /// over <paramref name="encoding"/>. Disposing the reader leaves the stream open.
+    /// </summary>
+    public static StreamReader OpenReader(Stream stream, Encoding encoding) =>
+        new(stream, encoding, detectEncodingFromByteOrderMarks: true, bufferSize: Size, leaveOpen: true);
 
     /// <summary>
     /// A reader over <paramref name="filePath"/> opened for asynchronous I/O where the platform supports it (on

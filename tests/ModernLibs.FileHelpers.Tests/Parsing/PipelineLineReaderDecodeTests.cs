@@ -38,20 +38,25 @@ public sealed class PipelineLineReaderDecodeTests
     }
 
     [Test]
-    [DisplayName("P1: 3000-line CRLF input larger than the pipe buffer yields exactly 3000 lines and no empty lines")]
+    [DisplayName("P1: multi-read CRLF input yields exactly the appended lines and no empty lines")]
     public async Task CrLf_AcrossBufferBoundaries_NoExtraLines()
     {
-        // Arrange: 3000 CRLF lines (~40 KB) so many CRs land at the end of a 4 KB pipe segment
+        // Arrange: CRLF lines until the content exceeds 3 * FileBuffers.PipeReadSize bytes (ASCII, so chars == bytes),
+        // so at least three pipe read boundaries fall inside it and CRs land at segment ends
         var sb = new StringBuilder();
-        for (int i = 0; i < 3000; i++)
-            sb.Append(i).Append(",name").Append(i).Append("\r\n");
+        var lineCount = 0;
+        while (sb.Length <= 3 * FileBuffers.PipeReadSize)
+        {
+            sb.Append(lineCount).Append(",name").Append(lineCount).Append("\r\n");
+            lineCount++;
+        }
         var content = sb.ToString();
 
         // Act: read through the pipeline reader
         var lines = await ReadAll(Encoding.UTF8.GetBytes(content), Encoding.UTF8);
 
         // Assert: identical to the synchronous splitter
-        await Assert.That(lines.Count).IsEqualTo(3000);
+        await Assert.That(lines.Count).IsEqualTo(lineCount);
         await Assert.That(lines.Any(l => l.Length == 0)).IsFalse();
         await Assert.That(Join(lines)).IsEqualTo(Join(SpanLines(content)));
     }
@@ -60,8 +65,9 @@ public sealed class PipelineLineReaderDecodeTests
     [DisplayName("P1: CR as the very last byte of a pipe segment followed by LF is one terminator")]
     public async Task Cr_AtExactSegmentEnd_JoinedWithFollowingLf()
     {
-        // Arrange: first line fills 4095 bytes so its CR is byte 4096 and LF starts the next segment
-        var first = new string('a', 4095);
+        // Arrange: first line fills PipeReadSize - 1 bytes so its CR is the last byte of the first pipe read
+        // (FileBuffers.PipeReadSize bytes) and LF starts the next segment
+        var first = new string('a', FileBuffers.PipeReadSize - 1);
         var content = first + "\r\nsecond\r\nthird";
 
         // Act: read lines
@@ -126,8 +132,9 @@ public sealed class PipelineLineReaderDecodeTests
     [DisplayName("P3: multi-byte UTF-8 character split across a pipe segment boundary decodes correctly")]
     public async Task Utf8MultiByte_SplitAcrossSegments_Decodes()
     {
-        // Arrange: 4095 ASCII bytes then a 2-byte 'é' straddling the 4096-byte segment boundary
-        var content = new string('a', 4095) + "é,end\nnext";
+        // Arrange: PipeReadSize - 1 ASCII bytes then a 2-byte 'é' straddling the end of the first pipe read
+        // (FileBuffers.PipeReadSize bytes)
+        var content = new string('a', FileBuffers.PipeReadSize - 1) + "é,end\nnext";
 
         // Act: read lines
         var lines = await ReadAll(Encoding.UTF8.GetBytes(content), Encoding.UTF8);

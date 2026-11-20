@@ -26,7 +26,7 @@ public sealed class EngineWriteTests
     public async Task WriteString_DelimitedRecord_FormatsCorrectly()
     {
         // Arrange: Create engine and single CsvOrder record with OrderId=1, CustomerName=Alice, Amount=100.50
-        var engine = new FileHelperEngine<CsvOrder>();
+        var engine = new FileHelperEngine<CsvOrder> { NewLineForWrite = "\r\n" };
         var records = new[]
         {
             new CsvOrder { OrderId = 1, CustomerName = "Alice", Amount = 100.50m },
@@ -48,6 +48,7 @@ public sealed class EngineWriteTests
         // Arrange: Create engine with HeaderText set, and single CsvOrder record
         var engine = new FileHelperEngine<CsvOrder>
         {
+            NewLineForWrite = "\r\n",
             HeaderText = "Id,Name,Amount",
         };
         var records = new[]
@@ -70,6 +71,7 @@ public sealed class EngineWriteTests
         // Arrange: Create engine with FooterText set, and single CsvOrder record
         var engine = new FileHelperEngine<CsvOrder>
         {
+            NewLineForWrite = "\r\n",
             FooterText = "END-OF-FILE",
         };
         var records = new[]
@@ -90,7 +92,7 @@ public sealed class EngineWriteTests
     public async Task WriteStream_WritesToTextWriter()
     {
         // Arrange: Create engine, two CsvOrder records, and StringWriter for output capture
-        var engine = new FileHelperEngine<CsvOrder>();
+        var engine = new FileHelperEngine<CsvOrder> { NewLineForWrite = "\r\n" };
         var records = new[]
         {
             new CsvOrder { OrderId = 1, CustomerName = "Alice", Amount = 10m },
@@ -116,7 +118,7 @@ public sealed class EngineWriteTests
         var tempPath = Path.Combine(Path.GetTempPath(), $"fh_write_{Guid.NewGuid():N}.csv");
         try
         {
-            var engine = new FileHelperEngine<CsvOrder>();
+            var engine = new FileHelperEngine<CsvOrder> { NewLineForWrite = "\r\n" };
             var records = new[]
             {
                 new CsvOrder { OrderId = 1, CustomerName = "Alice", Amount = 100m },
@@ -152,6 +154,7 @@ public sealed class EngineWriteTests
 
             var engine = new FileHelperEngine<CsvOrder>
             {
+                NewLineForWrite = "\r\n",
                 // HeaderText is set but MUST be ignored during append.
                 HeaderText = "SHOULD-NOT-APPEAR",
                 FooterText = "SHOULD-NOT-APPEAR-EITHER",
@@ -185,7 +188,7 @@ public sealed class EngineWriteTests
         {
             await File.WriteAllTextAsync(tempPath, "1,Alice,100\r\n");
 
-            var engine = new FileHelperEngine<CsvOrder>();
+            var engine = new FileHelperEngine<CsvOrder> { NewLineForWrite = "\r\n" };
             var records = new[]
             {
                 new CsvOrder { OrderId = 2, CustomerName = "Bob", Amount = 200m },
@@ -216,7 +219,7 @@ public sealed class EngineWriteTests
     public async Task WriteString_FixedLength_FormatsCorrectly()
     {
         // Arrange: Create engine for FixedEmployee and single record
-        var engine = new FileHelperEngine<FixedEmployee>();
+        var engine = new FileHelperEngine<FixedEmployee> { NewLineForWrite = "\r\n" };
         var records = new[]
         {
             new FixedEmployee { Id = 1, Name = "Alice", Salary = 1500.50m },
@@ -340,7 +343,7 @@ public sealed class EngineWriteTests
     public async Task WriteString_Decimal_PreservesScale()
     {
         // Arrange: Create engine for CsvOrder
-        var engine = new FileHelperEngine<CsvOrder>();
+        var engine = new FileHelperEngine<CsvOrder> { NewLineForWrite = "\r\n" };
 
         // Act: Format records with different decimal scales (100m vs 100.00m)
         var r1 = engine.WriteString(new[] { new CsvOrder { OrderId = 1, CustomerName = "X", Amount = 100m } });

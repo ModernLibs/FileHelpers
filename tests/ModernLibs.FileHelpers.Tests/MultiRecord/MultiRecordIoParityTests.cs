@@ -45,6 +45,7 @@ public sealed class MultiRecordIoParityTests
     {
         // Arrange: parse canonical content once to ensure a representative heterogeneous record sequence.
         var engine = MultiRecordIoFixtures.CreateEngine();
+        engine.NewLineForWrite = "\r\n"; // CanonicalOutput uses "\r\n"
         object[] records = engine.ReadString(MultiRecordIoFixtures.CanonicalInput);
         string tempFile = Path.GetTempFileName();
 
@@ -58,7 +59,7 @@ public sealed class MultiRecordIoParityTests
             engine.WriteFile(tempFile, records);
             string fromFile = await File.ReadAllTextAsync(tempFile, Encoding.UTF8);
 
-            // Assert: each path yields identical content (NewLineForWrite, "\r\n" on every platform).
+            // Assert: each path yields identical content (NewLineForWrite, set to "\r\n" above).
             await Assert.That(fromString).IsEqualTo(fromWriter);
             await Assert.That(fromString).IsEqualTo(fromFile);
             await Assert.That(fromString).IsEqualTo(MultiRecordIoFixtures.CanonicalOutput);

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Reads a built ModernLibs.FileHelpers.dll and prints which benchmark configuration it is (T08, design D6):
+    its target framework and whether it was compiled with runtime async. build-variants.sh runs it on every
+    variant it builds. It reads metadata only (System.Reflection.Metadata) and never loads the assembly, so
+    one build of this tool reads net10.0 and net11.0 libraries alike.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>verify-variant</AssemblyName>
+    <RootNamespace>ModernLibs.FileHelpers.Tools.VerifyVariant</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <RollForward>Major</RollForward>
+  </PropertyGroup>
+</Project>

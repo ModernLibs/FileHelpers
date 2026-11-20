@@ -53,7 +53,10 @@ internal sealed record FieldModel(
     string UnderlyingTypeName = "",                                     // Fully-qualified type without Nullable<T> / nullable annotation
     FieldValueKind ValueKind = FieldValueKind.Unsupported,              // Built-in conversion family of the underlying type
     bool ConverterTargetsUnderlying = false,                            // Direct ISpanConverter<T> used on a T? field
+    bool ConstrainedTryFormat = false,                                  // Direct ISpanConverter<T> whose TryFormat is explicit or not public
     FieldAssignKind Assign = FieldAssignKind.Setter,                    // How the parsed value reaches the record
     LocationInfo? Location = null,                                      // Member declaration location for diagnostics
-    string? TrimChars = null)                                           // [FieldTrim] chars (3.x default whitespace set when none given)
+    string? TrimChars = null,                                           // [FieldTrim] chars (3.x default whitespace set when none given)
+    bool ExplicitTrimChars = false,                                     // [FieldTrim] lists its characters explicitly (not the default whitespace set)
+    bool TrimGivenChars = false)                                        // [FieldTrim(TrimGivenChars = true)]: TrimChars are trimmed from the value on read
     : IEquatable<FieldModel>;

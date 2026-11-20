@@ -31,12 +31,15 @@ internal sealed class RecordReadSession<T> : IDisposable
     private readonly object _sender;
     private readonly IRecordReadHost<T>? _host;
     private readonly ErrorManager _errors;
-    private readonly string _newLine;
     private readonly int _maxRecords;
     private readonly int _lineOffset;
     private readonly bool _hasBeforeRead;
     private readonly bool _hasAfterRead;
     private readonly bool _singleLineRecords;
+
+    // The field ends of the record being parsed, when the record type is tokenized (one buffer per session: the
+    // core is shared by parallel chunks).
+    private readonly TokenBuffer? _tokens;
 
     // Physical line tracking.
     private int _physicalLines;
@@ -58,7 +61,7 @@ internal sealed class RecordReadSession<T> : IDisposable
     private StringBuilder? _footer;
 
     // Multiline assembly and FieldInNewLine grouping; lines after a failing line of a FieldInNewLine record.
-    private readonly LogicalLineAssembler _assembler = new();
+    private readonly LogicalLineAssembler _assembler;
     private readonly PendingLines _pending = new();
 
     private T _current = default!;
@@ -69,7 +72,6 @@ internal sealed class RecordReadSession<T> : IDisposable
     /// <param name="sender">Engine passed as event sender.</param>
     /// <param name="host">Engine hooks; <see langword="null"/> for headless parsing (parallel chunks, multi-record).</param>
     /// <param name="errors">Error sink honouring <see cref="ErrorManager.ErrorMode"/>.</param>
-    /// <param name="newLine">Separator used to join multi-line header/footer text.</param>
     /// <param name="maxRecords">Stop after this many records; <c>&lt;= 0</c> = no limit.</param>
     /// <param name="applyHeaderFooter"><see langword="false"/> for chunks of an input whose header/footer were already removed.</param>
     /// <param name="lineOffset">Added to physical line numbers (parallel chunks).</param>
@@ -78,7 +80,6 @@ internal sealed class RecordReadSession<T> : IDisposable
         object sender,
         IRecordReadHost<T>? host,
         ErrorManager errors,
-        string newLine,
         int maxRecords,
         bool applyHeaderFooter = true,
         int lineOffset = 0)
@@ -87,12 +88,16 @@ internal sealed class RecordReadSession<T> : IDisposable
         _sender = sender;
         _host = host;
         _errors = errors;
-        _newLine = newLine;
         _maxRecords = maxRecords;
         _lineOffset = lineOffset;
         _hasBeforeRead = host?.BeforeReadHandler is not null || RecordReadCore<T>.HasNotifyRead;
         _hasAfterRead = host?.AfterReadHandler is not null || RecordReadCore<T>.HasNotifyRead;
         _singleLineRecords = !core.Multiline && core.LinesPerRecord == 1;
+        _tokens = core.CreateTokenBuffer();
+
+        // The assembler scan of a quoted record type tokenizes each line into this buffer while it looks for an
+        // open quote (T20, R6): Parse then reads those tokens instead of tokenizing again.
+        _assembler = new LogicalLineAssembler(_tokens);
 
         if (applyHeaderFooter)
         {
@@ -239,11 +244,9 @@ internal sealed class RecordReadSession<T> : IDisposable
 
     private void AppendHeader(ReadOnlySpan<char> line)
     {
-        if (_header is null)
-            _header = new StringBuilder(line.Length + 2);
-        else
-            _header.Append(_newLine);
-        _header.Append(line);
+        // As in 3.x: every captured line is followed by Environment.NewLine, the last one included.
+        _header ??= new StringBuilder(line.Length + 2);
+        _header.Append(line).Append(Environment.NewLine);
 
         if (--_headerRemaining == 0)
             _host?.OnHeaderText(_header.ToString());
@@ -251,11 +254,8 @@ internal sealed class RecordReadSession<T> : IDisposable
 
     private void AppendFooter(ReadOnlySpan<char> line)
     {
-        if (_footer is null)
-            _footer = new StringBuilder(line.Length + 2);
-        else
-            _footer.Append(_newLine);
-        _footer.Append(line);
+        _footer ??= new StringBuilder(line.Length + 2);
+        _footer.Append(line).Append(Environment.NewLine);
     }
 
     private void PublishFooter()
@@ -272,10 +272,8 @@ internal sealed class RecordReadSession<T> : IDisposable
         var footer = new StringBuilder();
         for (int i = 0; i < _ringCount; i++)
         {
-            if (i > 0)
-                footer.Append(_newLine);
             int slot = (_ringStart + i) % _footerLines;
-            footer.Append(_ringText![slot].AsSpan(0, _ringLength![slot]));
+            footer.Append(_ringText![slot].AsSpan(0, _ringLength![slot])).Append(Environment.NewLine);
         }
 
         _host?.OnFooterText(footer.ToString());
@@ -384,13 +382,13 @@ internal sealed class RecordReadSession<T> : IDisposable
             if (recordText is null)
                 return false;
             record = recordText.AsSpan();
-            scan = default; // the handler may have replaced the text
+            scan = default; // the handler may have replaced the text: TokenCount 0, Parse tokenizes it
         }
 
         T parsed;
         try
         {
-            parsed = hasTarget ? _core.ParseInto(record, target!, AllowRecycle) : _core.Parse(record, AllowRecycle, scan);
+            parsed = hasTarget ? _core.ParseInto(record, target!, AllowRecycle, _tokens) : _core.Parse(record, AllowRecycle, scan, _tokens);
         }
         catch (Exception ex)
         {

@@ -98,7 +98,7 @@ public sealed class FieldAlignTests
     public async Task WriteString_LeftAlignment_PadsOnRight()
     {
         // Arrange: Create engine and record with 3-char value in 10-char field
-        var engine = new FileHelperEngine<LeftAlignedRecord>();
+        var engine = new FileHelperEngine<LeftAlignedRecord> { NewLineForWrite = "\r\n" };
         var records = new[] { new LeftAlignedRecord { Name = "ABC" } };
 
         // Act: Format record to fixed-length string
@@ -114,7 +114,7 @@ public sealed class FieldAlignTests
     public async Task WriteString_RightAlignment_PadsOnLeft()
     {
         // Arrange: Create engine and record with 3-char value in 10-char field
-        var engine = new FileHelperEngine<RightAlignedRecord>();
+        var engine = new FileHelperEngine<RightAlignedRecord> { NewLineForWrite = "\r\n" };
         var records = new[] { new RightAlignedRecord { Name = "ABC" } };
 
         // Act: Format record to fixed-length string
@@ -130,7 +130,7 @@ public sealed class FieldAlignTests
     public async Task WriteString_CenterAlignment_PadsBothSides()
     {
         // Arrange: Create engine and record with 3-char value in 10-char field
-        var engine = new FileHelperEngine<CenterAlignedRecord>();
+        var engine = new FileHelperEngine<CenterAlignedRecord> { NewLineForWrite = "\r\n" };
         var records = new[] { new CenterAlignedRecord { Name = "ABC" } };
 
         // Act: Format record to fixed-length string
@@ -147,7 +147,7 @@ public sealed class FieldAlignTests
     public async Task WriteString_LeftAlignment_CustomPadChar()
     {
         // Arrange: Create engine and record with custom '*' pad char
-        var engine = new FileHelperEngine<CustomPadLeftRecord>();
+        var engine = new FileHelperEngine<CustomPadLeftRecord> { NewLineForWrite = "\r\n" };
         var records = new[] { new CustomPadLeftRecord { Name = "ABC" } };
 
         // Act: Format record to fixed-length string
@@ -163,7 +163,7 @@ public sealed class FieldAlignTests
     public async Task WriteString_RightAlignment_CustomPadChar()
     {
         // Arrange: Create engine and record with custom '*' pad char
-        var engine = new FileHelperEngine<CustomPadRightRecord>();
+        var engine = new FileHelperEngine<CustomPadRightRecord> { NewLineForWrite = "\r\n" };
         var records = new[] { new CustomPadRightRecord { Name = "ABC" } };
 
         // Act: Format record to fixed-length string
@@ -179,7 +179,7 @@ public sealed class FieldAlignTests
     public async Task WriteString_CenterAlignment_CustomPadChar()
     {
         // Arrange: Create engine and record with custom '*' pad char
-        var engine = new FileHelperEngine<CustomPadCenterRecord>();
+        var engine = new FileHelperEngine<CustomPadCenterRecord> { NewLineForWrite = "\r\n" };
         var records = new[] { new CustomPadCenterRecord { Name = "ABC" } };
 
         // Act: Format record to fixed-length string
@@ -195,7 +195,7 @@ public sealed class FieldAlignTests
     public async Task WriteString_LongValue_Truncates()
     {
         // Arrange: Create engine and record with 15-char value in 10-char field
-        var engine = new FileHelperEngine<LeftAlignedRecord>();
+        var engine = new FileHelperEngine<LeftAlignedRecord> { NewLineForWrite = "\r\n" };
         var records = new[] { new LeftAlignedRecord { Name = "ABCDEFGHIJ12345" } };
 
         // Act: Format record to fixed-length string
@@ -211,7 +211,7 @@ public sealed class FieldAlignTests
     public async Task WriteString_EmptyValue_AllPadding()
     {
         // Arrange: Create engine and record with empty value
-        var engine = new FileHelperEngine<LeftAlignedRecord>();
+        var engine = new FileHelperEngine<LeftAlignedRecord> { NewLineForWrite = "\r\n" };
         var records = new[] { new LeftAlignedRecord { Name = "" } };
 
         // Act: Format record to fixed-length string
@@ -227,7 +227,7 @@ public sealed class FieldAlignTests
     public async Task WriteString_NullValue_AllPadding()
     {
         // Arrange: Create engine and record with null value
-        var engine = new FileHelperEngine<NullValueAlignedRecord>();
+        var engine = new FileHelperEngine<NullValueAlignedRecord> { NewLineForWrite = "\r\n" };
         var records = new[] { new NullValueAlignedRecord { Name = null } };
 
         // Act: Format record to fixed-length string
@@ -243,7 +243,7 @@ public sealed class FieldAlignTests
     public async Task WriteString_MixedTypes_AlignmentApplied()
     {
         // Arrange: Create engine with mixed-type aligned record
-        var engine = new FileHelperEngine<MixedTypesAlignedRecord>();
+        var engine = new FileHelperEngine<MixedTypesAlignedRecord> { NewLineForWrite = "\r\n" };
         var records = new[]
         {
             new MixedTypesAlignedRecord { Number = 42, Text = "Hello", Amount = 123.45m }
@@ -263,7 +263,7 @@ public sealed class FieldAlignTests
     public async Task WriteString_ExactLength_VerifiesWidth()
     {
         // Arrange: Create engine and multiple records
-        var engine = new FileHelperEngine<MixedTypesAlignedRecord>();
+        var engine = new FileHelperEngine<MixedTypesAlignedRecord> { NewLineForWrite = "\r\n" };
         var records = new[]
         {
             new MixedTypesAlignedRecord { Number = 1, Text = "A", Amount = 1.0m }

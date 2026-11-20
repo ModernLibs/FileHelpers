@@ -59,7 +59,7 @@ public sealed class ReadCoreParallelTests
         await Assert.That(actual.Length).IsEqualTo(expected.Length);
         await Assert.That(actual.Select(r => r.Id).SequenceEqual(expected.Select(r => r.Id))).IsTrue();
         await Assert.That(parallel.HeaderText).IsEqualTo(sequential.HeaderText);
-        await Assert.That(parallel.FooterText).IsEqualTo("FOOTER 1\r\nFOOTER 2");
+        await Assert.That(parallel.FooterText).IsEqualTo($"FOOTER 1{Environment.NewLine}FOOTER 2{Environment.NewLine}");
         await Assert.That(parallel.TotalRecords).IsEqualTo(sequential.TotalRecords);
         await Assert.That(parallel.LineNumber).IsEqualTo(sequential.LineNumber);
         await Assert.That(string.Join(",", parallel.ErrorManager.Errors.Select(e => e.LineNumber)))

@@ -79,17 +79,17 @@ public sealed class EnginePropertiesTests
         await Assert.That(engine.TotalRecords).IsEqualTo(1);
     }
 
-    /// <summary>NewLineForWrite defaults to "\r\n" (FileHelpers 3.x compat).</summary>
+    /// <summary>NewLineForWrite defaults to Environment.NewLine (FileHelpers 3.x compat, T49).</summary>
     [Test]
-    [DisplayName("NewLineForWrite property defaults to CRLF (\\r\\n) for FileHelpers 3.x compatibility")]
-    public async Task NewLineForWrite_DefaultIsCRLF()
+    [DisplayName("NewLineForWrite property defaults to Environment.NewLine for FileHelpers 3.x compatibility")]
+    public async Task NewLineForWrite_DefaultIsEnvironmentNewLine()
     {
         // Arrange: Create new engine instance
         var engine = new FileHelperEngine<CsvOrder>();
 
         // Act: Read default NewLineForWrite value
-        // Assert: Default value is "\r\n"
-        await Assert.That(engine.NewLineForWrite).IsEqualTo("\r\n");
+        // Assert: Default value is the platform newline
+        await Assert.That(engine.NewLineForWrite).IsEqualTo(Environment.NewLine);
     }
 
     /// <summary>Encoding defaults to UTF-8.</summary>

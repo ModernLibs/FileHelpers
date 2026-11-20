@@ -381,7 +381,7 @@ public sealed class StreamingArrayReadTests
 
             // Assert
             await Assert.That(expected.TotalRecords).IsEqualTo(2);
-            await Assert.That(expected.Footer).IsEqualTo("total,5000\r\nend");
+            await Assert.That(expected.Footer).IsEqualTo($"total,5000{Environment.NewLine}end{Environment.NewLine}");
             await Assert.That(file).IsEqualTo(expected);
             await Assert.That(stream).IsEqualTo(expected);
         }

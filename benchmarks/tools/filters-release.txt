@@ -1,0 +1,18 @@
+# Filter file for benchmarks/tools/round.sh, same format as filters-step0.txt (read its header for the columns, the
+# pair names and the "not run" rule). Part 2 of the 4.10 plan (T59).
+#
+# filters-release.txt: the release comparison (T50), run with round.sh --compare. In --compare mode the pairs column is
+# ignored (there is no A/B pair), so every line writes "all": <group> all <glob>. In net11-ra-off every method runs
+# except the competitors' (Sep, Sylvan, CsvHelper and so on: COMPARE_COMPETITORS in round_runs.py). The T50
+# comparison keeps 1,000,000 rows (design D10): do not pass --max-rows. Pass --max-iterations 20.
+# The lines are T50 step 2. The quoted group is two lines, not *QuotedFieldsBenchmarks*: that glob also takes
+# FileHelpers_ParseAndDiscard_ScanOnly, whose setup sets a library switch and needs a process of its own
+# (ab.py runs it so in filters-simd.txt); in one process with the other methods its setup check stops the launch.
+
+delimited   all  *DelimitedComparisonBenchmarks*
+sep         all  *SepComparisonBenchmarks*
+fixed       all  *FixedWidthComparisonBenchmarks*
+tierb       all  *TierBComparisonBenchmarks*
+tierbfixed  all  *TierBFixedWidthBenchmarks*
+quoted      all  *QuotedFieldsBenchmarks.ReadAllRows_*
+quoted      all  *QuotedFieldsBenchmarks.*_ParseAndDiscard

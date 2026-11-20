@@ -134,7 +134,7 @@ public sealed class PerFieldDelimiterEngineTests
     public async Task WriteString_MixedDelimiters_FormatsCorrectly()
     {
         // Arrange
-        var engine = new FileHelperEngine<MixedDelimiterRecord>();
+        var engine = new FileHelperEngine<MixedDelimiterRecord> { NewLineForWrite = "\r\n" };
 
         // Act
         string output = engine.WriteString([new MixedDelimiterRecord { Field1 = "x", Field2 = "y", Field3 = "z" }]);
@@ -148,7 +148,7 @@ public sealed class PerFieldDelimiterEngineTests
     public async Task RoundTrip_MixedDelimiters_PreservesDataAndFormat()
     {
         // Arrange
-        var engine = new FileHelperEngine<MixedDelimiterRecord>();
+        var engine = new FileHelperEngine<MixedDelimiterRecord> { NewLineForWrite = "\r\n" };
 
         // Act
         var records = engine.ReadString("hello,world;test");
@@ -226,7 +226,7 @@ public sealed class PerFieldDelimiterEngineTests
     public async Task SingleFieldDelimiter_OnLastField()
     {
         // Arrange
-        var engine = new FileHelperEngine<SingleFieldDelimiterOverride>();
+        var engine = new FileHelperEngine<SingleFieldDelimiterOverride> { NewLineForWrite = "\r\n" };
 
         // Act
         var records = engine.ReadString("first,second");
@@ -247,8 +247,8 @@ public sealed class PerFieldDelimiterEngineTests
     public async Task AllUniqueDelimiters_Works()
     {
         // Arrange
-        var unique = new FileHelperEngine<AllUniqueDelimitersRecord>();
-        var multiChar = new FileHelperEngine<MultiCharFieldDelimiterRecord>();
+        var unique = new FileHelperEngine<AllUniqueDelimitersRecord> { NewLineForWrite = "\r\n" };
+        var multiChar = new FileHelperEngine<MultiCharFieldDelimiterRecord> { NewLineForWrite = "\r\n" };
 
         // Act
         var a = unique.ReadString("a,b;c");
@@ -290,7 +290,7 @@ public sealed class PerFieldDelimiterEngineTests
     public async Task QuotedOverride_QuotesOnItsOwnDelimiter()
     {
         // Arrange
-        var engine = new FileHelperEngine<FieldDelimiterQuotedRecord>();
+        var engine = new FileHelperEngine<FieldDelimiterQuotedRecord> { NewLineForWrite = "\r\n" };
 
         // Act
         string written = engine.WriteString(
@@ -314,7 +314,7 @@ public sealed class PerFieldDelimiterEngineTests
     public async Task InNewLine_OverrideBeforeLineBreak()
     {
         // Arrange
-        var engine = new FileHelperEngine<FieldDelimiterInNewLineRecord>();
+        var engine = new FileHelperEngine<FieldDelimiterInNewLineRecord> { NewLineForWrite = "\r\n" };
 
         // Act
         string written = engine.WriteString([new FieldDelimiterInNewLineRecord { A = "a", B = "b", C = "c", D = "d" }]);
@@ -373,7 +373,7 @@ public sealed class PerFieldDelimiterEngineTests
     public async Task StructRecord_Override()
     {
         // Arrange
-        var engine = new FileHelperEngine<FieldDelimiterStruct>();
+        var engine = new FileHelperEngine<FieldDelimiterStruct> { NewLineForWrite = "\r\n" };
 
         // Act
         var records = engine.ReadString("1,2|3");

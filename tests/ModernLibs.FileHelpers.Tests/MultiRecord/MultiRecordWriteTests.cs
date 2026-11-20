@@ -76,8 +76,12 @@ public sealed class MultiRecordWriteTests
     [DisplayName("INotifyWrite: a skipped record leaves an empty line, a rewritten one is written as rewritten, and each record is number 1")]
     public async Task NotifyWrite_SkipAndRewrite()
     {
+        // Arrange: the 4.8.0 output below was written with "\r\n"
+        var engine = Engine();
+        engine.NewLineForWrite = "\r\n";
+
         // Act
-        string text = Engine().WriteString(Records());
+        string text = engine.WriteString(Records());
 
         // Assert: 4.8.0 output
         await Assert.That(text).IsEqualTo("H|1#1\r\nD|1|10\r\n\r\nD|2|20\r\nH|3#1\r\nD|3|30\r\n\r\nD|4|40\r\nC:custom\r\n");

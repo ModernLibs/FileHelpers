@@ -54,7 +54,7 @@ original project: please report problems with this library
 dotnet add package ModernLibs.FileHelpers
 ```
 
-Requirements: .NET 10 (`net10.0`). Requires C# 11 or later (`MLFH026`): the .NET 10 SDK defaults to
+Requirements: .NET 10 or .NET 11 (`net10.0`, `net11.0`). Requires C# 11 or later (`MLFH026`): the .NET 10 SDK defaults to
 C# 14, so this only matters if your project pins an older `<LangVersion>`. The package has no runtime
 dependencies. The source generator is included as an analyzer;
 there is nothing else to install.
@@ -276,7 +276,7 @@ Most code migrates by changing the namespace:
 
 Some things are different. Runtime-reflection features (`ClassBuilder`, non-generic engines,
 `DelimitedFileEngine` options) are not available, a few signatures changed, and some defaults differ
-(UTF-8 encoding, `\r\n` line endings on every platform). The
+(UTF-8 encoding). The
 [migration guide](https://github.com/ModernLibs/FileHelpers/blob/main/docs/MIGRATION.md) lists every
 difference we know of.
 

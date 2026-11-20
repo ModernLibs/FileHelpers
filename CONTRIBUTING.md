@@ -12,10 +12,9 @@ Thank you for your interest. Bug reports, documentation fixes and pull requests 
 
 | Path | Contents |
 |---|---|
-| `src/ModernLibs.FileHelpers` | The library (`net10.0`) |
+| `src/ModernLibs.FileHelpers` | The library (`net10.0`, `net11.0`) |
 | `src/ModernLibs.FileHelpers.Generator` | The source generator and the analyzer that reports the `MLFH` diagnostics (`netstandard2.0`, packed into the library package) |
-| `tests/ModernLibs.FileHelpers.Tests` | Main test suite (TUnit) |
-| `tests/ModernLibs.FileHelpers.Mutation.Tests` | xUnit tests used as the Stryker.NET mutation-testing target |
+| `tests/ModernLibs.FileHelpers.Tests` | Main test suite (TUnit), also the Stryker.NET mutation-testing target |
 | `tests/ModernLibs.FileHelpers.Fuzz.Tests` | SharpFuzz targets and seed corpus |
 | `benchmarks/ModernLibs.FileHelpers.Benchmarks` | BenchmarkDotNet suite, see [BENCHMARKS.md](BENCHMARKS.md) |
 | `samples/` | Sample applications |
@@ -23,52 +22,72 @@ Thank you for your interest. Bug reports, documentation fixes and pull requests 
 
 ## Building and testing
 
-You need the .NET 10 SDK version pinned in `global.json` (or a later patch of it).
+You need the .NET 11 SDK version pinned in `global.json` (or a later patch of it); it builds both targets. In WSL or when the SDK sits outside the system path, set `export DOTNET_ROOT=$HOME/.dotnet` first, otherwise the `net11.0` test binary starts on the wrong host runtime and exits with code 150.
 
 ```bash
 dotnet build -c Release
 ```
 
-The test projects run on [Microsoft.Testing.Platform](https://learn.microsoft.com/dotnet/core/testing/microsoft-testing-platform-intro)
+The test project runs on [Microsoft.Testing.Platform](https://learn.microsoft.com/dotnet/core/testing/microsoft-testing-platform-intro)
 (`global.json` selects it for `dotnet test`):
 
 ```bash
-# main suite (TUnit)
 dotnet test --project tests/ModernLibs.FileHelpers.Tests -c Release
-
-# mutation-target suite (xUnit)
-dotnet test --project tests/ModernLibs.FileHelpers.Mutation.Tests -c Release
 ```
 
-The test projects are also executables, which is how CI runs them:
+The test project is also an executable, which is how CI runs it:
 
 ```bash
 ./tests/ModernLibs.FileHelpers.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Tests
-./tests/ModernLibs.FileHelpers.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Tests --treenode-filter "/*/*/ReadCoreAllocationTests/*"
+./tests/ModernLibs.FileHelpers.Tests/bin/Release/net11.0/ModernLibs.FileHelpers.Tests
+./tests/ModernLibs.FileHelpers.Tests/bin/Release/net11.0/ModernLibs.FileHelpers.Tests --treenode-filter "/*/*/ReadCoreAllocationTests/*"
 ```
 
 CI also builds and runs the migration sample, which must keep working:
 
 ```bash
-dotnet run --project samples/MigrationSamples -c Release
+dotnet run --project samples/MigrationSamples -c Release -f net11.0
 ```
 
 ### Mutation testing
 
 [Stryker.NET](https://stryker-mutator.io/docs/stryker-net/introduction/) mutates the library and runs
-the xUnit suite against each mutant. The configuration and thresholds are in `stryker-config.json`.
+the TUnit suite against each mutant, through its Microsoft.Testing.Platform runner (`"test-runner": "mtp"`)
+on `net10.0`. The configuration and thresholds are in `stryker-config.json`. Stryker runs in solution
+context (`ModernLibs.FileHelpers.slnx`), so every test project in the solution is a Stryker test project;
+today that is only the TUnit project. The tests written for the mutated parsers and engines carry
+`[Category("Mutation")]`.
+
+`dotnet-stryker` is a local tool, pinned in `dotnet-tools.json`:
 
 ```bash
-dotnet tool install -g dotnet-stryker
+dotnet tool restore
 dotnet stryker --config-file stryker-config.json
+
+# one file only (a --mutate on the command line replaces the "mutate" list of the config file)
+dotnet stryker --config-file stryker-config.json --mutate '**/Parsing/QuoteBalanceScanner.cs'
+
+# run the Mutation category only
+./tests/ModernLibs.FileHelpers.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Tests --treenode-filter "/*/*/*/*[Category=Mutation]"
 ```
 
-The HTML report is written to `StrykerOutput/`.
+The HTML report is written to `StrykerOutput/`. Stryker builds Release (`"configuration"` in the config
+file). A full run takes a long time (the whole `mutate` list has 1326 mutants to test and did not finish
+in 2 hours on a hosted runner); to try a change, mutate only the files you touched and lower the
+parallelism with `--concurrency`. Stryker runs in its own workflow (`mutation.yml`, started manually and
+once a week), not on every push. The `break` threshold in `stryker-config.json` is 80: it is the score
+of the first finished run (manual run 43173427050 of `QuoteBalanceScanner.cs` and `RecordReadCore.cs`, 86.58%) minus 5, rounded down
+to a multiple of 5. A run with a score under 80 fails the workflow (the Stryker step is not
+`continue-on-error`). `high` and `low` are also 80 (Stryker needs `break` <= `low` <= `high`; they only colour the report). The reports are uploaded
+as the `mutation-report` artifact, with `mutation-report.json` next to the HTML.
 
-> **Currently informational only.** With Stryker.NET 5 and the xUnit v3 test project, coverage
-> capture does not work and every mutant is reported as survived, so the mutation score is not
-> meaningful. Stryker runs in its own workflow (`mutation.yml`, started manually and once a week) with
-> `continue-on-error` until this is fixed; CI still requires the mutation-target xUnit suite to pass.
+To start the workflow manually, run it from the Actions tab (Mutation Testing, Run workflow) or with
+`gh workflow run mutation.yml --ref <branch> -f mutate='<glob>,<glob>'`. The `mutate` input is a
+comma-separated list of Stryker `--mutate` globs, one `--mutate` per glob; it defaults to
+`QuoteBalanceScanner.cs` and `RecordReadCore.cs`. The weekly run uses those two files plus
+`FixedLengthSlicer.cs`. The job has a 350 minute limit and writes one character per finished mutant to the
+log (`.` killed, `T` timeout, `S` survived, `E` error), 100 per line with a time stamp, so a run cut off by
+the limit still shows how far it got.
 
 ### Fuzzing
 
@@ -79,13 +98,13 @@ mode that generates random inputs in-process. CI runs every target against the s
 ```bash
 dotnet build tests/ModernLibs.FileHelpers.Fuzz.Tests -c Release
 for file in tests/ModernLibs.FileHelpers.Fuzz.Tests/FuzzCorpus/*.txt; do
-  dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests -c Release --no-build -- delimited < "$file"
+  dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests -c Release --no-build -f net11.0 -- delimited < "$file"
 done
 
-dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests -c Release -- extended 10000
+dotnet run --project tests/ModernLibs.FileHelpers.Fuzz.Tests -c Release -f net11.0 -- extended 10000
 
 # property-style random-input tests in the TUnit suite
-./tests/ModernLibs.FileHelpers.Tests/bin/Release/net10.0/ModernLibs.FileHelpers.Tests --treenode-filter "/*/*/*/*[Category=Fuzz]"
+./tests/ModernLibs.FileHelpers.Tests/bin/Release/net11.0/ModernLibs.FileHelpers.Tests --treenode-filter "/*/*/*/*[Category=Fuzz]"
 ```
 
 For coverage-guided fuzzing, instrument the library with the SharpFuzz tool and run the targets
@@ -95,7 +114,7 @@ under AFL or libFuzzer as described in the SharpFuzz documentation. Add inputs t
 ### Benchmarks
 
 ```bash
-dotnet run -c Release --project benchmarks/ModernLibs.FileHelpers.Benchmarks -- --filter '*'
+dotnet run -c Release -f net11.0 --project benchmarks/ModernLibs.FileHelpers.Benchmarks -- --filter '*'
 ```
 
 Include before and after numbers, with your hardware and OS, in pull requests that claim a
@@ -105,7 +124,7 @@ performance change. See [BENCHMARKS.md](BENCHMARKS.md).
 
 These are requirements, not preferences. Pull requests that break them cannot be merged.
 
-- **.NET 10 only.** The library targets `net10.0`; there is no multi-targeting.
+- **Two targets: `net10.0` and `net11.0`.** The library is built for both and every test runs on both. Runtime async is switched on for `net11.0` only (`FileHelpersRuntimeAsync`, default `true`).
 - **AOT and trimming safe.** No reflection, `System.Reflection.Emit`, `Expression` compilation,
   `DynamicMethod`, `TypeDescriptor` or `MakeGenericType` in the library. Everything that depends on the
   record type is generated at compile time. The library is built with `IsAotCompatible` and
@@ -201,8 +220,8 @@ link to that section. Messages say what is wrong and how to fix it.
 - Generator changes need generator tests (diagnostics and generated output) as well as engine tests.
   Add new record shapes or emission paths to the corpus in `GeneratedCodeWarningTests`, which requires
   warning-free generated code.
-- Parsing changes should keep the allocation tests passing. Once mutation testing works again (see
-  above), they should also keep the mutation score above the thresholds in `stryker-config.json`.
+- Parsing changes should keep the allocation tests passing. Mutation runs fail under the `break`
+  threshold (80) in `stryker-config.json`; parsing changes must keep the score above it.
 
 ## Commits and pull requests
 

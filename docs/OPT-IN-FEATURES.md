@@ -84,7 +84,7 @@ from a file path or a `Stream`. A `Stream` you pass in stays open; you dispose i
 ### Footer text
 
 `[IgnoreLast(n)]` footer lines are known only at the end of the input. `FooterText` is set when a
-streaming read reaches the end; if you stop early, it stays `null`.
+streaming read reaches the end; if you stop early, it stays `""`.
 
 ## Callbacks
 

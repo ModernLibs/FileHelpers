@@ -75,7 +75,7 @@ public sealed class EngineReadTests
 
         // Assert: Two records parsed and header captured in HeaderText property
         await Assert.That(records.Length).IsEqualTo(2);
-        await Assert.That(engine.HeaderText).IsEqualTo("HEADER_LINE");
+        await Assert.That(engine.HeaderText).IsEqualTo("HEADER_LINE" + Environment.NewLine);
     }
 
     /// <summary>[IgnoreLast] strips footer lines and populates FooterText.</summary>
@@ -94,7 +94,7 @@ public sealed class EngineReadTests
         await Assert.That(records.Length).IsEqualTo(2);
         await Assert.That(records[0].Id).IsEqualTo(1);
         await Assert.That(records[1].Id).IsEqualTo(2);
-        await Assert.That(engine.FooterText).IsEqualTo("FOOTER_LINE");
+        await Assert.That(engine.FooterText).IsEqualTo("FOOTER_LINE" + Environment.NewLine);
     }
 
     /// <summary>[IgnoreEmptyLines] causes blank input lines to be skipped.</summary>

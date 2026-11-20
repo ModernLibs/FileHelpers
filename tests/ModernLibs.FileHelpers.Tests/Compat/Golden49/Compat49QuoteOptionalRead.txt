@@ -1,0 +1,390 @@
+#### 0 valid read
+record:Id=1|Name="Smith, John"|Tail="t"
+record:Id=2|Name="say "hi""|Tail="t"
+record:Id=3|Name="plain"|Tail="t"
+record:Id=4|Name="multi\r\nline"|Tail="t"
+record:Id=5|Name=""|Tail="t"
+record:Id=6|Name=" "spaced""|Tail="t"
+record:Id=7|Name=""|Tail="t"
+header:<null>
+footer:<null>
+line:8
+total:7
+recycled-record:Id=1|Name="Smith, John"|Tail="t"
+recycled-record:Id=2|Name="say "hi""|Tail="t"
+recycled-record:Id=3|Name="plain"|Tail="t"
+recycled-record:Id=4|Name="multi\r\nline"|Tail="t"
+recycled-record:Id=5|Name=""|Tail="t"
+recycled-record:Id=6|Name=" "spaced""|Tail="t"
+recycled-record:Id=7|Name=""|Tail="t"
+recycled-count:7
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:8
+recycled-total:7
+thrown-count:7
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:8
+thrown-total:7
+#### 0 valid round-trip
+written:1,"Smith, John",t\r\n2,"say ""hi""",t\r\n3,"plain",t\r\n4,"multi\r\nline",t\r\n5,"",t\r\n6," ""spaced""",t\r\n7,"",t\r\n
+header:<null>
+footer:<null>
+line:8
+total:7
+written-extra:line-break:1,"a\r\nb",t\r\n
+written-extra:quote-and-separator:2,"say ""hi"", ok",t\r\n
+written-extra:plain:3,"plain",t\r\n
+written-extra:nulls:4,"",\r\n
+written-extra:long:5,"wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",t\r\n
+#### 1 short-row read
+record:Id=1|Name="Smith, John"|Tail="t"
+record:Id=1|Name="Smith, John"|Tail="t"
+record:Id=2|Name="say "hi""|Tail="t"
+record:Id=3|Name="plain"|Tail="t"
+record:Id=4|Name="multi\r\nline"|Tail="t"
+record:Id=5|Name=""|Tail="t"
+record:Id=6|Name=" "spaced""|Tail="t"
+record:Id=7|Name=""|Tail="t"
+error:2:FileHelpersException:Line: 2. Expected 3 fields but found 2 in line: '8,"n"'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:8,"n"
+header:<null>
+footer:<null>
+line:10
+total:8
+recycled-record:Id=1|Name="Smith, John"|Tail="t"
+recycled-record:Id=1|Name="Smith, John"|Tail="t"
+recycled-record:Id=2|Name="say "hi""|Tail="t"
+recycled-record:Id=3|Name="plain"|Tail="t"
+recycled-record:Id=4|Name="multi\r\nline"|Tail="t"
+recycled-record:Id=5|Name=""|Tail="t"
+recycled-record:Id=6|Name=" "spaced""|Tail="t"
+recycled-record:Id=7|Name=""|Tail="t"
+recycled-count:8
+recycled-error:2:FileHelpersException:Line: 2. Expected 3 fields but found 2 in line: '8,"n"'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:8,"n"
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:10
+recycled-total:8
+thrown-throw:FileHelpersException:Line: 2. Expected 3 fields but found 2 in line: '8,"n"'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 1 short-row round-trip
+written:1,"Smith, John",t\r\n1,"Smith, John",t\r\n2,"say ""hi""",t\r\n3,"plain",t\r\n4,"multi\r\nline",t\r\n5,"",t\r\n6," ""spaced""",t\r\n7,"",t\r\n
+error:2:FileHelpersException:Line: 2. Expected 3 fields but found 2 in line: '8,"n"'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:8,"n"
+header:<null>
+footer:<null>
+line:10
+total:8
+written-extra:line-break:1,"a\r\nb",t\r\n
+written-extra:quote-and-separator:2,"say ""hi"", ok",t\r\n
+written-extra:plain:3,"plain",t\r\n
+written-extra:nulls:4,"",\r\n
+written-extra:long:5,"wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",t\r\n
+#### 2 long-row read
+record:Id=1|Name="Smith, John"|Tail="t"
+record:Id=1|Name="Smith, John"|Tail="t"
+record:Id=2|Name="say "hi""|Tail="t"
+record:Id=3|Name="plain"|Tail="t"
+record:Id=4|Name="multi\r\nline"|Tail="t"
+record:Id=5|Name=""|Tail="t"
+record:Id=6|Name=" "spaced""|Tail="t"
+record:Id=7|Name=""|Tail="t"
+error:2:BadUsageException:Line: 2. Expected 3 fields but found 4 in line: '9,"n",t,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:9,"n",t,x
+header:<null>
+footer:<null>
+line:10
+total:8
+recycled-record:Id=1|Name="Smith, John"|Tail="t"
+recycled-record:Id=1|Name="Smith, John"|Tail="t"
+recycled-record:Id=2|Name="say "hi""|Tail="t"
+recycled-record:Id=3|Name="plain"|Tail="t"
+recycled-record:Id=4|Name="multi\r\nline"|Tail="t"
+recycled-record:Id=5|Name=""|Tail="t"
+recycled-record:Id=6|Name=" "spaced""|Tail="t"
+recycled-record:Id=7|Name=""|Tail="t"
+recycled-count:8
+recycled-error:2:BadUsageException:Line: 2. Expected 3 fields but found 4 in line: '9,"n",t,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:9,"n",t,x
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:10
+recycled-total:8
+thrown-throw:BadUsageException:Line: 2. Expected 3 fields but found 4 in line: '9,"n",t,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 2 long-row round-trip
+written:1,"Smith, John",t\r\n1,"Smith, John",t\r\n2,"say ""hi""",t\r\n3,"plain",t\r\n4,"multi\r\nline",t\r\n5,"",t\r\n6," ""spaced""",t\r\n7,"",t\r\n
+error:2:BadUsageException:Line: 2. Expected 3 fields but found 4 in line: '9,"n",t,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:9,"n",t,x
+header:<null>
+footer:<null>
+line:10
+total:8
+written-extra:line-break:1,"a\r\nb",t\r\n
+written-extra:quote-and-separator:2,"say ""hi"", ok",t\r\n
+written-extra:plain:3,"plain",t\r\n
+written-extra:nulls:4,"",\r\n
+written-extra:long:5,"wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",t\r\n
+#### 3 bad-values read
+record:Id=1|Name="Smith, John"|Tail="t"
+record:Id=1|Name="Smith, John"|Tail="t"
+record:Id=2|Name="say "hi""|Tail="t"
+record:Id=3|Name="plain"|Tail="t"
+record:Id=4|Name="multi\r\nline"|Tail="t"
+record:Id=5|Name=""|Tail="t"
+record:Id=6|Name=" "spaced""|Tail="t"
+record:Id=7|Name=""|Tail="t"
+error:2:ConvertException:Line: 2. Column: 1. Field: Id. Error Converting 'x10' to type: 'Int32'. :x10,"n",t
+error:3:BadUsageException:Line: 3 Column: 4. The field 'Name' is quoted but the quote char " is not just before the separator (You can use [FieldTrim] to avoid this error).:11,"closed"junk,t
+header:<null>
+footer:<null>
+line:11
+total:8
+recycled-record:Id=1|Name="Smith, John"|Tail="t"
+recycled-record:Id=1|Name="Smith, John"|Tail="t"
+recycled-record:Id=2|Name="say "hi""|Tail="t"
+recycled-record:Id=3|Name="plain"|Tail="t"
+recycled-record:Id=4|Name="multi\r\nline"|Tail="t"
+recycled-record:Id=5|Name=""|Tail="t"
+recycled-record:Id=6|Name=" "spaced""|Tail="t"
+recycled-record:Id=7|Name=""|Tail="t"
+recycled-count:8
+recycled-error:2:ConvertException:Line: 2. Column: 1. Field: Id. Error Converting 'x10' to type: 'Int32'. :x10,"n",t
+recycled-error:3:BadUsageException:Line: 3 Column: 4. The field 'Name' is quoted but the quote char " is not just before the separator (You can use [FieldTrim] to avoid this error).:11,"closed"junk,t
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:11
+recycled-total:8
+thrown-throw:ConvertException:Line: 2. Column: 1. Field: Id. Error Converting 'x10' to type: 'Int32'. 
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 3 bad-values round-trip
+written:1,"Smith, John",t\r\n1,"Smith, John",t\r\n2,"say ""hi""",t\r\n3,"plain",t\r\n4,"multi\r\nline",t\r\n5,"",t\r\n6," ""spaced""",t\r\n7,"",t\r\n
+error:2:ConvertException:Line: 2. Column: 1. Field: Id. Error Converting 'x10' to type: 'Int32'. :x10,"n",t
+error:3:BadUsageException:Line: 3 Column: 4. The field 'Name' is quoted but the quote char " is not just before the separator (You can use [FieldTrim] to avoid this error).:11,"closed"junk,t
+header:<null>
+footer:<null>
+line:11
+total:8
+written-extra:line-break:1,"a\r\nb",t\r\n
+written-extra:quote-and-separator:2,"say ""hi"", ok",t\r\n
+written-extra:plain:3,"plain",t\r\n
+written-extra:nulls:4,"",\r\n
+written-extra:long:5,"wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",t\r\n
+#### 4 unclosed-quote read
+record:Id=1|Name="Smith, John"|Tail="t"
+record:Id=2|Name="say "hi""|Tail="t"
+record:Id=3|Name="plain"|Tail="t"
+record:Id=4|Name="multi\r\nline"|Tail="t"
+record:Id=5|Name=""|Tail="t"
+record:Id=6|Name=" "spaced""|Tail="t"
+record:Id=7|Name=""|Tail="t"
+error:2:BadUsageException:Line: 2. Expected 3 fields but found 4 in line: '12,"open,t\r\n1,"Smith, John",t'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:12,"open,t\r\n1,"Smith, John",t
+header:<null>
+footer:<null>
+line:10
+total:7
+recycled-record:Id=1|Name="Smith, John"|Tail="t"
+recycled-record:Id=2|Name="say "hi""|Tail="t"
+recycled-record:Id=3|Name="plain"|Tail="t"
+recycled-record:Id=4|Name="multi\r\nline"|Tail="t"
+recycled-record:Id=5|Name=""|Tail="t"
+recycled-record:Id=6|Name=" "spaced""|Tail="t"
+recycled-record:Id=7|Name=""|Tail="t"
+recycled-count:7
+recycled-error:2:BadUsageException:Line: 2. Expected 3 fields but found 4 in line: '12,"open,t\r\n1,"Smith, John",t'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:12,"open,t\r\n1,"Smith, John",t
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:10
+recycled-total:7
+thrown-throw:BadUsageException:Line: 2. Expected 3 fields but found 4 in line: '12,"open,t\r\n1,"Smith, John",t'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 4 unclosed-quote round-trip
+written:1,"Smith, John",t\r\n2,"say ""hi""",t\r\n3,"plain",t\r\n4,"multi\r\nline",t\r\n5,"",t\r\n6," ""spaced""",t\r\n7,"",t\r\n
+error:2:BadUsageException:Line: 2. Expected 3 fields but found 4 in line: '12,"open,t\r\n1,"Smith, John",t'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:12,"open,t\r\n1,"Smith, John",t
+header:<null>
+footer:<null>
+line:10
+total:7
+written-extra:line-break:1,"a\r\nb",t\r\n
+written-extra:quote-and-separator:2,"say ""hi"", ok",t\r\n
+written-extra:plain:3,"plain",t\r\n
+written-extra:nulls:4,"",\r\n
+written-extra:long:5,"wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",t\r\n
+#### 5 empty-line read
+record:Id=1|Name="Smith, John"|Tail="t"
+record:Id=1|Name="Smith, John"|Tail="t"
+record:Id=2|Name="say "hi""|Tail="t"
+record:Id=3|Name="plain"|Tail="t"
+record:Id=4|Name="multi\r\nline"|Tail="t"
+record:Id=5|Name=""|Tail="t"
+record:Id=6|Name=" "spaced""|Tail="t"
+record:Id=7|Name=""|Tail="t"
+error:2:FileHelpersException:Line: 2. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+header:<null>
+footer:<null>
+line:10
+total:8
+recycled-record:Id=1|Name="Smith, John"|Tail="t"
+recycled-record:Id=1|Name="Smith, John"|Tail="t"
+recycled-record:Id=2|Name="say "hi""|Tail="t"
+recycled-record:Id=3|Name="plain"|Tail="t"
+recycled-record:Id=4|Name="multi\r\nline"|Tail="t"
+recycled-record:Id=5|Name=""|Tail="t"
+recycled-record:Id=6|Name=" "spaced""|Tail="t"
+recycled-record:Id=7|Name=""|Tail="t"
+recycled-count:8
+recycled-error:2:FileHelpersException:Line: 2. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:10
+recycled-total:8
+thrown-throw:FileHelpersException:Line: 2. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 5 empty-line round-trip
+written:1,"Smith, John",t\r\n1,"Smith, John",t\r\n2,"say ""hi""",t\r\n3,"plain",t\r\n4,"multi\r\nline",t\r\n5,"",t\r\n6," ""spaced""",t\r\n7,"",t\r\n
+error:2:FileHelpersException:Line: 2. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+header:<null>
+footer:<null>
+line:10
+total:8
+written-extra:line-break:1,"a\r\nb",t\r\n
+written-extra:quote-and-separator:2,"say ""hi"", ok",t\r\n
+written-extra:plain:3,"plain",t\r\n
+written-extra:nulls:4,"",\r\n
+written-extra:long:5,"wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",t\r\n
+#### 6 empty-input read
+header:<null>
+footer:<null>
+line:0
+total:0
+recycled-count:0
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:0
+recycled-total:0
+thrown-count:0
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:0
+thrown-total:0
+#### 6 empty-input round-trip
+written:
+header:<null>
+footer:<null>
+line:0
+total:0
+written-extra:line-break:1,"a\r\nb",t\r\n
+written-extra:quote-and-separator:2,"say ""hi"", ok",t\r\n
+written-extra:plain:3,"plain",t\r\n
+written-extra:nulls:4,"",\r\n
+written-extra:long:5,"wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",t\r\n
+#### 7 lf-no-final-line-end read
+record:Id=1|Name="Smith, John"|Tail="t"
+record:Id=2|Name="say "hi""|Tail="t"
+record:Id=3|Name="plain"|Tail="t"
+record:Id=4|Name="multi\nline"|Tail="t"
+record:Id=5|Name=""|Tail="t"
+record:Id=6|Name=" "spaced""|Tail="t"
+record:Id=7|Name=""|Tail="t"
+header:<null>
+footer:<null>
+line:8
+total:7
+recycled-record:Id=1|Name="Smith, John"|Tail="t"
+recycled-record:Id=2|Name="say "hi""|Tail="t"
+recycled-record:Id=3|Name="plain"|Tail="t"
+recycled-record:Id=4|Name="multi\nline"|Tail="t"
+recycled-record:Id=5|Name=""|Tail="t"
+recycled-record:Id=6|Name=" "spaced""|Tail="t"
+recycled-record:Id=7|Name=""|Tail="t"
+recycled-count:7
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:8
+recycled-total:7
+thrown-count:7
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:8
+thrown-total:7
+#### 7 lf-no-final-line-end round-trip
+written:1,"Smith, John",t\r\n2,"say ""hi""",t\r\n3,"plain",t\r\n4,"multi\nline",t\r\n5,"",t\r\n6," ""spaced""",t\r\n7,"",t\r\n
+header:<null>
+footer:<null>
+line:8
+total:7
+written-extra:line-break:1,"a\r\nb",t\r\n
+written-extra:quote-and-separator:2,"say ""hi"", ok",t\r\n
+written-extra:plain:3,"plain",t\r\n
+written-extra:nulls:4,"",\r\n
+written-extra:long:5,"wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",t\r\n
+#### 8 all-together read
+record:Id=1|Name="Smith, John"|Tail="t"
+record:Id=2|Name="say "hi""|Tail="t"
+record:Id=3|Name="plain"|Tail="t"
+record:Id=4|Name="multi\r\nline"|Tail="t"
+record:Id=5|Name=""|Tail="t"
+record:Id=6|Name=" "spaced""|Tail="t"
+record:Id=7|Name=""|Tail="t"
+error:9:FileHelpersException:Line: 9. Expected 3 fields but found 2 in line: '8,"n"'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:8,"n"
+error:10:BadUsageException:Line: 10. Expected 3 fields but found 4 in line: '9,"n",t,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:9,"n",t,x
+error:11:ConvertException:Line: 11. Column: 1. Field: Id. Error Converting 'x10' to type: 'Int32'. :x10,"n",t
+error:12:BadUsageException:Line: 12 Column: 4. The field 'Name' is quoted but the quote char " is not just before the separator (You can use [FieldTrim] to avoid this error).:11,"closed"junk,t
+error:13:FileHelpersException:Line: 13. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+error:14:BadUsageException:Line: 14. Expected 3 fields but found 4 in line: '12,"open,t\r\n1,"Smith, John",t'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:12,"open,t\r\n1,"Smith, John",t
+header:<null>
+footer:<null>
+line:8
+total:7
+recycled-record:Id=1|Name="Smith, John"|Tail="t"
+recycled-record:Id=2|Name="say "hi""|Tail="t"
+recycled-record:Id=3|Name="plain"|Tail="t"
+recycled-record:Id=4|Name="multi\r\nline"|Tail="t"
+recycled-record:Id=5|Name=""|Tail="t"
+recycled-record:Id=6|Name=" "spaced""|Tail="t"
+recycled-record:Id=7|Name=""|Tail="t"
+recycled-count:7
+recycled-error:9:FileHelpersException:Line: 9. Expected 3 fields but found 2 in line: '8,"n"'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:8,"n"
+recycled-error:10:BadUsageException:Line: 10. Expected 3 fields but found 4 in line: '9,"n",t,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:9,"n",t,x
+recycled-error:11:ConvertException:Line: 11. Column: 1. Field: Id. Error Converting 'x10' to type: 'Int32'. :x10,"n",t
+recycled-error:12:BadUsageException:Line: 12 Column: 4. The field 'Name' is quoted but the quote char " is not just before the separator (You can use [FieldTrim] to avoid this error).:11,"closed"junk,t
+recycled-error:13:FileHelpersException:Line: 13. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+recycled-error:14:BadUsageException:Line: 14. Expected 3 fields but found 4 in line: '12,"open,t\r\n1,"Smith, John",t'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:12,"open,t\r\n1,"Smith, John",t
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:8
+recycled-total:7
+thrown-throw:FileHelpersException:Line: 9. Expected 3 fields but found 2 in line: '8,"n"'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:8
+thrown-total:7
+#### 8 all-together round-trip
+written:1,"Smith, John",t\r\n2,"say ""hi""",t\r\n3,"plain",t\r\n4,"multi\r\nline",t\r\n5,"",t\r\n6," ""spaced""",t\r\n7,"",t\r\n
+error:9:FileHelpersException:Line: 9. Expected 3 fields but found 2 in line: '8,"n"'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:8,"n"
+error:10:BadUsageException:Line: 10. Expected 3 fields but found 4 in line: '9,"n",t,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:9,"n",t,x
+error:11:ConvertException:Line: 11. Column: 1. Field: Id. Error Converting 'x10' to type: 'Int32'. :x10,"n",t
+error:12:BadUsageException:Line: 12 Column: 4. The field 'Name' is quoted but the quote char " is not just before the separator (You can use [FieldTrim] to avoid this error).:11,"closed"junk,t
+error:13:FileHelpersException:Line: 13. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+error:14:BadUsageException:Line: 14. Expected 3 fields but found 4 in line: '12,"open,t\r\n1,"Smith, John",t'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:12,"open,t\r\n1,"Smith, John",t
+header:<null>
+footer:<null>
+line:8
+total:7
+written-extra:line-break:1,"a\r\nb",t\r\n
+written-extra:quote-and-separator:2,"say ""hi"", ok",t\r\n
+written-extra:plain:3,"plain",t\r\n
+written-extra:nulls:4,"",\r\n
+written-extra:long:5,"wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",t\r\n

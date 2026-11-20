@@ -8,32 +8,34 @@ namespace ModernLibs.FileHelpers;
 /// grows by doubling on overflow and returns the old buffer to the pool before renting a
 /// larger one. Disposal returns the current buffer.
 /// </summary>
-internal sealed class RentedBufferWriter : IBufferWriter<char>, IDisposable
+/// <remarks>
+/// The first <see cref="RecordWriteBuffer"/>: 4.10 descriptors format into it through a <see cref="RecordWriter"/>,
+/// 4.8 and 4.9 descriptors through <see cref="IBufferWriter{T}"/> with <see cref="RecordWriteBuffer.NewLine"/> set,
+/// as before.
+/// </remarks>
+internal sealed class RentedBufferWriter : RecordWriteBuffer, IBufferWriter<char>, IDisposable
 {
-    private char[] _buffer;
-    private int _written;
     private bool _disposed;
 
     public RentedBufferWriter(int initialSize)
+        : base(ArrayPool<char>.Shared.Rent(initialSize))
     {
-        _buffer = ArrayPool<char>.Shared.Rent(initialSize);
-        _written = 0;
     }
 
-    /// <summary>
-    /// The engine's <c>NewLineForWrite</c>, written before each <see cref="FieldInNewLineAttribute"/> field
-    /// (see <see cref="RecordFormatting.WriteFieldNewLine"/>).
-    /// </summary>
-    public string NewLine { get; set; } = "\r\n";
-
     /// <summary>Span of chars written since the last <see cref="Reset"/>.</summary>
-    public ReadOnlySpan<char> WrittenSpan => _buffer.AsSpan(0, _written);
+    public ReadOnlySpan<char> WrittenSpan => Storage.AsSpan(0, Committed);
+
+    /// <summary><see cref="WrittenSpan"/> as memory, for an asynchronous write.</summary>
+    public ReadOnlyMemory<char> WrittenMemory => Storage.AsMemory(0, Committed);
+
+    /// <summary>Number of chars written since the last <see cref="Reset"/>.</summary>
+    public int WrittenCount => Committed;
 
     /// <summary>Marks the buffer empty without returning it to the pool — reuse across records.</summary>
     public void Reset()
     {
         ThrowIfDisposed();
-        _written = 0;
+        Committed = 0;
     }
 
     public void Advance(int count)
@@ -41,23 +43,34 @@ internal sealed class RentedBufferWriter : IBufferWriter<char>, IDisposable
         ThrowIfDisposed();
         if (count < 0)
             throw new ArgumentOutOfRangeException(nameof(count), count, "Advance count must be non-negative.");
-        if (_written + count > _buffer.Length)
+        if (Committed + count > Storage.Length)
             throw new InvalidOperationException("Cannot advance past the current buffer capacity. Ensure GetSpan/GetMemory was called with a sufficient sizeHint.");
-        _written += count;
+        Committed += count;
     }
 
     public Memory<char> GetMemory(int sizeHint = 0)
     {
         ThrowIfDisposed();
         EnsureCapacity(sizeHint);
-        return _buffer.AsMemory(_written);
+        return Storage.AsMemory(Committed);
     }
 
     public Span<char> GetSpan(int sizeHint = 0)
     {
         ThrowIfDisposed();
         EnsureCapacity(sizeHint);
-        return _buffer.AsSpan(_written);
+        return Storage.AsSpan(Committed);
+    }
+
+    /// <summary>
+    /// Growth for a <see cref="RecordWriter"/>: a larger rental that holds the committed text and the
+    /// <paramref name="used"/> chars of the record after it, with at least <paramref name="minFree"/> chars free.
+    /// </summary>
+    internal override Span<char> GrowRecord(int used, int minFree)
+    {
+        ThrowIfDisposed();
+        Grow(checked(Committed + used + minFree), Committed + used);
+        return Storage.AsSpan(Committed);
     }
 
     private void EnsureCapacity(int sizeHint)
@@ -68,27 +81,39 @@ internal sealed class RentedBufferWriter : IBufferWriter<char>, IDisposable
         // IBufferWriter<T> contract: sizeHint == 0 means "any amount > 0 is fine". Guarantee
         // at least one free slot in that case so callers never see a zero-length span.
         int minRequested = sizeHint == 0 ? 1 : sizeHint;
-        int required = _written + minRequested;
-        if (required <= _buffer.Length)
+        int required = Committed + minRequested;
+        if (required <= Storage.Length)
             return;
 
+        Grow(required, Committed);
+    }
+
+    /// <summary>Rents an array of at least <paramref name="required"/> chars and keeps the first <paramref name="keep"/>.</summary>
+    private void Grow(int required, int keep)
+    {
         // Grow by doubling until the required capacity fits.
-        // Math.Max seeds newSize at `required` when _buffer.Length is 0 (e.g. post-dispose),
+        // Math.Max seeds newSize at `required` when the buffer length is 0 (e.g. post-dispose),
         // preventing an infinite loop where 0 * 2 never reaches the required threshold.
-        int newSize = Math.Max(_buffer.Length * 2, required);
-        while (newSize < required)
-            newSize *= 2;
+        int newSize = NextSize(Storage.Length, required);
 
         char[] larger = ArrayPool<char>.Shared.Rent(newSize);
-        _buffer.AsSpan(0, _written).CopyTo(larger);
-        ArrayPool<char>.Shared.Return(_buffer);
-        _buffer = larger;
+        Storage.AsSpan(0, keep).CopyTo(larger);
+        ArrayPool<char>.Shared.Return(Storage);
+        Storage = larger;
     }
+
+    /// <summary>
+    /// The size of the next rental: twice <paramref name="length"/>, at most <see cref="Array.MaxLength"/>, and at least
+    /// <paramref name="required"/>. Before 4.10 the doubling was computed in <see cref="int"/>, so above 2^30 chars it
+    /// overflowed and the size fell back to <paramref name="required"/>; now it stops at <see cref="Array.MaxLength"/>.
+    /// </summary>
+    internal static int NextSize(int length, int required) =>
+        (int)Math.Max(Math.Min(2L * length, Array.MaxLength), required);
 
     private void ThrowIfDisposed()
     {
         // Guard post-disposal reuse. Without this, GetSpan(0)/EnsureCapacity(0) on a
-        // disposed writer would loop forever (_buffer.Length == 0 → newSize = 0 → never grows).
+        // disposed writer would loop forever (buffer length 0 → newSize = 0 → never grows).
         ObjectDisposedException.ThrowIf(_disposed, this);
     }
 
@@ -98,9 +123,9 @@ internal sealed class RentedBufferWriter : IBufferWriter<char>, IDisposable
             return;
 
         _disposed = true;
-        if (_buffer.Length > 0)
-            ArrayPool<char>.Shared.Return(_buffer);
-        _buffer = [];
-        _written = 0;
+        if (Storage.Length > 0)
+            ArrayPool<char>.Shared.Return(Storage);
+        Storage = [];
+        Committed = 0;
     }
 }

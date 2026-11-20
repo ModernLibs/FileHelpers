@@ -1,0 +1,215 @@
+#### 0 valid read
+record:Id=1|Name="a"|Day=2026-11-08T00:00:00.0000000
+record:Id=2|Name="b"|Day=2024-02-29T00:00:00.0000000
+header:<null>
+footer:<null>
+line:4
+total:2
+recycled-skipped:no ParseInto
+thrown-count:2
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:4
+thrown-total:2
+#### 0 valid round-trip
+written:1,a,2026-11-08\r\n2,b,2024-02-29\r\n
+header:<null>
+footer:<null>
+line:4
+total:2
+written-extra:null-name:1,,0001-01-01\r\n
+written-extra:separator:2,a,b,9999-12-31\r\n
+#### 1 short-row read
+record:Id=1|Name="a"|Day=2026-11-08T00:00:00.0000000
+record:Id=1|Name="a"|Day=2026-11-08T00:00:00.0000000
+record:Id=2|Name="b"|Day=2024-02-29T00:00:00.0000000
+error:2:FileHelpersException:Line: 2. Expected 3 fields but found 2 in line: '3,c'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:3,c
+header:<null>
+footer:<null>
+line:6
+total:3
+recycled-skipped:no ParseInto
+thrown-throw:FileHelpersException:Line: 2. Expected 3 fields but found 2 in line: '3,c'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 1 short-row round-trip
+written:1,a,2026-11-08\r\n1,a,2026-11-08\r\n2,b,2024-02-29\r\n
+error:2:FileHelpersException:Line: 2. Expected 3 fields but found 2 in line: '3,c'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:3,c
+header:<null>
+footer:<null>
+line:6
+total:3
+written-extra:null-name:1,,0001-01-01\r\n
+written-extra:separator:2,a,b,9999-12-31\r\n
+#### 2 long-row read
+record:Id=1|Name="a"|Day=2026-11-08T00:00:00.0000000
+record:Id=1|Name="a"|Day=2026-11-08T00:00:00.0000000
+record:Id=2|Name="b"|Day=2024-02-29T00:00:00.0000000
+error:2:BadUsageException:Line: 2. Expected 3 fields but found 4 in line: '4,d,2026-01-01,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:4,d,2026-01-01,x
+header:<null>
+footer:<null>
+line:6
+total:3
+recycled-skipped:no ParseInto
+thrown-throw:BadUsageException:Line: 2. Expected 3 fields but found 4 in line: '4,d,2026-01-01,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 2 long-row round-trip
+written:1,a,2026-11-08\r\n1,a,2026-11-08\r\n2,b,2024-02-29\r\n
+error:2:BadUsageException:Line: 2. Expected 3 fields but found 4 in line: '4,d,2026-01-01,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:4,d,2026-01-01,x
+header:<null>
+footer:<null>
+line:6
+total:3
+written-extra:null-name:1,,0001-01-01\r\n
+written-extra:separator:2,a,b,9999-12-31\r\n
+#### 3 bad-values read
+record:Id=1|Name="a"|Day=2026-11-08T00:00:00.0000000
+record:Id=1|Name="a"|Day=2026-11-08T00:00:00.0000000
+record:Id=2|Name="b"|Day=2024-02-29T00:00:00.0000000
+error:2:ConvertException:Line: 2. Column: 5. Field: Day. Error Converting '2026-02-30' to type: 'DateTime'. :5,e,2026-02-30
+error:3:NullValueNotFoundException:Line: 3 Column: 5. No value found for the value type field: 'Day' Class: 'T'. You must use the [FieldNullValue] attribute because this is a value type and can't be null or use a Nullable Type instead of the current type.:6,f,
+header:<null>
+footer:<null>
+line:7
+total:3
+recycled-skipped:no ParseInto
+thrown-throw:ConvertException:Line: 2. Column: 5. Field: Day. Error Converting '2026-02-30' to type: 'DateTime'. 
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 3 bad-values round-trip
+written:1,a,2026-11-08\r\n1,a,2026-11-08\r\n2,b,2024-02-29\r\n
+error:2:ConvertException:Line: 2. Column: 5. Field: Day. Error Converting '2026-02-30' to type: 'DateTime'. :5,e,2026-02-30
+error:3:NullValueNotFoundException:Line: 3 Column: 5. No value found for the value type field: 'Day' Class: 'T'. You must use the [FieldNullValue] attribute because this is a value type and can't be null or use a Nullable Type instead of the current type.:6,f,
+header:<null>
+footer:<null>
+line:7
+total:3
+written-extra:null-name:1,,0001-01-01\r\n
+written-extra:separator:2,a,b,9999-12-31\r\n
+#### 4 unclosed-quote read
+record:Id=1|Name="a"|Day=2026-11-08T00:00:00.0000000
+record:Id=7|Name=""g"|Day=2026-01-01T00:00:00.0000000
+record:Id=1|Name="a"|Day=2026-11-08T00:00:00.0000000
+record:Id=2|Name="b"|Day=2024-02-29T00:00:00.0000000
+header:<null>
+footer:<null>
+line:6
+total:4
+recycled-skipped:no ParseInto
+thrown-count:4
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:6
+thrown-total:4
+#### 4 unclosed-quote round-trip
+written:1,a,2026-11-08\r\n7,"g,2026-01-01\r\n1,a,2026-11-08\r\n2,b,2024-02-29\r\n
+header:<null>
+footer:<null>
+line:6
+total:4
+written-extra:null-name:1,,0001-01-01\r\n
+written-extra:separator:2,a,b,9999-12-31\r\n
+#### 5 empty-line read
+record:Id=1|Name="a"|Day=2026-11-08T00:00:00.0000000
+record:Id=1|Name="a"|Day=2026-11-08T00:00:00.0000000
+record:Id=2|Name="b"|Day=2024-02-29T00:00:00.0000000
+error:2:FileHelpersException:Line: 2. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+header:<null>
+footer:<null>
+line:6
+total:3
+recycled-skipped:no ParseInto
+thrown-throw:FileHelpersException:Line: 2. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 5 empty-line round-trip
+written:1,a,2026-11-08\r\n1,a,2026-11-08\r\n2,b,2024-02-29\r\n
+error:2:FileHelpersException:Line: 2. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+header:<null>
+footer:<null>
+line:6
+total:3
+written-extra:null-name:1,,0001-01-01\r\n
+written-extra:separator:2,a,b,9999-12-31\r\n
+#### 6 empty-input read
+header:<null>
+footer:<null>
+line:0
+total:0
+recycled-skipped:no ParseInto
+thrown-count:0
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:0
+thrown-total:0
+#### 6 empty-input round-trip
+written:
+header:<null>
+footer:<null>
+line:0
+total:0
+written-extra:null-name:1,,0001-01-01\r\n
+written-extra:separator:2,a,b,9999-12-31\r\n
+#### 7 lf-no-final-line-end read
+record:Id=1|Name="a"|Day=2026-11-08T00:00:00.0000000
+record:Id=2|Name="b"|Day=2024-02-29T00:00:00.0000000
+header:<null>
+footer:<null>
+line:4
+total:2
+recycled-skipped:no ParseInto
+thrown-count:2
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:4
+thrown-total:2
+#### 7 lf-no-final-line-end round-trip
+written:1,a,2026-11-08\r\n2,b,2024-02-29\r\n
+header:<null>
+footer:<null>
+line:4
+total:2
+written-extra:null-name:1,,0001-01-01\r\n
+written-extra:separator:2,a,b,9999-12-31\r\n
+#### 8 all-together read
+record:Id=1|Name="a"|Day=2026-11-08T00:00:00.0000000
+record:Id=2|Name="b"|Day=2024-02-29T00:00:00.0000000
+record:Id=7|Name=""g"|Day=2026-01-01T00:00:00.0000000
+record:Id=1|Name="a"|Day=2026-11-08T00:00:00.0000000
+error:5:FileHelpersException:Line: 5. Expected 3 fields but found 2 in line: '3,c'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:3,c
+error:6:BadUsageException:Line: 6. Expected 3 fields but found 4 in line: '4,d,2026-01-01,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:4,d,2026-01-01,x
+error:7:ConvertException:Line: 7. Column: 5. Field: Day. Error Converting '2026-02-30' to type: 'DateTime'. :5,e,2026-02-30
+error:8:NullValueNotFoundException:Line: 8 Column: 5. No value found for the value type field: 'Day' Class: 'T'. You must use the [FieldNullValue] attribute because this is a value type and can't be null or use a Nullable Type instead of the current type.:6,f,
+error:9:FileHelpersException:Line: 9. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+header:<null>
+footer:<null>
+line:11
+total:4
+recycled-skipped:no ParseInto
+thrown-throw:FileHelpersException:Line: 5. Expected 3 fields but found 2 in line: '3,c'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:4
+thrown-total:2
+#### 8 all-together round-trip
+written:1,a,2026-11-08\r\n2,b,2024-02-29\r\n7,"g,2026-01-01\r\n1,a,2026-11-08\r\n
+error:5:FileHelpersException:Line: 5. Expected 3 fields but found 2 in line: '3,c'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:3,c
+error:6:BadUsageException:Line: 6. Expected 3 fields but found 4 in line: '4,d,2026-01-01,x'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:4,d,2026-01-01,x
+error:7:ConvertException:Line: 7. Column: 5. Field: Day. Error Converting '2026-02-30' to type: 'DateTime'. :5,e,2026-02-30
+error:8:NullValueNotFoundException:Line: 8 Column: 5. No value found for the value type field: 'Day' Class: 'T'. You must use the [FieldNullValue] attribute because this is a value type and can't be null or use a Nullable Type instead of the current type.:6,f,
+error:9:FileHelpersException:Line: 9. Expected 3 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+header:<null>
+footer:<null>
+line:11
+total:4
+written-extra:null-name:1,,0001-01-01\r\n
+written-extra:separator:2,a,b,9999-12-31\r\n

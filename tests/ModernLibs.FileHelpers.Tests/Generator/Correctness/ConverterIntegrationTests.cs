@@ -205,7 +205,7 @@ public sealed class ConverterIntegrationTests
             {
                 public static string Run()
                 {
-                    var engine = new FileHelperEngine<R>();
+                    var engine = new FileHelperEngine<R> { NewLineForWrite = "\r\n" };
                     string written = engine.WriteString(new[] { new R { A = 1 }, new R { A = 2, M = new Money(3.5m), D = new DateOnly(2024, 1, 2) } }).Replace("\r\n", ";");
                     var back = engine.ReadString(written.Replace(";", "\r\n"));
                     return written + "|" + (back[0].M is null) + (back[0].D is null) + "|" + back[1].M!.Value.Amount + " " + back[1].D;

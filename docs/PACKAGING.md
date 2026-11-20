@@ -12,6 +12,8 @@ package; it is embedded in the library package as an analyzer.
 ModernLibs.FileHelpers.<version>.nupkg
 ├── lib/net10.0/ModernLibs.FileHelpers.dll
 ├── lib/net10.0/ModernLibs.FileHelpers.xml                 XML documentation
+├── lib/net11.0/ModernLibs.FileHelpers.dll                 compiled with runtime async
+├── lib/net11.0/ModernLibs.FileHelpers.xml                 XML documentation
 ├── analyzers/dotnet/cs/ModernLibs.FileHelpers.Generator.dll  source generator and analyzer
 ├── build/ModernLibs.FileHelpers.props                      FileHelpersMaxFieldWidth (direct references)
 ├── buildTransitive/ModernLibs.FileHelpers.props            the same, for transitive references
@@ -20,10 +22,14 @@ ModernLibs.FileHelpers.<version>.nupkg
 └── LICENSE
 ```
 
-- The package targets `net10.0` only and has no package dependencies. It requires C# 11 or later
+- The package targets `net10.0` and `net11.0` and has no package dependencies. It requires C# 11 or later
   (`MLFH026`): the generated code uses `file`-scoped types, so below C# 11 nothing is generated and
   every record type reports `MLFH026`. The .NET 10 default is C# 14, so this only affects projects that
   pin an older `LangVersion`.
+- The `net11.0` asset is compiled with runtime async (`Features=runtime-async=on`, set by the MSBuild
+  property `FileHelpersRuntimeAsync`, default `true`, applied to `net11.0` only). Building with
+  `-p:FileHelpersRuntimeAsync=false` gives the escape-hatch build without it. The `Features` value is
+  hashed into the compile-inputs cache, so switching the property recompiles without `--no-incremental`.
 - `ModernLibs.FileHelpers.Generator.dll` contains both the source generator and the analyzer
   (`FileHelpersAnalyzer`) that reports the `MLFH` diagnostics; the generator reports only `MLFH020`
   itself. `MLFH` warnings can be suppressed as usual; errors that block the descriptor cannot
@@ -112,7 +118,7 @@ milestone tag cannot publish only because that secret does not exist (see the wa
 ### Triggers
 
 - **Pushing a tag** `v*`: validate, build (with `-p:Version`, so the assemblies carry the release
-  version), run the TUnit and xUnit suites (a run with no tests fails), pack the library, verify the
+  version), run the TUnit suite on both targets (a run with no tests fails), pack the library, verify the
   package contents and version stamp, then publish and create a GitHub release. Versions with a `-`
   suffix are marked as pre-releases.
 - **Manual run** (`workflow_dispatch`) with inputs `tag` (an existing tag, for example `v4.8.0`) and
@@ -144,7 +150,7 @@ SHA and the comment together.
 
 ## Release checklist
 
-1. All tests pass (see [CONTRIBUTING.md](../CONTRIBUTING.md)): TUnit tests, mutation-target tests and
+1. All tests pass (see [CONTRIBUTING.md](../CONTRIBUTING.md)): TUnit tests (the Mutation category included) and
    the fuzz seed corpus.
 2. `CHANGELOG.md`: move the `Unreleased` entries under the new version and set the date.
 3. Public API: move the entries of `src/ModernLibs.FileHelpers/PublicAPI.Unshipped.txt` to

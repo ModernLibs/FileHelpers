@@ -139,7 +139,7 @@ public sealed class IFileHelperAsyncEngineTests
         IFileHelperAsyncEngine<CsvOrder> engine = new FileHelperAsyncEngine<CsvOrder>();
 
         // Assert: Initial property values
-        await Assert.That(engine.HeaderText).IsNull();
+        await Assert.That(engine.HeaderText).IsEqualTo(string.Empty);
         await Assert.That(engine.LastRecord).IsNull();
         await Assert.That(engine.Encoding).IsEqualTo(Encoding.UTF8);
         await Assert.That(engine.ErrorManager).IsNotNull();

@@ -1,1 +1,62 @@
 #nullable enable
+ModernLibs.FileHelpers.FileHelperEngine<T>.ReadFileAsList(string! filePath) -> System.Collections.Generic.List<T>!
+ModernLibs.FileHelpers.FileHelperEngine<T>.ReadFileAsList(string! filePath, int maxRecords) -> System.Collections.Generic.List<T>!
+ModernLibs.FileHelpers.FileHelperEngine<T>.ReadStringAsList(string! content) -> System.Collections.Generic.List<T>!
+ModernLibs.FileHelpers.FileHelperEngine<T>.ReadStringAsList(string! content, int maxRecords) -> System.Collections.Generic.List<T>!
+ModernLibs.FileHelpers.FileHelperEngine<T>.ReadStreamAsList(System.IO.TextReader! reader) -> System.Collections.Generic.List<T>!
+ModernLibs.FileHelpers.FileHelperEngine<T>.ReadStreamAsList(System.IO.TextReader! reader, int maxRecords) -> System.Collections.Generic.List<T>!
+ModernLibs.FileHelpers.IFileHelperEngine<T>.ReadFileAsList(string! filePath) -> System.Collections.Generic.List<T>!
+ModernLibs.FileHelpers.IFileHelperEngine<T>.ReadFileAsList(string! filePath, int maxRecords) -> System.Collections.Generic.List<T>!
+ModernLibs.FileHelpers.IFileHelperEngine<T>.ReadStringAsList(string! content) -> System.Collections.Generic.List<T>!
+ModernLibs.FileHelpers.IFileHelperEngine<T>.ReadStringAsList(string! content, int maxRecords) -> System.Collections.Generic.List<T>!
+ModernLibs.FileHelpers.IFileHelperEngine<T>.ReadStreamAsList(System.IO.TextReader! reader) -> System.Collections.Generic.List<T>!
+ModernLibs.FileHelpers.IFileHelperEngine<T>.ReadStreamAsList(System.IO.TextReader! reader, int maxRecords) -> System.Collections.Generic.List<T>!
+ModernLibs.FileHelpers.FileHelperEngine<T>.GetFileHeader() -> string!
+ModernLibs.FileHelpers.FileHelperAsyncEngine<T>.GetFileHeader() -> string!
+ModernLibs.FileHelpers.FieldDescriptor.TrimGivenChars.get -> bool
+ModernLibs.FileHelpers.FieldDescriptor.TrimGivenChars.init -> void
+ModernLibs.FileHelpers.FieldTrimAttribute.TrimGivenChars.get -> bool
+ModernLibs.FileHelpers.FieldTrimAttribute.TrimGivenChars.set -> void
+ModernLibs.FileHelpers.FileHelperEngine<T>.ReadStream(System.IO.Stream! stream) -> T[]!
+ModernLibs.FileHelpers.FileHelperEngine<T>.ReadStream(System.IO.Stream! stream, int maxRecords) -> T[]!
+ModernLibs.FileHelpers.IFileHelperEngine<T>.ReadStream(System.IO.Stream! stream) -> T[]!
+ModernLibs.FileHelpers.IFileHelperEngine<T>.ReadStream(System.IO.Stream! stream, int maxRecords) -> T[]!
+ModernLibs.FileHelpers.FileHelperEngine<T>.ReadAsync(System.IO.Stream! stream, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<T>!
+ModernLibs.FileHelpers.FileHelperEngine<T>.ReadAsync(System.IO.TextReader! reader, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<T>!
+ModernLibs.FileHelpers.FileHelperEngine<T>.WriteStreamAsync(System.IO.Stream! stream, System.Collections.Generic.IEnumerable<T>! records, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+ModernLibs.FileHelpers.FileHelperEngine<T>.WriteStreamAsync(System.IO.TextWriter! writer, System.Collections.Generic.IEnumerable<T>! records, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+ModernLibs.FileHelpers.FileHelperAsyncEngine<T>.ReadAsync(System.IO.Stream! stream, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<T>!
+ModernLibs.FileHelpers.FileHelperAsyncEngine<T>.ReadAsync(System.IO.TextReader! reader, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Collections.Generic.IAsyncEnumerable<T>!
+static ModernLibs.FileHelpers.RecordParsing.Column(System.ReadOnlySpan<char> record, System.ReadOnlySpan<char> value) -> int
+static ModernLibs.FileHelpers.RecordParsing.ConvertError(System.ReadOnlySpan<char> record, System.ReadOnlySpan<char> value, System.Type! type, string! field, string? extra, System.Exception? inner) -> ModernLibs.FileHelpers.ConvertException!
+static ModernLibs.FileHelpers.RecordParsing.NullValueNotFound(System.ReadOnlySpan<char> record, System.ReadOnlySpan<char> value, string! field, string! recordType) -> ModernLibs.FileHelpers.NullValueNotFoundException!
+static ModernLibs.FileHelpers.RecordParsing.ConverterFailure(System.ReadOnlySpan<char> record, System.ReadOnlySpan<char> value, System.Type! type, string! field, string! converter, System.Exception! exception) -> ModernLibs.FileHelpers.ConvertException!
+static ModernLibs.FileHelpers.RecordParsing.CreateString(System.ReadOnlySpan<char> value) -> string!
+static ModernLibs.FileHelpers.RecordParsing.Unquote(System.ReadOnlySpan<char> inner, char quote) -> System.ReadOnlySpan<char>
+static ModernLibs.FileHelpers.RecordParsing.UnquoteToString(System.ReadOnlySpan<char> inner, char quote) -> string!
+ModernLibs.FileHelpers.ITokenizedDescriptor<T>
+ModernLibs.FileHelpers.ITokenizedDescriptor<T>.TryParse(System.ReadOnlySpan<char> record, in ModernLibs.FileHelpers.RecordTokens tokens, out T result) -> bool
+ModernLibs.FileHelpers.ITokenizedDescriptor<T>.TryParseInto(System.ReadOnlySpan<char> record, in ModernLibs.FileHelpers.RecordTokens tokens, T existing) -> bool
+ModernLibs.FileHelpers.RecordTokens
+ModernLibs.FileHelpers.RecordTokens.Count.get -> int
+ModernLibs.FileHelpers.RecordTokens.GetString(int index) -> string!
+ModernLibs.FileHelpers.RecordTokens.GetValue(int index) -> System.ReadOnlySpan<char>
+ModernLibs.FileHelpers.RecordTokens.IsQuoted(int index) -> bool
+ModernLibs.FileHelpers.RecordTokens.RecordTokens() -> void
+ModernLibs.FileHelpers.IRecordWriterDescriptor<T>
+ModernLibs.FileHelpers.IRecordWriterDescriptor<T>.Format(T record, ref ModernLibs.FileHelpers.RecordWriter writer) -> void
+ModernLibs.FileHelpers.RecordWriter
+ModernLibs.FileHelpers.RecordWriter.RecordWriter() -> void
+ModernLibs.FileHelpers.RecordWriter.Position.get -> int
+ModernLibs.FileHelpers.RecordWriter.FreeSpan.get -> System.Span<char>
+ModernLibs.FileHelpers.RecordWriter.Advance(int count) -> void
+ModernLibs.FileHelpers.RecordWriter.Grow(object! converter) -> void
+ModernLibs.FileHelpers.RecordWriter.Reserve(int count) -> void
+ModernLibs.FileHelpers.RecordWriter.Write(char value) -> void
+ModernLibs.FileHelpers.RecordWriter.Write(scoped System.ReadOnlySpan<char> text) -> void
+ModernLibs.FileHelpers.RecordWriter.WriteNewLine() -> void
+ModernLibs.FileHelpers.RecordWriter.Quote(int fieldStart, char quote, bool always, bool multilineWrite, string! separator, string! field) -> void
+ModernLibs.FileHelpers.RecordWriter.WriteQuoted(scoped System.ReadOnlySpan<char> text, char quote, bool always, bool multilineWrite, string! separator, string! field) -> void
+ModernLibs.FileHelpers.RecordWriter.Pad(int fieldStart, int width, int align, char pad, bool overflowError, string! field) -> void
+ModernLibs.FileHelpers.RecordWriter.WritePadded(scoped System.ReadOnlySpan<char> text, int width, int align, char pad, bool overflowError, string! field) -> void
+static ModernLibs.FileHelpers.RecordFormatting.Format<T>(ModernLibs.FileHelpers.IRecordWriterDescriptor<T>! descriptor, T record, System.Buffers.IBufferWriter<char>! writer) -> void

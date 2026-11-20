@@ -39,7 +39,23 @@ internal sealed class RecordReadCore<T> : ILogicalLineRules
     private readonly int[]? _fieldSegment;
     private T? _recycled;
 
+    // The tokenized read path (G1, design 4.5): the descriptor's TryParse/TryParseInto, set only when Tokenized, and
+    // whether the tokenizer may use its vector loop.
+    private readonly ITokenizedDescriptor<T>? _tokenized;
+    private readonly bool _vectorTokenizer;
+
+    // The quote char of the quoted fields of a tokenized record type ('\0' when it has none or is not tokenized):
+    // its records are then tokenized by RecordTokenizer.TokenizeQuoted, also during the assembler's scan.
+    private readonly char _tokenQuote;
+
+    /// <summary>Creates the core with the paths the <see cref="RuntimeSwitches"/> select.</summary>
     public RecordReadCore(IRecordDescriptor<T> descriptor)
+        : this(descriptor, EnginePaths.FromSwitches)
+    {
+    }
+
+    /// <summary>Creates the core with explicit read paths (tests, fuzzing, benchmarks).</summary>
+    public RecordReadCore(IRecordDescriptor<T> descriptor, EnginePaths paths)
     {
         Descriptor = descriptor;
         Recyclable = descriptor as IRecyclableDescriptor<T>;
@@ -97,7 +113,49 @@ internal sealed class RecordReadCore<T> : ILogicalLineRules
             _scanPlan = QuoteBalanceScanner.Plan(Delimiter, _quotes, _trimStart, _scanDelimiters);
             _countPlan = QuoteBalanceScanner.Plan(Delimiter, _quotes, _trimStart, _fieldDelimiters);
         }
+
+        (_tokenized, _tokenQuote) = TokenizedDescriptor(descriptor, paths) is { } tokenized ? (tokenized, _countPlan.Quote) : (null, '\0');
+        _vectorTokenizer = !paths.ScalarTokenizer;
     }
+
+    /// <summary>
+    /// <paramref name="descriptor"/> as a tokenized descriptor when this record type takes the tokenized path
+    /// (design 4.5, eligibility table), otherwise <see langword="null"/>. A type with quoted fields needs the
+    /// conditions of <see cref="QuoteScanPlan.Vectorized"/> (T20): one quote char other than the one-char delimiter,
+    /// and no quoted field that skips trim chars before its quote. With one line per record and no
+    /// <c>[FieldDelimiter]</c>, <c>_scanPlan</c> and <c>_countPlan</c> are made from the same rules.
+    /// </summary>
+    private ITokenizedDescriptor<T>? TokenizedDescriptor(IRecordDescriptor<T> descriptor, EnginePaths paths) =>
+        descriptor is ITokenizedDescriptor<T> tokenized
+        && !paths.LegacyParse
+        && Delimiter.Length == 1
+        && LinesPerRecord == 1
+        && _segments is null
+        && _fieldDelimiters.Length == 0
+        && (!_quotes.AsSpan().ContainsAnyExcept('\0') || _countPlan.Vectorized)
+        && FieldCount is >= 1 and <= TokenBuffer.MaxFieldCount
+            ? tokenized
+            : null;
+
+    /// <summary>
+    /// The record type is read through <see cref="ITokenizedDescriptor{T}"/>: <see cref="Parse"/> and
+    /// <see cref="ParseInto"/> tokenize each record they get a <see cref="TokenBuffer"/> for.
+    /// </summary>
+    public bool Tokenized => _tokenized is not null;
+
+    /// <summary>
+    /// The loops the tokenizer runs for this core's records (T21): <see cref="RecordTokenizer.PlainLoop"/> and
+    /// <see cref="RecordTokenizer.QuotedLoop"/>, or <see cref="TokenizerLoop.IndexOfHop"/> for both with
+    /// <see cref="EnginePaths.ScalarTokenizer"/>.
+    /// </summary>
+    public (TokenizerLoop Plain, TokenizerLoop Quoted) TokenizerLoops =>
+        (RecordTokenizer.PlainLoopFor(_vectorTokenizer), RecordTokenizer.QuotedLoopFor(_vectorTokenizer));
+
+    /// <summary>
+    /// A buffer for <see cref="Parse"/> and <see cref="ParseInto"/>, owned by the caller (one per reader, never shared
+    /// between threads); <see langword="null"/> when the record type is not <see cref="Tokenized"/>.
+    /// </summary>
+    public TokenBuffer? CreateTokenBuffer() => Tokenized ? new TokenBuffer(FieldCount) : null;
 
     /// <summary>
     /// The delimiter that follows each field: its [FieldDelimiter] (FileHelpers 3.x), or <see langword="null"/>
@@ -202,6 +260,9 @@ internal sealed class RecordReadCore<T> : ILogicalLineRules
             quotes[i] = anyFieldQuote ? fields[i].QuoteChar : recordQuote;
             // Characters skipped before an opening quote (3.x: the [FieldTrim] chars, only when the start is trimmed).
             trimStart[i] = fields[i].TrimMode is TrimMode.Both or TrimMode.Left ? fields[i].TrimChars ?? " \t" : null;
+            // [FieldTrim(TrimGivenChars = true)]: the quote char is trimmed after unquoting, never skipped before the quote.
+            if (fields[i].TrimGivenChars && quotes[i] != '\0' && trimStart[i] is { } skip)
+                trimStart[i] = skip.Replace(quotes[i].ToString(), string.Empty, StringComparison.Ordinal);
             multilineRead[i] = quotes[i] != '\0'
                 && (anyFieldQuote ? fields[i].QuoteMultiline is MultilineMode.AllowForRead or MultilineMode.AllowForBoth : multiline);
         }
@@ -260,8 +321,12 @@ internal sealed class RecordReadCore<T> : ILogicalLineRules
     /// <remarks>
     /// A field whose multiline mode does not allow reading never opens a multiline record; its unclosed quote
     /// is reported by the generated parser (3.x: "unclosed quoted string").
+    /// <para>A tokenized record type with quoted fields tokenizes the line into <paramref name="tokens"/> during this
+    /// scan (T20, R6): the walk gives the same <c>(openField, endsInside)</c> as the scan, and
+    /// <see cref="QuoteScan.TokenCount"/> tells <see cref="Parse"/> whether the buffer holds the line's tokens. A
+    /// record type that is not tokenized scans as before, whatever buffer it is given.</para>
     /// </remarks>
-    public bool OpensMultiline(ReadOnlySpan<char> line, int groupLine, out int openField, out QuoteScan scan)
+    public bool OpensMultiline(ReadOnlySpan<char> line, int groupLine, TokenBuffer? tokens, out int openField, out QuoteScan scan)
     {
         openField = 0;
         scan = default;
@@ -281,11 +346,21 @@ internal sealed class RecordReadCore<T> : ILogicalLineRules
         if (!Multiline)
             return false;
 
-        bool endsInside = QuoteBalanceScanner.EndsInsideQuotes(line, startsInsideQuotes: false, Delimiter, _quotes, _trimStart, ref openField, _scanDelimiters, _scanPlan);
+        bool endsInside;
+        if (tokens is not null && _tokenQuote != '\0')
+        {
+            // _tokenQuote is set only for a tokenized type: one line per record, the rules of _scanPlan.
+            int count = RecordTokenizer.TokenizeQuoted(line, Delimiter[0], _tokenQuote, _quotes, tokens, _vectorTokenizer, out openField, out endsInside);
+            scan = new QuoteScan(Known: true, openField, endsInside, TokenCount: count);
+        }
+        else
+        {
+            endsInside = QuoteBalanceScanner.EndsInsideQuotes(line, startsInsideQuotes: false, Delimiter, _quotes, _trimStart, ref openField, _scanDelimiters, _scanPlan);
 
-        // One line per record: these are the rules ValidateFieldCount scans with, so it can reuse the result.
-        if (LinesPerRecord == 1)
-            scan = new QuoteScan(Known: true, openField, endsInside);
+            // One line per record: these are the rules ValidateFieldCount scans with, so it can reuse the result.
+            if (LinesPerRecord == 1)
+                scan = new QuoteScan(Known: true, openField, endsInside);
+        }
 
         return endsInside
             && (uint)openField < (uint)_multilineRead.Length
@@ -324,11 +399,23 @@ internal sealed class RecordReadCore<T> : ILogicalLineRules
     /// </summary>
     /// <param name="logicalRecord">The record text.</param>
     /// <param name="recycle">Reuse the recycled instance.</param>
-    /// <param name="scan">The assembler's quote scan of exactly this text (<see cref="LogicalLineAssembler.RecordScan"/>), if any.</param>
-    public T Parse(ReadOnlySpan<char> logicalRecord, bool recycle, QuoteScan scan = default)
+    /// <param name="scan">
+    /// The assembler's quote scan of exactly this text (<see cref="LogicalLineAssembler.RecordScan"/>), if any. Its
+    /// <see cref="QuoteScan.TokenCount"/>: above 0, <paramref name="tokens"/> holds the tokens of this text; -1, the
+    /// legacy path reads it; 0, the text is tokenized here.
+    /// </param>
+    /// <param name="tokens">
+    /// The caller's buffer from <see cref="CreateTokenBuffer"/>: a <see cref="Tokenized"/> record type then tries the
+    /// tokenized path first. Every record it does not handle (field count out of range, too long, or the descriptor
+    /// returns <see langword="false"/>) takes the legacy path, which owns every error.
+    /// </param>
+    public T Parse(ReadOnlySpan<char> logicalRecord, bool recycle, QuoteScan scan = default, TokenBuffer? tokens = null)
     {
         if (_segments is not null)
             return ParseGroup(logicalRecord, target: default, hasTarget: false, recycle);
+
+        if (tokens is not null && scan.TokenCount >= 0 && TryParseTokens(logicalRecord, tokens, scan.TokenCount, recycle, out var parsed))
+            return parsed;
 
         if (_validateFieldCount)
             ValidateFieldCount(logicalRecord, scan);
@@ -337,24 +424,80 @@ internal sealed class RecordReadCore<T> : ILogicalLineRules
 
     private T ParseValidated(ReadOnlySpan<char> logicalRecord, bool recycle)
     {
-        if (recycle && Recyclable is not null)
+        bool recycling = recycle && Recyclable is not null;
+        if (recycling && _recycled is { } recycled)
         {
-            if (_recycled is null)
-                _recycled = Descriptor.Parse(logicalRecord, LinesPerRecord);
-            else
-                Recyclable.ParseInto(logicalRecord, LinesPerRecord, _recycled);
-            return _recycled;
+            Recyclable!.ParseInto(logicalRecord, LinesPerRecord, recycled);
+            return recycled;
         }
 
-        return Descriptor.Parse(logicalRecord, LinesPerRecord);
+        return Remember(Descriptor.Parse(logicalRecord, LinesPerRecord), recycling);
     }
 
     private T ParseIntoValidated(ReadOnlySpan<char> logicalRecord, T target, bool recycle)
     {
         Recyclable!.ParseInto(logicalRecord, LinesPerRecord, target);
+        return Remember(target, recycle);
+    }
+
+    /// <summary>The recycling bookkeeping of every parse: <paramref name="record"/> becomes the recycled instance when <paramref name="recycle"/> is set.</summary>
+    private T Remember(T record, bool recycle)
+    {
         if (recycle)
-            _recycled = target;
-        return target;
+            _recycled = record;
+        return record;
+    }
+
+    /// <summary>
+    /// The tokenized path of <see cref="Parse"/>: the recycled instance through <c>TryParseInto</c>, otherwise a new
+    /// one through <c>TryParse</c>. <see langword="false"/> when the record is not tokenized or not handled.
+    /// </summary>
+    /// <param name="record">The record text.</param>
+    /// <param name="buffer">The reader's buffer.</param>
+    /// <param name="tokenCount">Fields the assembler's scan wrote into <paramref name="buffer"/> for this text; 0: tokenize here.</param>
+    /// <param name="recycle">Reuse the recycled instance.</param>
+    /// <param name="parsed">The record.</param>
+    private bool TryParseTokens(ReadOnlySpan<char> record, TokenBuffer buffer, int tokenCount, bool recycle, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out T parsed)
+    {
+        parsed = default;
+        if (_tokenized is not { } descriptor || !Tokenize(record, buffer, tokenCount, out var tokens))
+            return false;
+
+        bool recycling = recycle && Recyclable is not null;
+        if (recycling && _recycled is { } recycled)
+        {
+            parsed = recycled;
+            return descriptor.TryParseInto(record, in tokens, recycled);
+        }
+
+        if (!descriptor.TryParse(record, in tokens, out parsed))
+            return false;
+        parsed = Remember(parsed, recycling);
+        return true;
+    }
+
+    /// <summary>
+    /// The tokens of <paramref name="record"/> in <paramref name="buffer"/>: those the assembler's scan wrote
+    /// (<paramref name="tokenCount"/> above 0), or tokenized here (0). <see langword="false"/> when the tokenizer gives
+    /// no tokens (too long; with quoted fields also an unclosed quote or text after a closing quote) or the field count
+    /// is outside <c>[MandatoryFieldCount, FieldCount]</c>: the legacy path reports it.
+    /// </summary>
+    private bool Tokenize(ReadOnlySpan<char> record, TokenBuffer buffer, int tokenCount, out RecordTokens tokens)
+    {
+        int count = tokenCount > 0 ? tokenCount
+            : _tokenQuote != '\0' ? RecordTokenizer.TokenizeQuoted(record, Delimiter[0], _tokenQuote, _quotes, buffer, _vectorTokenizer, out _, out _)
+            : record.Length <= TokenBuffer.MaxRecordLength ? RecordTokenizer.TokenizePlain(record, Delimiter[0], buffer.Ends, _vectorTokenizer)
+            : -1;
+
+        // -1 (no tokens) is below every MandatoryFieldCount but 0, so it is tested apart.
+        if (count > 0 && count >= MandatoryFieldCount && count <= FieldCount)
+        {
+            tokens = buffer.Tokens(record, count, delimiterLength: 1, _tokenQuote);
+            return true;
+        }
+
+        tokens = default;
+        return false;
     }
 
     /// <summary>Validates and normalizes the physical lines of a delimited [FieldInNewLine] record, then parses it.</summary>
@@ -548,6 +691,9 @@ internal sealed class RecordReadCore<T> : ILogicalLineRules
 
         var rest = line[end..];
         ref readonly var field = ref Descriptor.Fields[segment.Start + segment.Count - 1];
+        // The full [FieldTrim] list, quote char included even with TrimGivenChars (where the skips before the opening
+        // quote leave it out): this is the last field of the line, and the generated parser ignores everything after
+        // its closing quote, so a quote char after it changes no result.
         return rest.IsEmpty
             || (field.TrimMode is TrimMode.Both or TrimMode.Right && rest.Trim(field.TrimChars ?? " \t").IsEmpty);
     }
@@ -609,10 +755,20 @@ internal sealed class RecordReadCore<T> : ILogicalLineRules
     /// Validates and parses into <paramref name="target"/> (from <see cref="TryGetParseTarget"/>), which then
     /// becomes the recycled instance when <paramref name="recycle"/> is set.
     /// </summary>
-    public T ParseInto(ReadOnlySpan<char> logicalRecord, T target, bool recycle)
+    /// <param name="logicalRecord">The record text.</param>
+    /// <param name="target">The instance to fill.</param>
+    /// <param name="recycle">Keep <paramref name="target"/> as the recycled instance.</param>
+    /// <param name="tokens">The caller's buffer from <see cref="CreateTokenBuffer"/>, as for <see cref="Parse"/>.</param>
+    public T ParseInto(ReadOnlySpan<char> logicalRecord, T target, bool recycle, TokenBuffer? tokens = null)
     {
         if (_segments is not null)
             return ParseGroup(logicalRecord, target, hasTarget: true, recycle);
+
+        if (tokens is not null && _tokenized is { } descriptor && Tokenize(logicalRecord, tokens, tokenCount: 0, out var recordTokens)
+            && descriptor.TryParseInto(logicalRecord, in recordTokens, target))
+        {
+            return Remember(target, recycle);
+        }
 
         if (_validateFieldCount)
             ValidateFieldCount(logicalRecord, scan: default);

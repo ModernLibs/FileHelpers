@@ -52,7 +52,7 @@ public sealed class MasterDetailEngineTests
     public async Task WriteString_WritesMasterThenDetails()
     {
         // Arrange: create grouped records.
-        var engine = new MasterDetailEngine<MasterRecord, DetailRecord>(_ => RecordAction.Skip);
+        var engine = new MasterDetailEngine<MasterRecord, DetailRecord>(_ => RecordAction.Skip) { NewLineForWrite = "\r\n" };
         var group = new MasterDetails<MasterRecord, DetailRecord>(
             new MasterRecord { Kind = "M", Id = "A" },
             [

@@ -88,7 +88,7 @@ The read, write and append methods of 3.x are available with the same names and 
 | `ReadFileAsList`, `ReadStringAsList`, `ReadStreamAsList` | Not available. Use `new List<T>(engine.ReadFile(path))` or the `IEnumerable<T>` returned by `ReadSync`. |
 | `ReadFileAsDT`, `ReadStringAsDT`, `ReadStreamAsDT` (`DataTable`) | Not available. |
 | `WriteFile` / `WriteStream` / `WriteString` with a `maxRecords` argument | Not available. Pass `records.Take(n)`. |
-| `GetFileHeader()` | Not available. `[FieldCaption]` is accepted and stored in the field metadata, but no header line is generated from it. Set `HeaderText` yourself. |
+| `GetFileHeader()` | Available from 4.10 on the `FileHelperEngine<T>` and `FileHelperAsyncEngine<T>` classes (not on the interfaces). Returns the same text as 3.x: the `[FieldCaption]` (else the member name) of every field, joined by the first field's delimiter (a tab for fixed-length records), unquoted, without a line terminator. It does not set `HeaderText`; for 3.x-style header writing use `engine.HeaderText = engine.GetFileHeader()`. |
 | `Options` (run-time layout changes) | Not available, see [2.1](#21-types-that-are-not-available). |
 | `RecordType` | Not available. You already know `typeof(T)`. |
 | `where T : class` | No constraint: structs and `record struct` types work too. |
@@ -166,7 +166,7 @@ Attribute names and the common constructors are unchanged. These signatures diff
 |---|---|
 | `[DelimitedRecord(delimiter, defaultCultureName)]`, `[FixedLengthRecord(fixedMode, defaultCultureName)]` | No culture parameter. Set the culture per field: `[FieldConverter(ConverterKind.Decimal, CultureName = "de-DE")]`. |
 | `[IgnoreCommentedLines("#")]`, `[IgnoreCommentedLines("//", anyPlace)]` (string marker) | `[IgnoreCommentedLines('#')]`, `[IgnoreCommentedLines('#', anyPlace)]`: the marker is a single `char`. `anyPlace` works as in 3.x (default `true`: blanks may precede the marker). |
-| `[FieldTrim(TrimMode, string trimChars)]` | `[FieldTrim(TrimMode, params char[] chars)]`, for example `[FieldTrim(TrimMode.Both, ' ', '*')]`. As in 3.x, the characters are skipped only around the quotes of a `[FieldQuoted]` field; the value itself is trimmed of white space. |
+| `[FieldTrim(TrimMode, string trimChars)]` | `[FieldTrim(TrimMode, params char[] chars)]`, for example `[FieldTrim(TrimMode.Both, ' ', '*')]`. As in 3.x, the characters are skipped only around the quotes of a `[FieldQuoted]` field; the value itself is trimmed of white space. Since 4.10, `TrimGivenChars = true` trims the given characters from the value instead (opt-in, see [3.x trim characters](#trim-characters-and-trimgivenchars)). |
 | `[FieldNullValue(typeof(DateTime), "2000-01-01")]` | Not available. Use a constant of the field type, for example `[FieldNullValue(-1)]` on an `int` field or `[FieldNullValue(0.0)]` on a `double` field. A value that does not fit the field type is reported as `MLFH010`. A `DateTime` value cannot be an attribute constant: declare the field as `DateTime?` (an empty field reads as `null`) and substitute the default in your code. |
 | `[FieldConverter(typeof(MyConverter), params object[] args)]` | `[FieldConverter(typeof(MyConverter), params string[] args)]`: the arguments must be strings. See [3.8](#38-custom-converters). |
 | `RecordCondition.IncludeIfMatchRegex`, `RecordCondition.ExcludeIfMatchRegex` | `RecordCondition.IncludeIfRegex`, `RecordCondition.ExcludeIfRegex` |
@@ -188,6 +188,48 @@ the multiline setting of every `[FieldQuoted]` field in the record.
 
 Enum *numeric values* are not always the same as in 3.x (`ErrorMode`, `RecordAction`, `ConverterKind`).
 This only matters if you store or cast the numbers; use the names.
+
+#### Trim characters and TrimGivenChars
+
+The characters of `[FieldTrim(mode, chars...)]` are **not** trimmed from the value in FileHelpers 3.x, and
+they are not by default here either (checked against 3.5.2: 48 of 48 read cases match):
+
+- On an unquoted value only white space is trimmed: `[FieldTrim(TrimMode.Both, 'x', ' ')]` reads
+  `xxCODExx ` as `xxCODExx`.
+- The characters act only on a `[FieldQuoted]` field (`OptionalForRead` or `AlwaysQuoted`), and only as a
+  run that is skipped in front of the optional opening quote (`Left`/`Both`) or after the closing quote
+  (`Right`/`Both`). An unquoted `xxCODExx ` then reads as `CODExx`; inside quotes nothing but white space is
+  trimmed (`"xxCODExx"` reads as `xxCODExx`).
+
+To trim the given characters, opt in with `TrimGivenChars` (new in 4.10, read only):
+
+```csharp
+[DelimitedRecord(",")]
+public class Row
+{
+    [FieldQuoted('"', QuoteMode.OptionalForRead)]
+    [FieldTrim(TrimMode.Both, 'x', ' ', TrimGivenChars = true)]
+    public string Code = "";   // xxCODExx ,  "xxCODExx" ,  xx CODE xx  and  "  xxCODExx  "  all read as CODE
+    public string Other = "";
+}
+```
+
+With the option the given characters (the 3.x white-space set when none are given) are trimmed per
+`TrimMode` after quote removal, for quoted and unquoted values. They replace the white-space trim, so a
+space that is not in the list stops the trim: with `'x'` alone, ` xxCODExx` reads as ` xxCODE`. A quote
+character in the list is not skipped before the opening quote (the quoted value is still recognised) and is
+trimmed after unquoting. A delimiter character in the list is trimmed from quoted values (`"a,b,"` reads as
+`a,b`; reported as [MLFH032](diagnostics.md#mlfh032)). With `TrimMode.None` the option does nothing, and an
+empty list trims nothing. The option applies to delimited and fixed-length fields.
+
+Points to watch:
+
+- A value made only of the given characters reads as empty (`xxxx` with `'x'`). `[FieldNotEmpty]` then
+  throws `ConvertException`, and a value-type field without `[FieldNullValue]` throws
+  `NullValueNotFoundException`: `[FieldTrim(TrimMode.Left, '0', TrimGivenChars = true)] public int N;` reads
+  `0042` as `42` but throws on `000`. Declare the field `int?` (reads `null`) or add `[FieldNullValue(0)]`.
+- Values are never trimmed on write, so read and write are not symmetric. With `'"'` and `' '` in the list
+  of a `[FieldQuoted]` field, the value `" x "` is written as `""" x """` and reads back as `x`.
 
 ### 2.6 Multi-record files
 
@@ -317,12 +359,37 @@ var engine = new FileHelperEngine<Customer>(Encoding.GetEncoding(1252));
 
 ### 3.2 Line endings and empty header/footer
 
-- `NewLineForWrite` defaults to `"\r\n"` on every platform. 3.x used `Environment.NewLine`, which is
-  `"\n"` on Linux and macOS. Set `engine.NewLineForWrite = "\n";` if you need that. This applies to
-  `MultiRecordEngine` and `MasterDetailEngine` too: they have a `NewLineForWrite` property with the
-  same default, which also sets the line break inside `[FieldInNewLine]` records.
-- `HeaderText` and `FooterText` are `null` when there is no header or footer. In 3.x they were empty
-  strings, so code like `engine.HeaderText.Length` needs a null check.
+- `NewLineForWrite` defaults to `Environment.NewLine`, as in 3.x: `"\n"` on Linux and macOS, `"\r\n"`
+  on Windows. This applies to `MultiRecordEngine` and `MasterDetailEngine` too: they have a
+  `NewLineForWrite` property with the same default, which also sets the line break inside
+  `[FieldInNewLine]` records. Set `engine.NewLineForWrite = "\r\n";` for the same output on every
+  platform.
+- From 4.8.0 to 4.9.1, `NewLineForWrite` defaulted to `"\r\n"` on every platform. From 4.10 on, the
+  output on Linux and macOS uses `"\n"` unless you set `NewLineForWrite = "\r\n"`; Windows output is
+  unchanged. One exception on Linux and macOS: a `HeaderText`/`FooterText` captured on read keeps `"\n"`
+  after each line (see below), so a read-then-write with `NewLineForWrite = "\r\n"` gives mixed line
+  endings. Set the text yourself before the write, for example
+  `engine.HeaderText = engine.HeaderText.Replace(Environment.NewLine, "\r\n")`.
+  The mirror case exists on Windows: a `HeaderText`/`FooterText` captured on read keeps `"\r\n"` after
+  each line, so a read-then-write with `NewLineForWrite = "\n"` gives mixed line endings. Replace
+  `Environment.NewLine` with `"\n"` the same way. (4.9.1 wrote `"h\n"` there; 3.5.2 behaves as 4.10 does.)
+- Setting `NewLineForWrite` to `null` or `""` throws `ArgumentException` with the message
+  `NewLine string must not be null or empty`, as in 3.x.
+- `HeaderText` and `FooterText` hold the `[IgnoreFirst]`/`[IgnoreLast]` lines as in 3.x: each line is
+  followed by `Environment.NewLine`, the last one included, whatever the input's line endings and
+  `NewLineForWrite` are. `[IgnoreFirst(2)]` on `h1\r\nh2\r\n...` gives `"h1\nh2\n"` on Linux and
+  `"h1\r\nh2\r\n"` on Windows. 4.8.0 to 4.9.1 joined the lines with `NewLineForWrite` and added no final
+  line break.
+- `HeaderText` and `FooterText` are `""` (not `null`) on a new engine, at the start of each read, and
+  when there is no header or footer, as in 3.x. 4.8.0 to 4.9.1 returned `null` in these cases.
+- When you write, `NewLineForWrite` follows a non-empty `HeaderText`/`FooterText` unless the text
+  already ends with it, as in 3.x, or with `Environment.NewLine`. So a header read from a file and
+  written back never gains an empty line, also with `NewLineForWrite = "\r\n"` on Linux, where 3.x
+  wrote one.
+- Input shorter than `[IgnoreFirst]` + `[IgnoreLast]` lines: 4.x fills `HeaderText` first and gives the
+  rest to `FooterText`, and empty input leaves both `""`. 3.x `FileHelperEngine` took the footer first
+  (`h1\nh2\n` with `[IgnoreFirst(2), IgnoreLast(2)]` gave an empty header and the two lines as footer), and
+  3.x gave a footer of one newline for empty input.
 
 ### 3.3 Empty fields and conversion errors
 
@@ -421,7 +488,8 @@ same); the build reports this as `MLFH029`.
 
 `FooterText` (from `[IgnoreLast]`) is set when a read reaches the end of the input. If you stop a
 streaming read early, for example by calling `Close()` on `FileHelperAsyncEngine<T>` before the last
-record or by leaving a `ReadSync` / `ReadAsync` loop, `FooterText` stays `null`.
+record or by leaving a `ReadSync` / `ReadAsync` loop, `FooterText` stays `""` (3.x gives `""` too
+when `Close()` is called early).
 
 ### 3.8 Custom converters
 
@@ -470,6 +538,19 @@ As in 3.x, a `ConverterBase` is not called for empty or blank input unless it ov
 copy of a struct record, so an `AfterReadRecord` handler cannot change a struct record (it can change a
 class record's members). `RecycleRecords` has no effect for structs.
 
+### 3.10 Limits that are the same as in 3.x
+
+These are not differences, but they surprise people who expect them to be fixed:
+
+- `[FieldQuoted(QuoteMode.OptionalForWrite)]` cannot read back its own unquoted output. The mode adds
+  quotes on write only when a value needs them, but it requires the quote on read, so a value written
+  without quotes (`x,1`) is rejected on read with "does not begin with the quote char". Use
+  `QuoteMode.OptionalForBoth` for a round trip. FileHelpers 3.5.2 behaves the same.
+- A fixed-length value that is longer than its field is cut silently on write, also for a right-aligned
+  field (`[FieldAlign(AlignMode.Right, '0')]`): the value is cut at its end to the first n
+  characters (the field width of `[FieldFixedLength(n)]`; `12345` in a field of length 3 is written as `123`). This is the default in 3.x too. To get
+  an error instead, set `[FieldFixedLength(n, OverflowMode = OverflowMode.Error)]`.
+
 ## 4. What is new
 
 None of this is needed to migrate, but it is available once you have:
@@ -485,6 +566,15 @@ None of this is needed to migrate, but it is available once you have:
   `ReadString` and `ReadSpan`, and by-reference callbacks (`SpanRecordCallback<T>`).
 - **Streaming.** `ReadSync` (`IEnumerable<T>`), `ReadAsync` (`IAsyncEnumerable<T>`) on both engines,
   `ReadFileAsync` with a callback, and `MultiRecordAsyncEngine` / `MasterDetailAsyncEngine`.
+- **Asynchronous streams (4.10).** `ReadAsync(Stream)` and `ReadAsync(TextReader)` on
+  `FileHelperEngine<T>` and `FileHelperAsyncEngine<T>`, and `WriteStreamAsync(TextWriter, records)` /
+  `WriteStreamAsync(Stream, records)` on `FileHelperEngine<T>`, with a `CancellationToken`. They use
+  asynchronous I/O only and never dispose the caller's stream, reader or writer. `WriteStreamAsync(Stream)`
+  writes the bytes of `WriteFile`; after a cancellation the stream holds whole records only (unless the stream writes
+  part of a buffer before it honours the cancellation, which is outside the engine's control). Since these
+  overloads exist, `engine.ReadAsync(null)` and `engine.ReadAsync(default)` are ambiguous on the classes:
+  cast the argument, `engine.ReadAsync((string)null!)`. The same holds for `ReadStream(null)` since
+  `ReadStream(Stream)` was added.
 - **Parallel reads.** `ParallelReadFile` / `ParallelReadString` with sequential semantics.
 - **Record-level multiline switch.** `[DelimitedRecord(",", MultilineMode = ...)]` sets the multiline
   mode of every quoted field at once.

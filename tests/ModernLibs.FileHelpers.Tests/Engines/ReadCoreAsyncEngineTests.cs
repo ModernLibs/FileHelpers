@@ -153,8 +153,8 @@ public sealed class ReadCoreAsyncEngineTests
         var records = engine.ReadRemaining();
 
         // Assert: header immediately, footer = raw last two lines
-        await Assert.That(header).IsEqualTo("HEAD");
+        await Assert.That(header).IsEqualTo("HEAD" + Environment.NewLine);
         await Assert.That(records.Length).IsEqualTo(2);
-        await Assert.That(engine.FooterText).IsEqualTo("T1\r\nT2");
+        await Assert.That(engine.FooterText).IsEqualTo($"T1{Environment.NewLine}T2{Environment.NewLine}");
     }
 }

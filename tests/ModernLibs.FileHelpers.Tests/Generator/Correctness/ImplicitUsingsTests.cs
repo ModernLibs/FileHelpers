@@ -47,6 +47,25 @@ public sealed class ImplicitUsingsTests
     }
 
     [Test]
+    [DisplayName("Tokenized descriptors (TryParse, TryParseInto, runtime read helpers) compile without implicit usings")]
+    public async Task TokenizedShapes_CompileWithoutImplicitUsings()
+    {
+        // Arrange: the plain, quoted and recyclable shapes of TokenizedEmissionTests; the usings are the consumer
+        // file's own and do not reach the generated files.
+        string source = "using System;\nusing ModernLibs.FileHelpers;\nusing ModernLibs.FileHelpers.Converters;\n"
+            + TokenizedEmissionTests.PlainShape + "\n" + TokenizedEmissionTests.QuotedShape + "\n" + TokenizedEmissionTests.RecyclableShape;
+
+        // Act: generate and compile
+        var run = GeneratorHarness.RunGenerator(source);
+
+        // Assert: three tokenized descriptors, no compile errors and no warnings inside generated files
+        await Assert.That(run.CompileErrors.IsEmpty).IsTrue().Because(run.ErrorText + "\n" + run.GeneratedText);
+        await Assert.That(run.GeneratedWarnings.IsEmpty).IsTrue().Because(string.Join("\n", run.GeneratedWarnings));
+        await Assert.That(run.GeneratedText.Split("public bool TryParse(").Length - 1).IsEqualTo(3);
+        await Assert.That(run.GeneratedText.Split("public bool TryParseInto(").Length - 1).IsEqualTo(3);
+    }
+
+    [Test]
     [DisplayName("Fixed-length descriptor with alignment, converters and overflow compiles without implicit usings")]
     public async Task FixedKitchenSink_CompilesWithoutImplicitUsings()
     {

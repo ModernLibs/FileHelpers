@@ -1,0 +1,317 @@
+#### 0 valid read
+record:Id=1|Name="a"|Note="note"|Extra=5
+record:Id=2|Name="b"|Note="note2"|Extra=<null>
+record:Id=3|Name="c"|Note=""|Extra=<null>
+record:Id=4|Name="d"|Note=""|Extra=<null>
+header:<null>
+footer:TOTAL,4
+line:4
+total:4
+recycled-record:Id=1|Name="a"|Note="note"|Extra=5
+recycled-record:Id=2|Name="b"|Note="note2"|Extra=<null>
+recycled-record:Id=3|Name="c"|Note=""|Extra=<null>
+recycled-record:Id=4|Name="d"|Note=""|Extra=<null>
+recycled-count:4
+recycled-header:<null>
+recycled-footer:TOTAL,4
+recycled-line:4
+recycled-total:4
+thrown-count:4
+thrown-header:<null>
+thrown-footer:TOTAL,4
+thrown-line:4
+thrown-total:4
+#### 0 valid round-trip
+written:1,a,note,5\r\n2,b,note2,\r\n3,c,,\r\n4,d,,\r\nTOTAL,4\r\n
+header:<null>
+footer:TOTAL,4
+line:4
+total:4
+written-extra:nulls:1,,,\r\n
+written-extra:separator:2,x,y,n,-1\r\n
+#### 1 short-row read
+record:Id=1|Name="a"|Note="note"|Extra=5
+record:Id=1|Name="a"|Note="note"|Extra=5
+record:Id=2|Name="b"|Note="note2"|Extra=<null>
+record:Id=3|Name="c"|Note=""|Extra=<null>
+record:Id=4|Name="d"|Note=""|Extra=<null>
+error:2:FileHelpersException:Line: 2. Expected 2 to 4 fields but found 1 in line: '5'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:5
+header:<null>
+footer:TOTAL,4
+line:6
+total:5
+recycled-record:Id=1|Name="a"|Note="note"|Extra=5
+recycled-record:Id=1|Name="a"|Note="note"|Extra=5
+recycled-record:Id=2|Name="b"|Note="note2"|Extra=<null>
+recycled-record:Id=3|Name="c"|Note=""|Extra=<null>
+recycled-record:Id=4|Name="d"|Note=""|Extra=<null>
+recycled-count:5
+recycled-error:2:FileHelpersException:Line: 2. Expected 2 to 4 fields but found 1 in line: '5'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:5
+recycled-header:<null>
+recycled-footer:TOTAL,4
+recycled-line:6
+recycled-total:5
+thrown-throw:FileHelpersException:Line: 2. Expected 2 to 4 fields but found 1 in line: '5'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 1 short-row round-trip
+written:1,a,note,5\r\n1,a,note,5\r\n2,b,note2,\r\n3,c,,\r\n4,d,,\r\nTOTAL,4\r\n
+error:2:FileHelpersException:Line: 2. Expected 2 to 4 fields but found 1 in line: '5'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:5
+header:<null>
+footer:TOTAL,4
+line:6
+total:5
+written-extra:nulls:1,,,\r\n
+written-extra:separator:2,x,y,n,-1\r\n
+#### 2 long-row read
+record:Id=1|Name="a"|Note="note"|Extra=5
+record:Id=1|Name="a"|Note="note"|Extra=5
+record:Id=2|Name="b"|Note="note2"|Extra=<null>
+record:Id=3|Name="c"|Note=""|Extra=<null>
+record:Id=4|Name="d"|Note=""|Extra=<null>
+error:2:BadUsageException:Line: 2. Expected 2 to 4 fields but found 5 in line: '6,f,n,1,extra'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:6,f,n,1,extra
+header:<null>
+footer:TOTAL,4
+line:6
+total:5
+recycled-record:Id=1|Name="a"|Note="note"|Extra=5
+recycled-record:Id=1|Name="a"|Note="note"|Extra=5
+recycled-record:Id=2|Name="b"|Note="note2"|Extra=<null>
+recycled-record:Id=3|Name="c"|Note=""|Extra=<null>
+recycled-record:Id=4|Name="d"|Note=""|Extra=<null>
+recycled-count:5
+recycled-error:2:BadUsageException:Line: 2. Expected 2 to 4 fields but found 5 in line: '6,f,n,1,extra'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:6,f,n,1,extra
+recycled-header:<null>
+recycled-footer:TOTAL,4
+recycled-line:6
+recycled-total:5
+thrown-throw:BadUsageException:Line: 2. Expected 2 to 4 fields but found 5 in line: '6,f,n,1,extra'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 2 long-row round-trip
+written:1,a,note,5\r\n1,a,note,5\r\n2,b,note2,\r\n3,c,,\r\n4,d,,\r\nTOTAL,4\r\n
+error:2:BadUsageException:Line: 2. Expected 2 to 4 fields but found 5 in line: '6,f,n,1,extra'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:6,f,n,1,extra
+header:<null>
+footer:TOTAL,4
+line:6
+total:5
+written-extra:nulls:1,,,\r\n
+written-extra:separator:2,x,y,n,-1\r\n
+#### 3 bad-values read
+record:Id=1|Name="a"|Note="note"|Extra=5
+record:Id=1|Name="a"|Note="note"|Extra=5
+record:Id=2|Name="b"|Note="note2"|Extra=<null>
+record:Id=3|Name="c"|Note=""|Extra=<null>
+record:Id=4|Name="d"|Note=""|Extra=<null>
+error:2:ConvertException:Line: 2. Column: 7. Field: Extra. Error Converting 'x' to type: 'Int32'. :7,g,n,x
+error:3:ConvertException:Line: 3. Column: 1. Field: Id. Error Converting 'x8' to type: 'Int32'. :x8,h
+header:<null>
+footer:TOTAL,4
+line:7
+total:5
+recycled-record:Id=1|Name="a"|Note="note"|Extra=5
+recycled-record:Id=1|Name="a"|Note="note"|Extra=5
+recycled-record:Id=2|Name="b"|Note="note2"|Extra=<null>
+recycled-record:Id=3|Name="c"|Note=""|Extra=<null>
+recycled-record:Id=4|Name="d"|Note=""|Extra=<null>
+recycled-count:5
+recycled-error:2:ConvertException:Line: 2. Column: 7. Field: Extra. Error Converting 'x' to type: 'Int32'. :7,g,n,x
+recycled-error:3:ConvertException:Line: 3. Column: 1. Field: Id. Error Converting 'x8' to type: 'Int32'. :x8,h
+recycled-header:<null>
+recycled-footer:TOTAL,4
+recycled-line:7
+recycled-total:5
+thrown-throw:ConvertException:Line: 2. Column: 7. Field: Extra. Error Converting 'x' to type: 'Int32'. 
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 3 bad-values round-trip
+written:1,a,note,5\r\n1,a,note,5\r\n2,b,note2,\r\n3,c,,\r\n4,d,,\r\nTOTAL,4\r\n
+error:2:ConvertException:Line: 2. Column: 7. Field: Extra. Error Converting 'x' to type: 'Int32'. :7,g,n,x
+error:3:ConvertException:Line: 3. Column: 1. Field: Id. Error Converting 'x8' to type: 'Int32'. :x8,h
+header:<null>
+footer:TOTAL,4
+line:7
+total:5
+written-extra:nulls:1,,,\r\n
+written-extra:separator:2,x,y,n,-1\r\n
+#### 4 unclosed-quote read
+record:Id=1|Name="a"|Note="note"|Extra=5
+record:Id=9|Name=""i"|Note="n"|Extra=1
+record:Id=1|Name="a"|Note="note"|Extra=5
+record:Id=2|Name="b"|Note="note2"|Extra=<null>
+record:Id=3|Name="c"|Note=""|Extra=<null>
+record:Id=4|Name="d"|Note=""|Extra=<null>
+header:<null>
+footer:TOTAL,4
+line:6
+total:6
+recycled-record:Id=1|Name="a"|Note="note"|Extra=5
+recycled-record:Id=9|Name=""i"|Note="n"|Extra=1
+recycled-record:Id=1|Name="a"|Note="note"|Extra=5
+recycled-record:Id=2|Name="b"|Note="note2"|Extra=<null>
+recycled-record:Id=3|Name="c"|Note=""|Extra=<null>
+recycled-record:Id=4|Name="d"|Note=""|Extra=<null>
+recycled-count:6
+recycled-header:<null>
+recycled-footer:TOTAL,4
+recycled-line:6
+recycled-total:6
+thrown-count:6
+thrown-header:<null>
+thrown-footer:TOTAL,4
+thrown-line:6
+thrown-total:6
+#### 4 unclosed-quote round-trip
+written:1,a,note,5\r\n9,"i,n,1\r\n1,a,note,5\r\n2,b,note2,\r\n3,c,,\r\n4,d,,\r\nTOTAL,4\r\n
+header:<null>
+footer:TOTAL,4
+line:6
+total:6
+written-extra:nulls:1,,,\r\n
+written-extra:separator:2,x,y,n,-1\r\n
+#### 5 empty-line read
+record:Id=1|Name="a"|Note="note"|Extra=5
+record:Id=1|Name="a"|Note="note"|Extra=5
+record:Id=2|Name="b"|Note="note2"|Extra=<null>
+record:Id=3|Name="c"|Note=""|Extra=<null>
+record:Id=4|Name="d"|Note=""|Extra=<null>
+error:2:FileHelpersException:Line: 2. Expected 2 to 4 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+header:<null>
+footer:TOTAL,4
+line:6
+total:5
+recycled-record:Id=1|Name="a"|Note="note"|Extra=5
+recycled-record:Id=1|Name="a"|Note="note"|Extra=5
+recycled-record:Id=2|Name="b"|Note="note2"|Extra=<null>
+recycled-record:Id=3|Name="c"|Note=""|Extra=<null>
+recycled-record:Id=4|Name="d"|Note=""|Extra=<null>
+recycled-count:5
+recycled-error:2:FileHelpersException:Line: 2. Expected 2 to 4 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+recycled-header:<null>
+recycled-footer:TOTAL,4
+recycled-line:6
+recycled-total:5
+thrown-throw:FileHelpersException:Line: 2. Expected 2 to 4 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:1
+thrown-total:1
+#### 5 empty-line round-trip
+written:1,a,note,5\r\n1,a,note,5\r\n2,b,note2,\r\n3,c,,\r\n4,d,,\r\nTOTAL,4\r\n
+error:2:FileHelpersException:Line: 2. Expected 2 to 4 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+header:<null>
+footer:TOTAL,4
+line:6
+total:5
+written-extra:nulls:1,,,\r\n
+written-extra:separator:2,x,y,n,-1\r\n
+#### 6 empty-input read
+header:<null>
+footer:<null>
+line:0
+total:0
+recycled-count:0
+recycled-header:<null>
+recycled-footer:<null>
+recycled-line:0
+recycled-total:0
+thrown-count:0
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:0
+thrown-total:0
+#### 6 empty-input round-trip
+written:
+header:<null>
+footer:<null>
+line:0
+total:0
+written-extra:nulls:1,,,\r\n
+written-extra:separator:2,x,y,n,-1\r\n
+#### 7 lf-no-final-line-end read
+record:Id=1|Name="a"|Note="note"|Extra=5
+record:Id=2|Name="b"|Note="note2"|Extra=<null>
+record:Id=3|Name="c"|Note=""|Extra=<null>
+record:Id=4|Name="d"|Note=""|Extra=<null>
+header:<null>
+footer:TOTAL,4
+line:4
+total:4
+recycled-record:Id=1|Name="a"|Note="note"|Extra=5
+recycled-record:Id=2|Name="b"|Note="note2"|Extra=<null>
+recycled-record:Id=3|Name="c"|Note=""|Extra=<null>
+recycled-record:Id=4|Name="d"|Note=""|Extra=<null>
+recycled-count:4
+recycled-header:<null>
+recycled-footer:TOTAL,4
+recycled-line:4
+recycled-total:4
+thrown-count:4
+thrown-header:<null>
+thrown-footer:TOTAL,4
+thrown-line:4
+thrown-total:4
+#### 7 lf-no-final-line-end round-trip
+written:1,a,note,5\r\n2,b,note2,\r\n3,c,,\r\n4,d,,\r\nTOTAL,4\r\n
+header:<null>
+footer:TOTAL,4
+line:4
+total:4
+written-extra:nulls:1,,,\r\n
+written-extra:separator:2,x,y,n,-1\r\n
+#### 8 all-together read
+record:Id=1|Name="a"|Note="note"|Extra=5
+record:Id=2|Name="b"|Note="note2"|Extra=<null>
+record:Id=3|Name="c"|Note=""|Extra=<null>
+record:Id=4|Name="d"|Note=""|Extra=<null>
+record:Id=9|Name=""i"|Note="n"|Extra=1
+record:Id=1|Name="a"|Note="note"|Extra=5
+error:5:FileHelpersException:Line: 5. Expected 2 to 4 fields but found 1 in line: '5'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:5
+error:6:BadUsageException:Line: 6. Expected 2 to 4 fields but found 5 in line: '6,f,n,1,extra'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:6,f,n,1,extra
+error:7:ConvertException:Line: 7. Column: 7. Field: Extra. Error Converting 'x' to type: 'Int32'. :7,g,n,x
+error:8:ConvertException:Line: 8. Column: 1. Field: Id. Error Converting 'x8' to type: 'Int32'. :x8,h
+error:9:FileHelpersException:Line: 9. Expected 2 to 4 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+header:<null>
+footer:TOTAL,4
+line:11
+total:6
+recycled-record:Id=1|Name="a"|Note="note"|Extra=5
+recycled-record:Id=2|Name="b"|Note="note2"|Extra=<null>
+recycled-record:Id=3|Name="c"|Note=""|Extra=<null>
+recycled-record:Id=4|Name="d"|Note=""|Extra=<null>
+recycled-record:Id=9|Name=""i"|Note="n"|Extra=1
+recycled-record:Id=1|Name="a"|Note="note"|Extra=5
+recycled-count:6
+recycled-error:5:FileHelpersException:Line: 5. Expected 2 to 4 fields but found 1 in line: '5'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:5
+recycled-error:6:BadUsageException:Line: 6. Expected 2 to 4 fields but found 5 in line: '6,f,n,1,extra'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:6,f,n,1,extra
+recycled-error:7:ConvertException:Line: 7. Column: 7. Field: Extra. Error Converting 'x' to type: 'Int32'. :7,g,n,x
+recycled-error:8:ConvertException:Line: 8. Column: 1. Field: Id. Error Converting 'x8' to type: 'Int32'. :x8,h
+recycled-error:9:FileHelpersException:Line: 9. Expected 2 to 4 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+recycled-header:<null>
+recycled-footer:TOTAL,4
+recycled-line:11
+recycled-total:6
+thrown-throw:FileHelpersException:Line: 5. Expected 2 to 4 fields but found 1 in line: '5'. Check that all delimiters are present and no fields contain unescaped delimiter characters.
+thrown-header:<null>
+thrown-footer:<null>
+thrown-line:4
+thrown-total:4
+#### 8 all-together round-trip
+written:1,a,note,5\r\n2,b,note2,\r\n3,c,,\r\n4,d,,\r\n9,"i,n,1\r\n1,a,note,5\r\nTOTAL,4\r\n
+error:5:FileHelpersException:Line: 5. Expected 2 to 4 fields but found 1 in line: '5'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:5
+error:6:BadUsageException:Line: 6. Expected 2 to 4 fields but found 5 in line: '6,f,n,1,extra'. Check that all delimiters are present and no fields contain unescaped delimiter characters.:6,f,n,1,extra
+error:7:ConvertException:Line: 7. Column: 7. Field: Extra. Error Converting 'x' to type: 'Int32'. :7,g,n,x
+error:8:ConvertException:Line: 8. Column: 1. Field: Id. Error Converting 'x8' to type: 'Int32'. :x8,h
+error:9:FileHelpersException:Line: 9. Expected 2 to 4 fields but found 1 in line: ''. Check that all delimiters are present and no fields contain unescaped delimiter characters.:
+header:<null>
+footer:TOTAL,4
+line:11
+total:6
+written-extra:nulls:1,,,\r\n
+written-extra:separator:2,x,y,n,-1\r\n

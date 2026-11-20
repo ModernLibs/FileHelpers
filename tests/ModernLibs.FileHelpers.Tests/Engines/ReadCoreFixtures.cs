@@ -260,3 +260,35 @@ internal static class HandDescriptors
     private static void Register<TRecord>(IRecordDescriptor<TRecord> descriptor) =>
         FileHelperRegistry<TRecord>.SetDescriptor(descriptor);
 }
+
+
+/// <summary>Five-int struct record (allocation budgets).</summary>
+[DelimitedRecord(",")]
+[StructLayout(LayoutKind.Auto)]
+public record struct RcFiveInts
+{
+    [FieldOrder(1)] public int A { get; set; }
+    [FieldOrder(2)] public int B { get; set; }
+    [FieldOrder(3)] public int C { get; set; }
+    [FieldOrder(4)] public int D { get; set; }
+    [FieldOrder(5)] public int E { get; set; }
+}
+
+/// <summary>Class record with three strings and two ints (allocation budgets).</summary>
+[DelimitedRecord(",")]
+public sealed class RcMixed
+{
+    [FieldOrder(1)] public string S1 { get; set; } = string.Empty;
+    [FieldOrder(2)] public int N1 { get; set; }
+    [FieldOrder(3)] public string S2 { get; set; } = string.Empty;
+    [FieldOrder(4)] public int N2 { get; set; }
+    [FieldOrder(5)] public string S3 { get; set; } = string.Empty;
+}
+
+/// <summary>Class record with two quoted strings (allocation budgets).</summary>
+[DelimitedRecord(",")]
+public sealed class RcQuotedPair
+{
+    [FieldOrder(1)] [FieldQuoted] public string First { get; set; } = string.Empty;
+    [FieldOrder(2)] [FieldQuoted] public string Second { get; set; } = string.Empty;
+}

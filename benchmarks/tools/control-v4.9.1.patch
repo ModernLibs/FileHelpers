@@ -1,0 +1,39 @@
+diff --git a/global.json b/global.json
+index 07ae4f6..701104b 100644
+--- a/global.json
++++ b/global.json
+@@ -1,6 +1,6 @@
+ {
+   "sdk": {
+-    "version": "10.0.105",
++    "version": "11.0.100",
+     "rollForward": "latestPatch"
+   },
+   "test": {
+diff --git a/src/ModernLibs.FileHelpers/ModernLibs.FileHelpers.csproj b/src/ModernLibs.FileHelpers/ModernLibs.FileHelpers.csproj
+index 887709f..dfa1533 100644
+--- a/src/ModernLibs.FileHelpers/ModernLibs.FileHelpers.csproj
++++ b/src/ModernLibs.FileHelpers/ModernLibs.FileHelpers.csproj
+@@ -1,6 +1,6 @@
+ <Project Sdk="Microsoft.NET.Sdk">
+   <PropertyGroup>
+-    <TargetFramework>net10.0</TargetFramework>
++    <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
+     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+     <PublishAot>true</PublishAot>
+     <IsTrimmable>true</IsTrimmable>
+@@ -26,6 +26,14 @@
+     <PublishRepositoryUrl>true</PublishRepositoryUrl>
+     <EmbedUntrackedSources>true</EmbedUntrackedSources>
+   </PropertyGroup>
++  <PropertyGroup>
++    <!-- Control build (T12): runtime async as in 4.10 (net11.0 only; -p:FileHelpersRuntimeAsync=false turns it off). -->
++    <FileHelpersRuntimeAsync Condition="'$(FileHelpersRuntimeAsync)' == ''">true</FileHelpersRuntimeAsync>
++    <Features Condition="'$(TargetFramework)' == 'net11.0' and '$(FileHelpersRuntimeAsync)' == 'true'">$(Features);runtime-async=on</Features>
++  </PropertyGroup>
++  <ItemGroup>
++    <CoreCompileCache Include="$(Features)" />
++  </ItemGroup>
+   <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+   </PropertyGroup>

@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text;
 
 namespace ModernLibs.FileHelpers;
 
@@ -54,8 +55,8 @@ namespace ModernLibs.FileHelpers;
 /// </param>
 /// <param name="TrimChars">
 /// The [FieldTrim] characters skipped before an opening quote (Left/Both) and after a closing quote
-/// (Right/Both) of a quoted field (FileHelpers 3.x). <see langword="null"/> means spaces and tabs.
-/// Default: <see langword="null"/>.
+/// (Right/Both) of a quoted field (FileHelpers 3.x), and trimmed from the value when <see cref="TrimGivenChars"/> is set.
+/// <see langword="null"/> means spaces and tabs. Default: <see langword="null"/>.
 /// </param>
 [method: EditorBrowsable(EditorBrowsableState.Never)]
 public readonly record struct FieldDescriptor(
@@ -72,4 +73,44 @@ public readonly record struct FieldDescriptor(
     TrimMode TrimMode = TrimMode.None,
     char QuoteChar = '\0',
     MultilineMode QuoteMultiline = MultilineMode.AllowForBoth,
-    string? TrimChars = null);
+    string? TrimChars = null)
+{
+    /// <summary>
+    /// The [FieldTrim] <c>TrimGivenChars</c> option: the generated parser trims <see cref="TrimChars"/> from the value on
+    /// read (after quote removal) instead of white space, and the quote character is not skipped before an opening
+    /// quote. <see langword="false"/> (FileHelpers 3.x behaviour) unless the option is set with a <see cref="TrimMode"/>
+    /// other than <see cref="FileHelpers.TrimMode.None"/> (where the option has no effect).
+    /// </summary>
+    /// <remarks>
+    /// Not a constructor parameter, so the constructor that generated code binds to stays unchanged; generated code
+    /// sets it with an object initializer only for fields that use the option.
+    /// </remarks>
+    public bool TrimGivenChars { get; init; }
+
+    /// <summary>
+    /// The members of <see cref="ToString"/>: the 14 positional members exactly as 4.9.1 printed them (the
+    /// compiler-generated format), then <c>TrimGivenChars = True</c> only when the flag is set, so the string of a
+    /// descriptor without the option is unchanged.
+    /// </summary>
+    private bool PrintMembers(StringBuilder builder)
+    {
+        // Append(object?) calls ToString() on each member, as the compiler-generated PrintMembers does.
+        builder.Append("Name = ").Append((object?)Name)
+            .Append(", FieldType = ").Append((object?)FieldType)
+            .Append(", Order = ").Append((object)Order)
+            .Append(", Offset = ").Append((object)Offset)
+            .Append(", Width = ").Append((object)Width)
+            .Append(", Delimiter = ").Append((object?)Delimiter)
+            .Append(", IsInNewLine = ").Append((object)IsInNewLine)
+            .Append(", Caption = ").Append((object?)Caption)
+            .Append(", CultureName = ").Append((object?)CultureName)
+            .Append(", IsOptional = ").Append((object)IsOptional)
+            .Append(", TrimMode = ").Append((object)TrimMode)
+            .Append(", QuoteChar = ").Append((object)QuoteChar)
+            .Append(", QuoteMultiline = ").Append((object)QuoteMultiline)
+            .Append(", TrimChars = ").Append((object?)TrimChars);
+        if (TrimGivenChars)
+            builder.Append(", TrimGivenChars = True");
+        return true;
+    }
+}

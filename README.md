@@ -61,11 +61,6 @@ the row-to-object code written in each benchmark. Where a cell has a range, two 
 same operation. [BENCHMARKS.md](https://github.com/ModernLibs/FileHelpers/blob/main/BENCHMARKS.md)
 explains how to run the suite on your own hardware.
 
-ModernLibs.FileHelpers is an independent reimplementation modelled on the API of FileHelpers 3.x by
-Marcos Meli and contributors. FileHelpers 3.x is the reference for its behaviour. It is not the
-original project: please report problems with this library
-[here](https://github.com/ModernLibs/FileHelpers/issues), not upstream.
-
 ### 4.10.0 against 4.9.1
 
 Each cell is the 4.10.0 time divided by the 4.9.1 time for the same benchmark, machine and runtime;
@@ -93,7 +88,8 @@ launches per side, excludes 1.0 and it differs from 1.0 by at least 3 %; a slowd
 against 4.9.1 is treated as noise. The AMD machine ran `simd-2026-11-17` on an AMD EPYC 9V74 and the
 other three rounds on an AMD EPYC 7763; every ratio compares two builds on one CPU. The only line
 slower than 4.9.1 by more than 3 % is the Native AOT read with `DisableVectorizedTokenizer` set on
-.NET 11, accepted as a tradeoff; the default AOT read is not slower. The
+.NET 11, accepted as a tradeoff; the default AOT read is not slower. There is no AOT control build,
+so each AOT ratio against 4.9.1 includes the compiler and SDK change. The
 [4.10.0 results](https://github.com/ModernLibs/FileHelpers/blob/main/docs/benchmarks/v4.10.0.md)
 give the intervals, times and allocation of every line, including those that did not change.
 
@@ -105,6 +101,11 @@ quoted `WriteString` at most 0.50 (0.784 to 0.836 above). Two tokenizer gates th
 triggered are deferred to 4.10.1 or 4.11, so 4.10.0 does not apply them: a `Vector512` loop on x64
 with AVX-512 (measured on the Intel machine only), and the `IndexOfHop` loop instead of the vector
 loop under Native AOT on .NET 10.
+
+ModernLibs.FileHelpers is an independent reimplementation modelled on the API of FileHelpers 3.x by
+Marcos Meli and contributors. FileHelpers 3.x is the reference for its behaviour. It is not the
+original project: please report problems with this library
+[here](https://github.com/ModernLibs/FileHelpers/issues), not upstream.
 
 ## Install
 

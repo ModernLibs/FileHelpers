@@ -9,11 +9,12 @@ Typed reading and writing of fixed-length and delimited (CSV, TSV, pipe, ...) te
 record layout with attributes; a source generator in the package writes the parsing and formatting
 code at compile time. No runtime reflection, so it works with Native AOT and trimming.
 
-- **The fastest fixed-width reader in our benchmarks:** more than twice as fast as FileHelpers 3.5.2
-  and ahead of RecordParser and FlatFiles.
+- **The fastest fixed-width reader in our benchmarks:** about twice as fast as FileHelpers 3.5.2
+  reading into objects (2.4 times on our AMD test machine, 1.9 on the Intel one) and ahead of
+  RecordParser and FlatFiles.
 - **On par with the best CSV readers:** reading a 25-column file, ahead of Sep, CsvHelper 34,
-  FlameCsv and RecordParser; level with Sylvan on our AMD test machine and about 20 % behind it on
-  the Intel one.
+  FlameCsv and RecordParser; level with Sylvan on our AMD test machine and behind it on the Intel
+  one (about 20 % on .NET 10, about 6 % on .NET 11).
 - **Drop-in for FileHelpers 3.x code:** the same attributes, engines, events and exceptions; most
   code migrates by changing the namespace.
 
@@ -45,7 +46,7 @@ do not read fixed-width files.
 
 Against 4.9.1, measured A/B on both test machines and both runtimes at 100K rows (rounds
 `simd-2026-11-17` and `write-2026-11-17`): the 25-column parse and discard takes 0.79 to 0.80 of the
-4.9.1 time, the quoted read 0.76 and `WriteString` of the 25 columns 0.48 to 0.62. The results page
+4.9.1 time, the quoted parse and discard 0.76 and `WriteString` of the 25 columns 0.48 to 0.62. The results page
 lists every line, including those that did not change.
 
 A dash means the suite does not measure that library. ModernLibs.FileHelpers and FileHelpers 3.5.2

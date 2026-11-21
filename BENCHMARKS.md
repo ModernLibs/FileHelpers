@@ -45,13 +45,15 @@ kept as the baseline against FileHelpers 3.5.2.
 VMs (`Standard_D4ads_v5`, AMD, AVX2, the reference; `Standard_D4ds_v5`, Intel Xeon Platinum 8370C,
 AVX-512), A/B against the published 4.9.1 package on .NET 10 and .NET 11 with 7 launches per side and
 rule B4, runtime async on against off, and a comparison with other libraries. At 100K rows the
-25-column parse and discard takes 0.79 to 0.80 of the 4.9.1 time, the quoted read 0.76, and
+25-column parse and discard takes 0.79 to 0.80 of the 4.9.1 time, the quoted parse and discard 0.76, and
 `WriteString` of the 25 columns 0.48 to 0.62, on both VMs and runtimes; the page lists the gates of
-the release plan, the lines that did not change, and the two targets that were missed (`ReadFile` at
-100K rows on the Intel VM, quoted `WriteString`). The comparison (AMD EPYC 9V74, 100K rows, .NET 10)
-reads the 25-column file into objects in 168.4 ms against 196.3 ms for Sep and 523.1 ms for
-FileHelpers 3.5.2, and writes it in 33.74 ms against 123.8 ms for Sep; CsvHelper and Sep read quoted
-fields faster, and Sylvan reads the 25-column file faster on the Intel VM. Its raw files are under
+the release plan, the lines that did not change, and the three targets that were missed and accepted (`ReadFile` at
+100K rows on the Intel VM, quoted `WriteString`, fixed-width `WriteString` at 10K rows on .NET 11 against .NET 10 on
+the Intel VM). The comparison (AMD EPYC 9V74, 100K rows, .NET 10)
+reads the 25-column file into objects in 169.9 ms against 196.3 ms for Sep (`SepComparison`) and in
+168.4 ms against 523.1 ms for FileHelpers 3.5.2 (`DelimitedComparison`), and writes it in 33.74 ms against 123.8 ms for Sep; CsvHelper and Sep read quoted
+fields faster, and Sylvan reads the 25-column file faster on the Intel VM (about 20 % on .NET 10, about 6 % on
+.NET 11). Its raw files are under
 [docs/benchmarks/raw/](docs/benchmarks/raw/README.md), and the Step 0 baseline of 4.9.1 is in
 [docs/benchmarks/step0-4.10.md](docs/benchmarks/step0-4.10.md).
 

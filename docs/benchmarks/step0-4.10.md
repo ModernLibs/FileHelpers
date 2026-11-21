@@ -1294,7 +1294,7 @@ Design 3.6 lists two write findings for T57, both measured in the round above:
 | Finding | Step 0 result | Outcome in the 4.10 rounds |
 |---|---|---|
 | F1: fixed-width `WriteString` 1.17 to 1.68 times slower on .NET 11 than on .NET 10 for the same 4.9.1 IL (free-gains pair, both VMs; cause: the .NET 11 Tier1 inliner, dotnet/runtime#137552) | free-gains tables above | T57: `net11-ra-on` / `net10` on the T19 commit 0.871 (`fh-amd`) and 0.914 (`fh-intel`), faster (round `g1-2026-11-16`); on the round-2 commit 1.050 and 1.009 at 100K, no change, with 1.054 slower on `fh-intel` at 10K (round `write-2026-11-17`) |
-| F2: `v410-net10` fixed-width `WriteStream_Null` 3.2 to 3.8 % slower than 4.9.1 | `fh-amd` 1.032 [1.014, 1.041] (10K) and 1.035 [1.013, 1.041] (100K), slower | gone: 0.581 (`fh-amd`) and 0.738 (`fh-intel`) at 100K, faster (round `diagFW2-2026-11-19`) |
+| F2: `v410-net10` fixed-width `WriteStream_Null` 3.2 to 3.5 % slower than 4.9.1 | `fh-amd` 1.032 [1.014, 1.041] (10K) and 1.035 [1.013, 1.041] (100K), slower; `fh-intel` 1.033 [1.025, 1.057] (100K), slower, and 1.026 [1.023, 1.057] (10K), no-change | gone: 0.581 (`fh-amd`) and 0.738 (`fh-intel`) at 100K, faster (round `diagFW2-2026-11-19`) |
 
 ## Findings F3 to F6
 

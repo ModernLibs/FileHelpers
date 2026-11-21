@@ -1,0 +1,153 @@
+{
+  "harness": "benchmarkdotnet",
+  "b4": true,
+  "not_b4_reason": null,
+  "warnings": [],
+  "rule": {
+    "ratio": "median(B) / median(A) of the per-launch medians; below 1.0 means B is faster",
+    "confidence": 0.999,
+    "resamples": 10000,
+    "seed": 410,
+    "min_change": 0.03
+  },
+  "a": {
+    "dir": "/home/fhbench/fh-round/work/step0-2026-11-12/fh-amd/bin/net10",
+    "variant": "net10: tfm=net10.0 runtime-async=off\ncommit=fe784c30819ea342cd9b42270c0a5c8cb367720b\nsdk=11.0.100",
+    "startup": {
+      "variant": "tfm=net10.0 runtime-async=off",
+      "assembly": "/home/fhbench/fh-round/work/step0-2026-11-12/fh-amd/bin/net10/ModernLibs.FileHelpers.dll",
+      "runtime": ".NET 10.0.15"
+    },
+    "library_sha256": "b8aa5fae96e73181ac10bd739363a8e8156e2792d406db42a04cda8068c11309"
+  },
+  "b": {
+    "dir": "/home/fhbench/fh-round/work/step0-2026-11-12/fh-amd/bin/net11-ra-on",
+    "variant": "net11-ra-on: tfm=net11.0 runtime-async=on\ncommit=fe784c30819ea342cd9b42270c0a5c8cb367720b\nsdk=11.0.100",
+    "startup": {
+      "variant": "tfm=net11.0 runtime-async=on",
+      "assembly": "/home/fhbench/fh-round/work/step0-2026-11-12/fh-amd/bin/net11-ra-on/ModernLibs.FileHelpers.dll",
+      "runtime": ".NET 11.0.0"
+    },
+    "library_sha256": "6323af7c06df51cb2a692147c9108e4b79097595265358b896115cde0b66c820"
+  },
+  "launches": 7,
+  "filter": "*Components.UnquoteBenchmarks*",
+  "bdn_args": [
+    "--maxIterationCount",
+    "20"
+  ],
+  "program_args": [],
+  "aot_checksum": null,
+  "only_in_a": [],
+  "only_in_b": [],
+  "benchmarks": [
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.UnquoteBenchmarks.Unquote_Current(Values: All)",
+      "a_median_ns": [
+        585006.3251953125,
+        591503.84375,
+        589479.2963867188,
+        585999.7802734375,
+        583017.8764648438,
+        568869.7216796875,
+        584834.2392578125
+      ],
+      "b_median_ns": [
+        585065.9545898438,
+        571942.5014648438,
+        569327.431640625,
+        561999.9423828125,
+        565351.70703125,
+        581987.2333984375,
+        560832.251953125
+      ],
+      "median_ratio": 0.9731987623391031,
+      "ci_low": 0.9501205246949209,
+      "ci_high": 1.0230589029769739,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.UnquoteBenchmarks.Unquote_Current(Values: DoubledOnly)",
+      "a_median_ns": [
+        446908.18017578125,
+        437396.4755859375,
+        446485.48974609375,
+        440734.3518066406,
+        442237.45068359375,
+        425009.19140625,
+        444140.04345703125
+      ],
+      "b_median_ns": [
+        439513.529296875,
+        446958.56298828125,
+        455490.5068359375,
+        441953.9401855469,
+        449855.23779296875,
+        439527.435546875,
+        443597.8388671875
+      ],
+      "median_ratio": 1.0030761487555857,
+      "ci_low": 0.9834848746200994,
+      "ci_high": 1.0584600213103847,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.UnquoteBenchmarks.Unquote_IndexOf(Values: All)",
+      "a_median_ns": [
+        524891.564453125,
+        500177.2958984375,
+        510457.13330078125,
+        494646.72949218744,
+        520931.2080078125,
+        506692.75683593744,
+        508943.1572265625
+      ],
+      "b_median_ns": [
+        490752.05810546875,
+        502624.32421875006,
+        503280.03027343756,
+        498467.2099609375,
+        512095.673828125,
+        492378.3203125,
+        499001.1767578125
+      ],
+      "median_ratio": 0.9804654403392947,
+      "ci_low": 0.9380572172568634,
+      "ci_high": 1.0238283065373435,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.UnquoteBenchmarks.Unquote_IndexOf(Values: DoubledOnly)",
+      "a_median_ns": [
+        408936.0068359375,
+        396953.6064453125,
+        438482.66650390625,
+        396903.52978515625,
+        399412.23046875,
+        396410.03369140625,
+        394586.63037109375
+      ],
+      "b_median_ns": [
+        390126.9169921875,
+        396928.65087890625,
+        411469.451171875,
+        403986.1171875,
+        408792.857421875,
+        380192.78759765625,
+        406470.21728515625
+      ],
+      "median_ratio": 1.017716203173371,
+      "ci_low": 0.889720271277159,
+      "ci_high": 1.0379894962300376,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    }
+  ]
+}

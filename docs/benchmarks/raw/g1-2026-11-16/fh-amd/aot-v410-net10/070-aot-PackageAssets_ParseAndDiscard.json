@@ -1,0 +1,78 @@
+{
+  "harness": "aot",
+  "b4": true,
+  "not_b4_reason": null,
+  "warnings": [],
+  "rule": {
+    "ratio": "median(B) / median(A) of the per-launch medians; below 1.0 means B is faster",
+    "confidence": 0.999,
+    "resamples": 10000,
+    "seed": 410,
+    "min_change": 0.03
+  },
+  "a": {
+    "dir": "/home/fhbench/fh-round/work/g1-2026-11-16/fh-amd/bin/aot/pkg-net10",
+    "variant": "pkg-net10: tfm=net10.0 runtime-async=off\ncommit=96df9b255394c8365206c224db61cf3bee70b02b\nsdk=11.0.100\nlibrary=ModernLibs.FileHelpers 4.9.1 package (lib/net10.0)\nlibrary_sha256=a2a318aac7354eac84866a97660600c8531866bf34e98be30fe4310d355f66b8\nrid=linux-x64\naot=true",
+    "startup": {
+      "variant": "tfm=net10.0 runtime-async=off",
+      "library": "package 4.9.1",
+      "build": "native-aot=yes app-tfm=net10.0 rid=linux-x64",
+      "runtime": ".NET 10.0.15"
+    },
+    "executable_sha256": "1f1c03b09f98c24e21f28a798143ac06537a4b5a6f8f029468699b04cff446d4"
+  },
+  "b": {
+    "dir": "/home/fhbench/fh-round/work/g1-2026-11-16/fh-amd/bin/aot/net10",
+    "variant": "net10: tfm=net10.0 runtime-async=off\ncommit=96df9b255394c8365206c224db61cf3bee70b02b\nsdk=11.0.100\nlibrary=this repository's src/ModernLibs.FileHelpers\nlibrary_sha256=89a6bc18e39b442d129d14ee41995d6c5dfc8d3f0d46dd1e71d1b7c1b2736e65\nrid=linux-x64\naot=true",
+    "startup": {
+      "variant": "tfm=net10.0 runtime-async=off",
+      "library": "project",
+      "build": "native-aot=yes app-tfm=net10.0 rid=linux-x64",
+      "runtime": ".NET 10.0.15"
+    },
+    "executable_sha256": "cca6fdbf17c07bc06105ed02a4989085cd99d828daeb80d665e26b371a637c4f"
+  },
+  "launches": 7,
+  "filter": "*PackageAssets_ParseAndDiscard",
+  "bdn_args": [],
+  "program_args": [
+    "--rows",
+    "100000",
+    "--warmup",
+    "5",
+    "--iterations",
+    "20"
+  ],
+  "aot_checksum": "0x4c62b9d3f9848d79",
+  "only_in_a": [],
+  "only_in_b": [],
+  "benchmarks": [
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Aot.PackageAssets_ParseAndDiscard(Rows: 100000)",
+      "a_median_ns": [
+        90698464.0,
+        90638397.5,
+        91730286.0,
+        90563709.0,
+        91013008.5,
+        90603938.5,
+        90955153.5
+      ],
+      "b_median_ns": [
+        111494937.5,
+        111520670.0,
+        112042515.5,
+        111861469.0,
+        111366745.0,
+        111283092.5,
+        111424279.0
+      ],
+      "median_ratio": 1.229292455272451,
+      "ci_low": 1.214067347397129,
+      "ci_high": 1.236618599091032,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "slower"
+    }
+  ]
+}

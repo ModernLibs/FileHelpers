@@ -1,0 +1,153 @@
+{
+  "harness": "benchmarkdotnet",
+  "b4": true,
+  "not_b4_reason": null,
+  "warnings": [],
+  "rule": {
+    "ratio": "median(B) / median(A) of the per-launch medians; below 1.0 means B is faster",
+    "confidence": 0.999,
+    "resamples": 10000,
+    "seed": 410,
+    "min_change": 0.03
+  },
+  "a": {
+    "dir": "/home/fhbench/fh-round/work/simd-2026-11-17/fh-intel/bin/net10",
+    "variant": "net10: tfm=net10.0 runtime-async=off\ncommit=5af254d9f858fc6664565c7937261bb3068f670b\nsdk=11.0.100",
+    "startup": {
+      "variant": "tfm=net10.0 runtime-async=off",
+      "assembly": "/home/fhbench/fh-round/work/simd-2026-11-17/fh-intel/bin/net10/ModernLibs.FileHelpers.dll",
+      "runtime": ".NET 10.0.15"
+    },
+    "library_sha256": "9e8fa1098254cfc4d1e5d9abfff61a688ad1208b0ef31ab1c9dc906a615513b0"
+  },
+  "b": {
+    "dir": "/home/fhbench/fh-round/work/simd-2026-11-17/fh-intel/bin/net11-ra-on",
+    "variant": "net11-ra-on: tfm=net11.0 runtime-async=on\ncommit=5af254d9f858fc6664565c7937261bb3068f670b\nsdk=11.0.100",
+    "startup": {
+      "variant": "tfm=net11.0 runtime-async=on",
+      "assembly": "/home/fhbench/fh-round/work/simd-2026-11-17/fh-intel/bin/net11-ra-on/ModernLibs.FileHelpers.dll",
+      "runtime": ".NET 11.0.0"
+    },
+    "library_sha256": "fbae51e59f8902b84424d3f6e77761b7276b9c042be45d97d871a8750a935ff3"
+  },
+  "launches": 7,
+  "filter": "*VectorLoopShapeBenchmarks*",
+  "bdn_args": [
+    "--maxIterationCount",
+    "20"
+  ],
+  "program_args": [],
+  "aot_checksum": null,
+  "only_in_a": [],
+  "only_in_b": [],
+  "benchmarks": [
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.VectorLoopShapeBenchmarks.Scan_LoadUnsafe(Dataset: Quoted)",
+      "a_median_ns": [
+        288902.9631347656,
+        288204.8854980469,
+        289141.63134765625,
+        287329.9323730469,
+        287926.3034667969,
+        287707.7099609375,
+        288244.8713378906
+      ],
+      "b_median_ns": [
+        300530.08251953125,
+        341523.94970703125,
+        341818.79833984375,
+        342684.5104980469,
+        341836.99365234375,
+        342626.91015625,
+        299764.7841796875
+      ],
+      "median_ratio": 1.1860270784415978,
+      "ci_low": 1.037596779649003,
+      "ci_high": 1.1924511565032836,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "slower"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.VectorLoopShapeBenchmarks.Scan_LoadUnsafe(Dataset: LongLines)",
+      "a_median_ns": [
+        247303.13134765625,
+        260793.59521484375,
+        248008.037109375,
+        261333.24389648438,
+        247543.8298339844,
+        247414.69189453125,
+        248224.853515625
+      ],
+      "b_median_ns": [
+        259559.54858398438,
+        249506.64111328125,
+        260797.5847167969,
+        260879.46923828125,
+        260689.33032226565,
+        249627.14111328125,
+        247098.14770507812
+      ],
+      "median_ratio": 1.046577165842069,
+      "ci_low": 0.947485491357703,
+      "ci_high": 1.0545664476450574,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.VectorLoopShapeBenchmarks.Scan_SpanCreate(Dataset: Quoted)",
+      "a_median_ns": [
+        305254.5275878906,
+        305728.9462890625,
+        305503.72509765625,
+        298348.3737792969,
+        305191.2761230469,
+        304977.4367675781,
+        306222.9716796875
+      ],
+      "b_median_ns": [
+        314793.544921875,
+        316418.26513671875,
+        315689.68310546875,
+        315537.27978515625,
+        314916.31689453125,
+        293516.53369140625,
+        314615.4033203125
+      ],
+      "median_ratio": 1.0316515839518834,
+      "ci_low": 0.9600547715684417,
+      "ci_high": 1.0581243634966153,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.VectorLoopShapeBenchmarks.Scan_SpanCreate(Dataset: LongLines)",
+      "a_median_ns": [
+        287412.2087402344,
+        278252.3547363281,
+        277556.0612792969,
+        287078.9128417969,
+        277617.68701171875,
+        277692.125,
+        277438.98046875
+      ],
+      "b_median_ns": [
+        286206.3037109375,
+        285833.9404296875,
+        287360.931640625,
+        275560.8876953125,
+        275940.2197265625,
+        275980.0617675781,
+        276464.98681640625
+      ],
+      "median_ratio": 0.9955809399218875,
+      "ci_low": 0.9598785399022612,
+      "ci_high": 1.035325729570221,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    }
+  ]
+}

@@ -1,0 +1,1206 @@
+{
+  "harness": "benchmarkdotnet",
+  "b4": true,
+  "not_b4_reason": null,
+  "warnings": [],
+  "rule": {
+    "ratio": "median(B) / median(A) of the per-launch medians; below 1.0 means B is faster",
+    "confidence": 0.999,
+    "resamples": 10000,
+    "seed": 410,
+    "min_change": 0.03
+  },
+  "a": {
+    "dir": "/home/fhbench/fh-round/work/simd-2026-11-17/fh-amd/bin/net10",
+    "variant": "net10: tfm=net10.0 runtime-async=off\ncommit=5af254d9f858fc6664565c7937261bb3068f670b\nsdk=11.0.100",
+    "startup": {
+      "variant": "tfm=net10.0 runtime-async=off",
+      "assembly": "/home/fhbench/fh-round/work/simd-2026-11-17/fh-amd/bin/net10/ModernLibs.FileHelpers.dll",
+      "runtime": ".NET 10.0.15"
+    },
+    "library_sha256": "1bcd3305b7148134521c68ebe18ebc7b75ea64e948c8878a957eb4471ec52255"
+  },
+  "b": {
+    "dir": "/home/fhbench/fh-round/work/simd-2026-11-17/fh-amd/bin/net11-ra-on",
+    "variant": "net11-ra-on: tfm=net11.0 runtime-async=on\ncommit=5af254d9f858fc6664565c7937261bb3068f670b\nsdk=11.0.100",
+    "startup": {
+      "variant": "tfm=net11.0 runtime-async=on",
+      "assembly": "/home/fhbench/fh-round/work/simd-2026-11-17/fh-amd/bin/net11-ra-on/ModernLibs.FileHelpers.dll",
+      "runtime": ".NET 11.0.0"
+    },
+    "library_sha256": "e4e07850dd9a80f2663819b7dc86753a5bf5f87c15b23d81e06f08dd32eb1c3a"
+  },
+  "launches": 7,
+  "filter": "*TokenizerBenchmarks*",
+  "bdn_args": [
+    "--maxIterationCount",
+    "20"
+  ],
+  "program_args": [],
+  "aot_checksum": null,
+  "only_in_a": [],
+  "only_in_b": [],
+  "benchmarks": [
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.QuotedTokenizerBenchmarks.TokenizerQuoted_IndexOfHop",
+      "a_median_ns": [
+        1454382.61328125,
+        1456109.1328125,
+        1451963.0009765625,
+        1452452.9306640625,
+        1459950.939453125,
+        1452864.166015625,
+        1455587.7392578125
+      ],
+      "b_median_ns": [
+        1215565.794921875,
+        1218483.62890625,
+        1217796.4345703125,
+        1216687.482421875,
+        1215958.330078125,
+        1218259.5859375,
+        1217722.49609375
+      ],
+      "median_ratio": 0.8372779521521038,
+      "ci_low": 0.8328761585191378,
+      "ci_high": 0.8390431334118857,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "faster"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.QuotedTokenizerBenchmarks.TokenizerQuoted_Vector128",
+      "a_median_ns": [
+        604226.7944335938,
+        612990.8876953125,
+        606855.962890625,
+        608363.9755859375,
+        597384.8544921875,
+        593198.060546875,
+        601014.0927734375
+      ],
+      "b_median_ns": [
+        527873.1015625,
+        515065.99560546875,
+        511840.27929687494,
+        526536.63671875,
+        528890.5444335938,
+        528624.990234375,
+        525361.6044921875
+      ],
+      "median_ratio": 0.8714221904249198,
+      "ci_low": 0.8402506561589911,
+      "ci_high": 0.8911441648123909,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "faster"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.QuotedTokenizerBenchmarks.TokenizerQuoted_Vector256",
+      "a_median_ns": [
+        576528.7568359375,
+        573568.4145507812,
+        579256.244140625,
+        578139.4833984375,
+        579695.4990234375,
+        579585.173828125,
+        573894.2431640625
+      ],
+      "b_median_ns": [
+        495139.6059570313,
+        487907.2529296875,
+        487596.18701171875,
+        492419.873046875,
+        505436.51171875,
+        488748.228515625,
+        503169.01171874994
+      ],
+      "median_ratio": 0.8517319560191896,
+      "ci_low": 0.8412847826854774,
+      "ci_high": 0.8807136815524005,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "faster"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_CountPlusIndexOf(Dataset: Columns5)",
+      "a_median_ns": [
+        280362.0104980469,
+        280221.6394042969,
+        287394.20947265625,
+        280978.85205078125,
+        287223.6123046875,
+        280101.68994140625,
+        283916.9208984375
+      ],
+      "b_median_ns": [
+        286001.15576171875,
+        283149.79638671875,
+        283051.80126953125,
+        279640.62060546875,
+        278690.64306640625,
+        282245.9306640625,
+        281954.7646484375
+      ],
+      "median_ratio": 1.004509515944112,
+      "ci_low": 0.9702915468202195,
+      "ci_high": 1.0206248038863384,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_CountPlusIndexOf(Dataset: Columns25)",
+      "a_median_ns": [
+        2370017.63671875,
+        2369769.5703125,
+        2371231.14453125,
+        2368951.39453125,
+        2370290.18359375,
+        2380625.341796875,
+        2376523.5859375
+      ],
+      "b_median_ns": [
+        2374167.375,
+        2370525.01953125,
+        2371548.0234375,
+        2370650.015625,
+        2365614.7109375,
+        2371063.125,
+        2369971.51953125
+      ],
+      "median_ratio": 1.0001518092737085,
+      "ci_low": 0.99540973417451,
+      "ci_high": 1.0018557942268287,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_CountPlusIndexOf(Dataset: Columns150)",
+      "a_median_ns": [
+        1567740.18359375,
+        1566798.171875,
+        1567745.69921875,
+        1567270.330078125,
+        1568194.3447265625,
+        1569464.5888671875,
+        1568296.1025390625
+      ],
+      "b_median_ns": [
+        1566277.412109375,
+        1565813.9609375,
+        1565861.2275390625,
+        1566189.01953125,
+        1565244.5859375,
+        1565517.20703125,
+        1562235.400390625
+      ],
+      "median_ratio": 0.9987678242190601,
+      "ci_low": 0.9961354860611938,
+      "ci_high": 0.9996112119897224,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_CountPlusIndexOf(Dataset: LongLines)",
+      "a_median_ns": [
+        494735.4033203125,
+        494645.09375,
+        494836.07324218756,
+        494601.982421875,
+        495766.0498046875,
+        489809.3916015625,
+        489505.79882812494
+      ],
+      "b_median_ns": [
+        477047.7829589844,
+        476932.40966796875,
+        477585.873046875,
+        476391.4970703125,
+        476246.07275390625,
+        475981.0788574219,
+        477002.8935546875
+      ],
+      "median_ratio": 0.964191125504252,
+      "ci_low": 0.960626636175528,
+      "ci_high": 0.975044336094252,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "faster"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_Runtime(Dataset: Columns5)",
+      "a_median_ns": [
+        117856.91015625,
+        115925.76831054688,
+        118310.38269042969,
+        117739.72772216797,
+        117392.39978027344,
+        118447.330078125,
+        120208.99182128906
+      ],
+      "b_median_ns": [
+        150379.88330078125,
+        154076.59106445312,
+        153473.765625,
+        151984.67700195312,
+        149312.35668945312,
+        153890.7802734375,
+        145470.6396484375
+      ],
+      "median_ratio": 1.289569502547266,
+      "ci_low": 1.2281462110837666,
+      "ci_high": 1.3274941586859992,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "slower"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_Runtime(Dataset: Columns25)",
+      "a_median_ns": [
+        724427.646484375,
+        726276.5356445312,
+        725552.3081054688,
+        716603.681640625,
+        714247.7700195312,
+        767751.078125,
+        731161.7783203125
+      ],
+      "b_median_ns": [
+        768132.2666015625,
+        731671.02734375,
+        731261.8071289062,
+        732466.623046875,
+        733617.296875,
+        737741.4614257812,
+        731676.1752929688
+      ],
+      "median_ratio": 1.0095297263397323,
+      "ci_low": 0.9530055355059031,
+      "ci_high": 1.0719066707039038,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_Runtime(Dataset: Columns150)",
+      "a_median_ns": [
+        244195.02954101562,
+        218642.50854492188,
+        219923.22875976562,
+        218321.14416503906,
+        218782.79272460938,
+        237494.74951171875,
+        217625.55029296875
+      ],
+      "b_median_ns": [
+        245302.0869140625,
+        239078.02172851562,
+        238646.93298339844,
+        238528.71362304688,
+        230671.92016601562,
+        226148.03552246094,
+        230247.70751953125
+      ],
+      "median_ratio": 1.0902535370928028,
+      "ci_low": 0.9428844966758763,
+      "ci_high": 1.123583736482378,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_Runtime(Dataset: LongLines)",
+      "a_median_ns": [
+        239600.2890625,
+        238859.14965820312,
+        232611.744140625,
+        239751.62524414062,
+        239622.2784423828,
+        232564.4375,
+        232415.37377929688
+      ],
+      "b_median_ns": [
+        240890.6807861328,
+        246927.68359375,
+        247257.96435546878,
+        247282.01611328125,
+        241548.79565429688,
+        247163.00585937503,
+        239856.8448486328
+      ],
+      "median_ratio": 1.0337794635336037,
+      "ci_low": 1.0009789006588818,
+      "ci_high": 1.0638623441075223,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "slower"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_Runtime_IndexOfHop(Dataset: Columns5)",
+      "a_median_ns": [
+        273935.2666015625,
+        273860.853515625,
+        273952.2763671875,
+        274277.6413574219,
+        273697.3962402344,
+        274189.7978515625,
+        273367.1611328125
+      ],
+      "b_median_ns": [
+        274510.2724609375,
+        276012.79736328125,
+        273443.40625,
+        275403.3679199219,
+        274148.59033203125,
+        274247.9055175781,
+        274756.98046875
+      ],
+      "median_ratio": 1.0020990574397686,
+      "ci_low": 0.9972778286887006,
+      "ci_high": 1.0084597119112326,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_Runtime_IndexOfHop(Dataset: Columns25)",
+      "a_median_ns": [
+        2444424.484375,
+        2441909.111328125,
+        2444219.78125,
+        2443633.09375,
+        2443890.09375,
+        2443347.37890625,
+        2447373.3984375
+      ],
+      "b_median_ns": [
+        2456960.32421875,
+        2455539.4296875,
+        2453880.904296875,
+        2455046.41015625,
+        2454176.52734375,
+        2453957.171875,
+        2454925.470703125
+      ],
+      "median_ratio": 1.0045154964134217,
+      "ci_low": 1.0026901385140916,
+      "ci_high": 1.005581828699579,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_Runtime_IndexOfHop(Dataset: Columns150)",
+      "a_median_ns": [
+        1502542.01171875,
+        1502153.30078125,
+        1501676.24609375,
+        1502483.083984375,
+        1502094.052734375,
+        1502069.21484375,
+        1500959.099609375
+      ],
+      "b_median_ns": [
+        1511610.498046875,
+        1512794.5478515625,
+        1510935.4833984375,
+        1512428.3740234375,
+        1511995.60546875,
+        1511902.4951171875,
+        1511514.7060546875
+      ],
+      "median_ratio": 1.0065298456943874,
+      "ci_low": 1.0056256203508447,
+      "ci_high": 1.007641297099333,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_Runtime_IndexOfHop(Dataset: LongLines)",
+      "a_median_ns": [
+        391303.44921875,
+        388773.04150390625,
+        389241.7121582031,
+        389580.693359375,
+        388759.99853515625,
+        389798.5715332031,
+        388000.67822265625
+      ],
+      "b_median_ns": [
+        383961.58154296875,
+        384026.41796875,
+        382859.08837890625,
+        383724.0637207031,
+        384760.85302734375,
+        383312.8681640625,
+        383511.35400390625
+      ],
+      "median_ratio": 0.9858246219119049,
+      "ci_low": 0.9795795792992856,
+      "ci_high": 0.9897570791058627,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_Runtime_Vector128(Dataset: Columns5)",
+      "a_median_ns": [
+        165466.013671875,
+        168916.54650878906,
+        171226.43286132812,
+        154819.57104492188,
+        155282.87036132812,
+        174755.6318359375,
+        158848.69921875
+      ],
+      "b_median_ns": [
+        198956.44506835938,
+        198917.8455810547,
+        201768.52905273438,
+        201700.4130859375,
+        198694.265625,
+        209496.5184326172,
+        198604.12255859375
+      ],
+      "median_ratio": 1.2024006661748503,
+      "ci_low": 1.136983475368258,
+      "ci_high": 1.3491283226871011,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "slower"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_Runtime_Vector128(Dataset: Columns25)",
+      "a_median_ns": [
+        965386.4223632812,
+        927632.857421875,
+        928027.919921875,
+        964506.1044921875,
+        964002.7075195312,
+        936137.1323242188,
+        969174.94921875
+      ],
+      "b_median_ns": [
+        976870.830078125,
+        947722.455078125,
+        930382.65625,
+        933385.9018554688,
+        943837.93359375,
+        952275.6279296875,
+        937502.4228515625
+      ],
+      "median_ratio": 0.9790822434745364,
+      "ci_low": 0.9630726656811232,
+      "ci_high": 1.052630862830465,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_Runtime_Vector128(Dataset: Columns150)",
+      "a_median_ns": [
+        300486.904296875,
+        298160.56591796875,
+        298882.84912109375,
+        302183.267578125,
+        301312.39208984375,
+        296618.7238769531,
+        300097.1396484375
+      ],
+      "b_median_ns": [
+        339146.1435546875,
+        311224.06982421875,
+        311382.08447265625,
+        311074.54833984375,
+        311490.7927246094,
+        308941.6005859375,
+        309701.2751464844
+      ],
+      "median_ratio": 1.0370777615168756,
+      "ci_low": 1.0248789670871359,
+      "ci_high": 1.1374614295842023,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "slower"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_Runtime_Vector128(Dataset: LongLines)",
+      "a_median_ns": [
+        414656.77880859375,
+        414765.2431640625,
+        414480.15576171875,
+        414725.80712890625,
+        414942.55322265625,
+        414442.537109375,
+        415011.9775390625
+      ],
+      "b_median_ns": [
+        421412.3515625,
+        418135.888671875,
+        401805.3415527344,
+        401853.822265625,
+        417394.58740234375,
+        417235.52880859375,
+        418825.0471191406
+      ],
+      "median_ratio": 1.0064350475122663,
+      "ci_low": 0.9682945168198211,
+      "ci_high": 1.016725036661988,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_Runtime_Vector256(Dataset: Columns5)",
+      "a_median_ns": [
+        116314.9594116211,
+        115991.38061523438,
+        118090.99658203125,
+        121414.7933959961,
+        116764.35180664062,
+        118760.03405761719,
+        118064.83154296875
+      ],
+      "b_median_ns": [
+        125541.50378417969,
+        151646.3250732422,
+        137323.2596435547,
+        152700.494140625,
+        146549.95056152344,
+        140101.33435058594,
+        153494.5604248047
+      ],
+      "median_ratio": 1.2412667569697735,
+      "ci_low": 1.0571022884960812,
+      "ci_high": 1.3196459097029007,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "slower"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_Runtime_Vector256(Dataset: Columns25)",
+      "a_median_ns": [
+        724789.158203125,
+        724404.892578125,
+        771158.8515625,
+        724291.1162109375,
+        725860.421875,
+        721405.4345703125,
+        725115.7001953125
+      ],
+      "b_median_ns": [
+        731594.021484375,
+        730403.8232421875,
+        734880.6899414062,
+        729345.6953125,
+        738838.6108398438,
+        730771.025390625,
+        730061.71875
+      ],
+      "median_ratio": 1.008253251472925,
+      "ci_low": 0.9467073058563353,
+      "ci_high": 1.0200851485035605,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_Runtime_Vector256(Dataset: Columns150)",
+      "a_median_ns": [
+        219026.05322265625,
+        219018.58471679688,
+        232005.67053222656,
+        217998.80444335938,
+        218925.97534179688,
+        215299.3702392578,
+        219107.05615234375
+      ],
+      "b_median_ns": [
+        260781.50781250003,
+        240447.75927734375,
+        225551.6124267578,
+        231186.81689453125,
+        226342.78881835938,
+        257750.36767578128,
+        225073.7061767578
+      ],
+      "median_ratio": 1.0555579892613614,
+      "ci_low": 0.9721814639673979,
+      "ci_high": 1.1971719535888494,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_Runtime_Vector256(Dataset: LongLines)",
+      "a_median_ns": [
+        239235.02478027344,
+        239821.89990234375,
+        232551.91430664062,
+        232394.58227539062,
+        239107.24584960938,
+        232337.66076660156,
+        239553.8289794922
+      ],
+      "b_median_ns": [
+        243766.76342773438,
+        292251.7956542969,
+        246598.94750976562,
+        242831.98046875,
+        247641.04614257812,
+        247074.89404296878,
+        247409.42089843747
+      ],
+      "median_ratio": 1.033322487426294,
+      "ci_low": 1.013684404474864,
+      "ci_high": 1.2575671635407346,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "slower"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_Runtime_Vector256_LoadUnsafe(Dataset: Columns5)",
+      "a_median_ns": [
+        123085.30291748047,
+        116716.28552246094,
+        117795.8876953125,
+        111870.22888183594,
+        119944.50518798828,
+        109860.13067626953,
+        102708.87512207031
+      ],
+      "b_median_ns": [
+        130068.16119384766,
+        150365.7889404297,
+        133242.5479736328,
+        125984.35729980469,
+        131400.79125976562,
+        133137.7587890625,
+        135239.44165039062
+      ],
+      "median_ratio": 1.1406956466537088,
+      "ci_low": 1.0503553881217833,
+      "ci_high": 1.3687020761291486,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "slower"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_Runtime_Vector256_LoadUnsafe(Dataset: Columns25)",
+      "a_median_ns": [
+        720399.08203125,
+        719151.85546875,
+        720018.576171875,
+        723776.650390625,
+        714994.783203125,
+        699795.498046875,
+        680389.2661132812
+      ],
+      "b_median_ns": [
+        702643.7490234375,
+        747188.958984375,
+        702295.53515625,
+        705201.5244140625,
+        703616.724609375,
+        751907.7788085938,
+        700991.091796875
+      ],
+      "median_ratio": 0.9783979826496463,
+      "ci_low": 0.9703207954791281,
+      "ci_high": 1.0981786400786222,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_Runtime_Vector256_LoadUnsafe(Dataset: Columns150)",
+      "a_median_ns": [
+        215218.30834960938,
+        215480.04858398438,
+        215518.65478515625,
+        206235.0958251953,
+        214818.68481445312,
+        205937.81567382812,
+        219767.92309570312
+      ],
+      "b_median_ns": [
+        203460.8896484375,
+        202216.4171142578,
+        206815.8507080078,
+        224298.99731445312,
+        205203.7960205078,
+        205775.35888671875,
+        218472.3642578125
+      ],
+      "median_ratio": 0.9561238561193822,
+      "ci_low": 0.9337255486459748,
+      "ci_high": 1.087588882081296,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_Runtime_Vector256_LoadUnsafe(Dataset: LongLines)",
+      "a_median_ns": [
+        184004.87646484375,
+        183630.73413085938,
+        184481.98315429688,
+        177613.7537841797,
+        184669.82568359375,
+        178466.72607421875,
+        199648.248046875
+      ],
+      "b_median_ns": [
+        177432.12377929688,
+        191043.30932617188,
+        177751.328125,
+        211768.09497070312,
+        179055.05932617188,
+        214608.79418945312,
+        201189.06665039062
+      ],
+      "median_ratio": 1.0382513387501058,
+      "ci_low": 0.8903225040235071,
+      "ci_high": 1.2025143224749022,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_Runtime_Vector256_Packed(Dataset: Columns5)",
+      "a_median_ns": [
+        133382.21606445312,
+        133439.08837890625,
+        133391.98828125,
+        133177.8056640625,
+        135242.3505859375,
+        133329.2071533203,
+        132876.08325195312
+      ],
+      "b_median_ns": [
+        140552.6025390625,
+        149521.04321289062,
+        136895.18969726562,
+        137468.18029785156,
+        137292.8310546875,
+        151948.7452392578,
+        135814.76049804688
+      ],
+      "median_ratio": 1.0306335008815868,
+      "ci_low": 1.0122213131032343,
+      "ci_high": 1.1409464548660946,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "slower"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_Runtime_Vector256_Packed(Dataset: Columns25)",
+      "a_median_ns": [
+        777819.4765625,
+        770197.701171875,
+        767410.2080078125,
+        767910.1953125,
+        774682.54296875,
+        774663.3828125,
+        774396.4169921875
+      ],
+      "b_median_ns": [
+        785485.6748046875,
+        789991.8022460938,
+        782684.2006835938,
+        778318.3779296875,
+        777233.392578125,
+        782003.5146484375,
+        786558.0830078125
+      ],
+      "median_ratio": 1.0107022495320892,
+      "ci_low": 1.0006414102272063,
+      "ci_high": 1.0287554548284226,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_Runtime_Vector256_Packed(Dataset: Columns150)",
+      "a_median_ns": [
+        244407.8359375,
+        252963.30810546875,
+        239877.60083007812,
+        242681.06213378906,
+        237309.11474609375,
+        243883.0135498047,
+        237343.48706054688
+      ],
+      "b_median_ns": [
+        244298.7138671875,
+        251554.14306640625,
+        237115.61743164062,
+        243943.80639648438,
+        244298.796875,
+        244483.16796875,
+        244514.38696289062
+      ],
+      "median_ratio": 1.0066660938722902,
+      "ci_low": 0.9643446246155832,
+      "ci_high": 1.0598737980209847,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_Runtime_Vector256_Packed(Dataset: LongLines)",
+      "a_median_ns": [
+        238016.88500976562,
+        238359.45434570312,
+        237719.26696777344,
+        237911.22436523438,
+        237188.681640625,
+        237932.35546875,
+        234877.00732421875
+      ],
+      "b_median_ns": [
+        241049.20239257812,
+        241364.65942382812,
+        240889.50073242188,
+        240706.38330078125,
+        240767.576171875,
+        247115.1689453125,
+        243279.00903320312
+      ],
+      "median_ratio": 1.0131897014767426,
+      "ci_low": 1.0101029003979816,
+      "ci_high": 1.0418505943708036,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_SinglePassScalar(Dataset: Columns5)",
+      "a_median_ns": [
+        372287.18408203125,
+        382332.6416015625,
+        375401.1730957031,
+        376867.0559082031,
+        372252.17138671875,
+        372116.48095703125,
+        372346.275390625
+      ],
+      "b_median_ns": [
+        374020.56640625,
+        373829.17236328125,
+        377372.1376953125,
+        386626.724609375,
+        377667.228515625,
+        377965.7414550781,
+        372985.443359375
+      ],
+      "median_ratio": 1.0134978181248488,
+      "ci_low": 0.9777589765742709,
+      "ci_high": 1.038615095700068,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_SinglePassScalar(Dataset: Columns25)",
+      "a_median_ns": [
+        2042175.6718749998,
+        2046657.15234375,
+        2061748.8046874998,
+        2057502.810546875,
+        2035857.078125,
+        2047208.560546875,
+        2057402.6953125
+      ],
+      "b_median_ns": [
+        2048645.0390624998,
+        2050534.4414062498,
+        2051423.345703125,
+        2054419.4882812498,
+        2051102.056640625,
+        2052607.1171875,
+        2044965.31640625
+      ],
+      "median_ratio": 1.0019018561023942,
+      "ci_low": 0.9936443442599758,
+      "ci_high": 1.0082275122563744,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_SinglePassScalar(Dataset: Columns150)",
+      "a_median_ns": [
+        713942.3125,
+        716867.83984375,
+        679912.8671875,
+        709929.3037109375,
+        714959.2963867188,
+        697298.9780273438,
+        714415.8774414062
+      ],
+      "b_median_ns": [
+        712508.216796875,
+        719970.7001953125,
+        696967.1240234375,
+        715212.658203125,
+        710874.74609375,
+        715483.0278320312,
+        713021.94140625
+      ],
+      "median_ratio": 0.9987108606989168,
+      "ci_low": 0.9748346899547841,
+      "ci_high": 1.0523157633296003,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_SinglePassScalar(Dataset: LongLines)",
+      "a_median_ns": [
+        1156443.36328125,
+        1156554.310546875,
+        1154929.06640625,
+        1158340.60546875,
+        1150571.9326171875,
+        1157171.9443359375,
+        1154735.6953125
+      ],
+      "b_median_ns": [
+        1155006.78125,
+        1155295.1953125,
+        1156194.6328125,
+        1156984.6171875,
+        1153411.8125,
+        1153537.3955078125,
+        1154649.474609375
+      ],
+      "median_ratio": 0.9987577584195962,
+      "ci_low": 0.9958533699515837,
+      "ci_high": 1.004886874115313,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_SinglePassVector(Dataset: Columns5)",
+      "a_median_ns": [
+        105495.56970214844,
+        103990.28308105469,
+        112962.71801757812,
+        111314.87530517578,
+        104834.95629882812,
+        114610.95166015625,
+        107826.47509765625
+      ],
+      "b_median_ns": [
+        106227.78991699219,
+        107307.00762939453,
+        106677.69696044922,
+        100403.74353027344,
+        110961.21490478516,
+        99964.88385009766,
+        103098.29431152344
+      ],
+      "median_ratio": 0.9851735375823408,
+      "ci_low": 0.8760396984399017,
+      "ci_high": 1.0584371742235896,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_SinglePassVector(Dataset: Columns25)",
+      "a_median_ns": [
+        684577.7524414062,
+        682177.6430664062,
+        714344.4345703125,
+        709724.5932617188,
+        691990.5283203125,
+        723602.5166015625,
+        694105.2744140625
+      ],
+      "b_median_ns": [
+        684244.2216796875,
+        695540.6186523438,
+        692302.3188476562,
+        676702.15234375,
+        693865.8271484375,
+        725311.1015625,
+        689795.056640625
+      ],
+      "median_ratio": 0.9974024753407497,
+      "ci_low": 0.9456078523514218,
+      "ci_high": 1.0595014210961817,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_SinglePassVector(Dataset: Columns150)",
+      "a_median_ns": [
+        192126.4647216797,
+        191550.53576660156,
+        191151.267578125,
+        195486.66357421875,
+        192704.52001953125,
+        191185.41040039062,
+        191880.169921875
+      ],
+      "b_median_ns": [
+        192255.96813964844,
+        190391.58740234375,
+        191344.55688476562,
+        191178.75024414062,
+        190896.96484375,
+        190955.51025390625,
+        190898.09155273438
+      ],
+      "median_ratio": 0.9951810566545505,
+      "ci_low": 0.9765216785301253,
+      "ci_high": 1.0055995786342473,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_SinglePassVector(Dataset: LongLines)",
+      "a_median_ns": [
+        176650.57177734375,
+        176330.58178710938,
+        175727.97143554688,
+        175584.6142578125,
+        176322.08837890625,
+        175599.67724609375,
+        176872.908203125
+      ],
+      "b_median_ns": [
+        175630.41552734375,
+        175914.80151367188,
+        175967.181640625,
+        175829.50329589844,
+        176154.99389648438,
+        175571.666015625,
+        175831.6240234375
+      ],
+      "median_ratio": 0.9972183612389234,
+      "ci_low": 0.9929752233487655,
+      "ci_high": 1.003162401315877,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_SinglePassVector_AnyMatchFirst(Dataset: Columns5)",
+      "a_median_ns": [
+        101871.95794677734,
+        107931.97766113281,
+        108012.42596435547,
+        105998.9560546875,
+        108482.673828125,
+        107669.20654296875,
+        106858.82946777344
+      ],
+      "b_median_ns": [
+        105306.20092773438,
+        104323.9937133789,
+        113347.18615722656,
+        105680.35144042969,
+        104805.41809082031,
+        104946.86975097656,
+        102811.79174804688
+      ],
+      "median_ratio": 0.9747157346153029,
+      "ci_low": 0.9518515192129392,
+      "ci_high": 1.0693236082320277,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_SinglePassVector_AnyMatchFirst(Dataset: Columns25)",
+      "a_median_ns": [
+        706250.0263671875,
+        691001.3168945312,
+        700247.5107421875,
+        682706.0166015625,
+        696744.5048828125,
+        688812.5810546875,
+        701544.9545898438
+      ],
+      "b_median_ns": [
+        703539.8862304688,
+        688435.412109375,
+        702579.7880859375,
+        680806.4580078125,
+        719262.5463867188,
+        692351.1215820312,
+        692200.888671875
+      ],
+      "median_ratio": 0.9936944127007932,
+      "ci_low": 0.9704388201406766,
+      "ci_high": 1.0442064593033524,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_SinglePassVector_AnyMatchFirst(Dataset: Columns150)",
+      "a_median_ns": [
+        202278.31188964844,
+        198212.4842529297,
+        205628.89892578125,
+        203857.77270507812,
+        198697.27026367188,
+        207277.80981445312,
+        203368.04858398438
+      ],
+      "b_median_ns": [
+        203088.59252929688,
+        198883.33422851562,
+        205588.09204101562,
+        199160.0537109375,
+        205730.66772460938,
+        199736.57397460938,
+        199902.27124023438
+      ],
+      "median_ratio": 0.9829581029671003,
+      "ci_low": 0.9608363475531592,
+      "ci_high": 1.0372106117123998,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.TokenizerBenchmarks.Tokenizer_SinglePassVector_AnyMatchFirst(Dataset: LongLines)",
+      "a_median_ns": [
+        212124.42358398438,
+        211329.38220214844,
+        199216.80920410156,
+        246579.88598632812,
+        211823.38342285156,
+        213565.3780517578,
+        213682.744140625
+      ],
+      "b_median_ns": [
+        211396.5323486328,
+        211742.61499023438,
+        196296.6778564453,
+        211819.5283203125,
+        176696.94140625,
+        213093.92529296875,
+        213332.41748046875
+      ],
+      "median_ratio": 0.9982000724513515,
+      "ci_low": 0.7960774134972598,
+      "ci_high": 1.0696583593739313,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    }
+  ]
+}

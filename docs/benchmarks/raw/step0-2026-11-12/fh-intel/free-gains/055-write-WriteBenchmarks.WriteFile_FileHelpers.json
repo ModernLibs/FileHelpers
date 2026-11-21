@@ -1,0 +1,126 @@
+{
+  "harness": "benchmarkdotnet",
+  "b4": true,
+  "not_b4_reason": null,
+  "warnings": [],
+  "rule": {
+    "ratio": "median(B) / median(A) of the per-launch medians; below 1.0 means B is faster",
+    "confidence": 0.999,
+    "resamples": 10000,
+    "seed": 410,
+    "min_change": 0.03
+  },
+  "a": {
+    "dir": "/home/fhbench/fh-round/work/step0-2026-11-12/fh-intel/bin/pkg-net10",
+    "variant": "pkg-net10: tfm=net10.0 runtime-async=off\ncommit=fe784c30819ea342cd9b42270c0a5c8cb367720b\nsdk=11.0.100\nlibrary=ModernLibs.FileHelpers 4.9.1 package (lib/net10.0)\nlibrary_sha256=a2a318aac7354eac84866a97660600c8531866bf34e98be30fe4310d355f66b8",
+    "startup": {
+      "variant": "tfm=net10.0 runtime-async=off",
+      "assembly": "/home/fhbench/fh-round/work/step0-2026-11-12/fh-intel/bin/pkg-net10/ModernLibs.FileHelpers.dll",
+      "runtime": ".NET 10.0.15"
+    },
+    "library_sha256": "a2a318aac7354eac84866a97660600c8531866bf34e98be30fe4310d355f66b8"
+  },
+  "b": {
+    "dir": "/home/fhbench/fh-round/work/step0-2026-11-12/fh-intel/bin/pkg-net11",
+    "variant": "pkg-net11: tfm=net10.0 runtime-async=off\ncommit=fe784c30819ea342cd9b42270c0a5c8cb367720b\nsdk=11.0.100\nlibrary=ModernLibs.FileHelpers 4.9.1 package (lib/net10.0)\nlibrary_sha256=a2a318aac7354eac84866a97660600c8531866bf34e98be30fe4310d355f66b8",
+    "startup": {
+      "variant": "tfm=net10.0 runtime-async=off",
+      "assembly": "/home/fhbench/fh-round/work/step0-2026-11-12/fh-intel/bin/pkg-net11/ModernLibs.FileHelpers.dll",
+      "runtime": ".NET 11.0.0"
+    },
+    "library_sha256": "a2a318aac7354eac84866a97660600c8531866bf34e98be30fe4310d355f66b8"
+  },
+  "launches": 7,
+  "filter": "*WriteBenchmarks.WriteFile_FileHelpers",
+  "bdn_args": [
+    "--maxIterationCount",
+    "20"
+  ],
+  "program_args": [],
+  "aot_checksum": null,
+  "only_in_a": [],
+  "only_in_b": [],
+  "benchmarks": [
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.WriteBenchmarks.WriteFile_FileHelpers(Rows: 10000)",
+      "a_median_ns": [
+        16382011.390625,
+        16012217.843749998,
+        16240796.7890625,
+        15383604.6,
+        55653612.09375,
+        16365299.53125,
+        37630795.546875
+      ],
+      "b_median_ns": [
+        16261613.5,
+        54931707.833333336,
+        54077501.546875,
+        17010863.799999997,
+        55600526.390625,
+        37487715.15625,
+        41955981.5390625
+      ],
+      "median_ratio": 2.5637160785811695,
+      "ci_low": 0.30565606004772417,
+      "ci_high": 3.570795614009303,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.WriteBenchmarks.WriteFile_FileHelpers(Rows: 100000)",
+      "a_median_ns": [
+        145548131.375,
+        153291921.125,
+        539263525.125,
+        280120163.625,
+        516130062.5,
+        141641608.25,
+        530110284.5
+      ],
+      "b_median_ns": [
+        127789491.75,
+        154439088.875,
+        171144656.125,
+        127187282.5,
+        214406769.25,
+        501661462.5,
+        270282274.25
+      ],
+      "median_ratio": 0.6109687139627452,
+      "ci_low": 0.23992460210624658,
+      "ci_high": 3.4467049336929354,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.WriteBenchmarks.WriteFile_FileHelpers(Rows: 1000000)",
+      "a_median_ns": [
+        4042009678.5000005,
+        4325607952.0,
+        2050320962.5,
+        3410598254.0,
+        1869142057.0,
+        2200997395.0,
+        1978855749.0
+      ],
+      "b_median_ns": [
+        3067026935.5,
+        3216069425.0,
+        1951296562.0,
+        2058610602.5,
+        4355282421.0,
+        1865862177.0,
+        2595685446.0
+      ],
+      "median_ratio": 1.179322361715017,
+      "ci_low": 0.4511034249180611,
+      "ci_high": 2.200909501968958,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    }
+  ]
+}

@@ -1,0 +1,99 @@
+{
+  "harness": "benchmarkdotnet",
+  "b4": true,
+  "not_b4_reason": null,
+  "warnings": [],
+  "rule": {
+    "ratio": "median(B) / median(A) of the per-launch medians; below 1.0 means B is faster",
+    "confidence": 0.999,
+    "resamples": 10000,
+    "seed": 410,
+    "min_change": 0.03
+  },
+  "a": {
+    "dir": "/home/fhbench/fh-round/work/g1-2026-11-16/fh-intel/bin/net11-ra-off",
+    "variant": "net11-ra-off: tfm=net11.0 runtime-async=off\ncommit=96df9b255394c8365206c224db61cf3bee70b02b\nsdk=11.0.100",
+    "startup": {
+      "variant": "tfm=net11.0 runtime-async=off",
+      "assembly": "/home/fhbench/fh-round/work/g1-2026-11-16/fh-intel/bin/net11-ra-off/ModernLibs.FileHelpers.dll",
+      "runtime": ".NET 11.0.0"
+    },
+    "library_sha256": "b23d1e572441c6a9c11c3d43d8038143fa9af838a2403cf0e7fd16fe42ad3b06"
+  },
+  "b": {
+    "dir": "/home/fhbench/fh-round/work/g1-2026-11-16/fh-intel/bin/net11-ra-on",
+    "variant": "net11-ra-on: tfm=net11.0 runtime-async=on\ncommit=96df9b255394c8365206c224db61cf3bee70b02b\nsdk=11.0.100",
+    "startup": {
+      "variant": "tfm=net11.0 runtime-async=on",
+      "assembly": "/home/fhbench/fh-round/work/g1-2026-11-16/fh-intel/bin/net11-ra-on/ModernLibs.FileHelpers.dll",
+      "runtime": ".NET 11.0.0"
+    },
+    "library_sha256": "ca3bb7c17c25687ee00f10a4ca8301639b8bffda2f2574cd262136cc7553abb2"
+  },
+  "launches": 7,
+  "filter": "*QuotedWriteBenchmarks.WriteString",
+  "bdn_args": [
+    "--maxIterationCount",
+    "20"
+  ],
+  "program_args": [],
+  "aot_checksum": null,
+  "only_in_a": [],
+  "only_in_b": [],
+  "benchmarks": [
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.QuotedWriteBenchmarks.WriteString(Rows: 10000)",
+      "a_median_ns": [
+        1780542.2255859375,
+        1688655.6103515625,
+        1845990.880859375,
+        1629692.2646484375,
+        1619476.98046875,
+        1654843.115234375,
+        1638594.7578125
+      ],
+      "b_median_ns": [
+        1668838.142578125,
+        1631331.25,
+        1778398.203125,
+        1679724.2822265625,
+        1669246.521484375,
+        1667832.6201171875,
+        1654669.9755859375
+      ],
+      "median_ratio": 1.0084570115528855,
+      "ci_low": 0.896358694261604,
+      "ci_high": 1.0912478642148074,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.QuotedWriteBenchmarks.WriteString(Rows: 100000)",
+      "a_median_ns": [
+        16704664.421875,
+        15960227.593749998,
+        16075377.640625,
+        14922727.03125,
+        15018626.71875,
+        15416838.171875,
+        15206961.828125
+      ],
+      "b_median_ns": [
+        15579500.34375,
+        16256289.046875,
+        15730545.734375,
+        16833550.1875,
+        15486776.375,
+        15442787.3359375,
+        15366279.1953125
+      ],
+      "median_ratio": 1.0105509424216275,
+      "ci_low": 0.9244595967887237,
+      "ci_high": 1.120844835066322,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    }
+  ]
+}

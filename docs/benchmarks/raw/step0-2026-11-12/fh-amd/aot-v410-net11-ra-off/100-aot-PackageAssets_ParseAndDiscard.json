@@ -1,0 +1,78 @@
+{
+  "harness": "aot",
+  "b4": true,
+  "not_b4_reason": null,
+  "warnings": [],
+  "rule": {
+    "ratio": "median(B) / median(A) of the per-launch medians; below 1.0 means B is faster",
+    "confidence": 0.999,
+    "resamples": 10000,
+    "seed": 410,
+    "min_change": 0.03
+  },
+  "a": {
+    "dir": "/home/fhbench/fh-round/work/step0-2026-11-12/fh-amd/bin/aot/pkg-net11",
+    "variant": "pkg-net11: tfm=net10.0 runtime-async=off\ncommit=fe784c30819ea342cd9b42270c0a5c8cb367720b\nsdk=11.0.100\nlibrary=ModernLibs.FileHelpers 4.9.1 package (lib/net10.0)\nlibrary_sha256=a2a318aac7354eac84866a97660600c8531866bf34e98be30fe4310d355f66b8\nrid=linux-x64\naot=true",
+    "startup": {
+      "variant": "tfm=net10.0 runtime-async=off",
+      "library": "package 4.9.1",
+      "build": "native-aot=yes app-tfm=net11.0 rid=linux-x64",
+      "runtime": ".NET 11.0.0"
+    },
+    "executable_sha256": "42caa8e0a6908a6926cbaf700ceaea5a0cc96e24ef82b295d65cc6dcd5f923ad"
+  },
+  "b": {
+    "dir": "/home/fhbench/fh-round/work/step0-2026-11-12/fh-amd/bin/aot/net11-ra-off",
+    "variant": "net11-ra-off: tfm=net11.0 runtime-async=off\ncommit=fe784c30819ea342cd9b42270c0a5c8cb367720b\nsdk=11.0.100\nlibrary=this repository's src/ModernLibs.FileHelpers\nlibrary_sha256=61e00a3a2f5f6e119e2506d5afb2b45aff0644a4568c2465b1362d96883b46c1\nrid=linux-x64\naot=true",
+    "startup": {
+      "variant": "tfm=net11.0 runtime-async=off",
+      "library": "project",
+      "build": "native-aot=yes app-tfm=net11.0 rid=linux-x64",
+      "runtime": ".NET 11.0.0"
+    },
+    "executable_sha256": "b5cc32a5d0e9b89921a80415b44bd26262fc5277fbfaac698e95bf1e533befa1"
+  },
+  "launches": 7,
+  "filter": "*PackageAssets_ParseAndDiscard",
+  "bdn_args": [],
+  "program_args": [
+    "--rows",
+    "100000",
+    "--warmup",
+    "5",
+    "--iterations",
+    "20"
+  ],
+  "aot_checksum": "0x4c62b9d3f9848d79",
+  "only_in_a": [],
+  "only_in_b": [],
+  "benchmarks": [
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Aot.PackageAssets_ParseAndDiscard(Rows: 100000)",
+      "a_median_ns": [
+        68770006.5,
+        68690281.5,
+        68119013.5,
+        68097317.0,
+        69604776.5,
+        69658653.0,
+        69147507.5
+      ],
+      "b_median_ns": [
+        66843992.0,
+        67631040.5,
+        66835591.5,
+        67861089.5,
+        67061201.5,
+        68254104.0,
+        67702212.5
+      ],
+      "median_ratio": 0.9834380414083573,
+      "ci_low": 0.9595935195588694,
+      "ci_high": 1.001983154086634,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    }
+  ]
+}

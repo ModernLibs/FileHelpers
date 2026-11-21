@@ -1,0 +1,8 @@
+# Diagnosis A/B for issue 2 (diag-r2-async-path-report.md section 4 step B): commit e2fb9a5 (PipelineLineReader 64 KB
+# reads) against the 4.9.1 package (v410 pairs) and against 5af254d (base pairs; --base-commit 5af254d).
+async      v410-net10,v410-net11,base-net10,base-net11     *EngineAsyncBenchmarks.Engine_ReadAsync_Path*
+guard      base-net10,base-net11                           *EngineAsyncBenchmarks.Engine_ReadAsync_Stream
+guard      base-net10,base-net11                           *AsyncStreamingBenchmarks*
+control    v410-net10,base-net10                           *EngineAsyncBenchmarks.Engine_ReadFileAsync_Callback
+guard      base-net10,base-net11                           *OptimizedParseBenchmarks.ReadFileAsync_Callback_ProcessAndDiscard
+guard      base-net10,base-net11                           *DelimitedParseBenchmarks.FileHelpers_ParseAndDiscard

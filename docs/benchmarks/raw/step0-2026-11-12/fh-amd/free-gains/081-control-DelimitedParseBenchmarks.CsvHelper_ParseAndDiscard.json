@@ -1,0 +1,126 @@
+{
+  "harness": "benchmarkdotnet",
+  "b4": true,
+  "not_b4_reason": null,
+  "warnings": [],
+  "rule": {
+    "ratio": "median(B) / median(A) of the per-launch medians; below 1.0 means B is faster",
+    "confidence": 0.999,
+    "resamples": 10000,
+    "seed": 410,
+    "min_change": 0.03
+  },
+  "a": {
+    "dir": "/home/fhbench/fh-round/work/step0-2026-11-12/fh-amd/bin/pkg-net10",
+    "variant": "pkg-net10: tfm=net10.0 runtime-async=off\ncommit=fe784c30819ea342cd9b42270c0a5c8cb367720b\nsdk=11.0.100\nlibrary=ModernLibs.FileHelpers 4.9.1 package (lib/net10.0)\nlibrary_sha256=a2a318aac7354eac84866a97660600c8531866bf34e98be30fe4310d355f66b8",
+    "startup": {
+      "variant": "tfm=net10.0 runtime-async=off",
+      "assembly": "/home/fhbench/fh-round/work/step0-2026-11-12/fh-amd/bin/pkg-net10/ModernLibs.FileHelpers.dll",
+      "runtime": ".NET 10.0.15"
+    },
+    "library_sha256": "a2a318aac7354eac84866a97660600c8531866bf34e98be30fe4310d355f66b8"
+  },
+  "b": {
+    "dir": "/home/fhbench/fh-round/work/step0-2026-11-12/fh-amd/bin/pkg-net11",
+    "variant": "pkg-net11: tfm=net10.0 runtime-async=off\ncommit=fe784c30819ea342cd9b42270c0a5c8cb367720b\nsdk=11.0.100\nlibrary=ModernLibs.FileHelpers 4.9.1 package (lib/net10.0)\nlibrary_sha256=a2a318aac7354eac84866a97660600c8531866bf34e98be30fe4310d355f66b8",
+    "startup": {
+      "variant": "tfm=net10.0 runtime-async=off",
+      "assembly": "/home/fhbench/fh-round/work/step0-2026-11-12/fh-amd/bin/pkg-net11/ModernLibs.FileHelpers.dll",
+      "runtime": ".NET 11.0.0"
+    },
+    "library_sha256": "a2a318aac7354eac84866a97660600c8531866bf34e98be30fe4310d355f66b8"
+  },
+  "launches": 7,
+  "filter": "*DelimitedParseBenchmarks.CsvHelper_ParseAndDiscard",
+  "bdn_args": [
+    "--maxIterationCount",
+    "20"
+  ],
+  "program_args": [],
+  "aot_checksum": null,
+  "only_in_a": [],
+  "only_in_b": [],
+  "benchmarks": [
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.DelimitedParseBenchmarks.CsvHelper_ParseAndDiscard(Rows: 10000)",
+      "a_median_ns": [
+        7777718.6875,
+        7897885.171874999,
+        7741067.796875,
+        7701157.8828125,
+        7836711.4375,
+        9057588.1953125,
+        7858764.218749999
+      ],
+      "b_median_ns": [
+        7225269.21875,
+        7138468.7109375,
+        7160471.58203125,
+        7207469.2109375,
+        7304382.484375,
+        7079130.125,
+        7125311.8671875
+      ],
+      "median_ratio": 0.9137087206972012,
+      "ci_low": 0.7866676772603777,
+      "ci_high": 0.9435884914124786,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "faster"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.DelimitedParseBenchmarks.CsvHelper_ParseAndDiscard(Rows: 100000)",
+      "a_median_ns": [
+        76893637.92857143,
+        78363357.42857143,
+        77335313.71428572,
+        77417448.57142857,
+        78358144.28571428,
+        79685731.78571428,
+        77126617.57142857
+      ],
+      "b_median_ns": [
+        72804977.57142857,
+        74725182.28571428,
+        71799930.85714285,
+        73018506.7142857,
+        72915373.14285713,
+        72653422.42857142,
+        71256654.125
+      ],
+      "median_ratio": 0.9404207825869598,
+      "ci_low": 0.9010387336370654,
+      "ci_high": 0.9688637287446158,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "faster"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.DelimitedParseBenchmarks.CsvHelper_ParseAndDiscard(Rows: 1000000)",
+      "a_median_ns": [
+        776636533.0,
+        781627943.5,
+        773653615.5,
+        777698548.0,
+        784588725.0,
+        796064727.5,
+        782530784.0
+      ],
+      "b_median_ns": [
+        736038467.0,
+        715017325.0,
+        719955305.0,
+        727853892.0,
+        723704072.5,
+        721990659.0,
+        717155096.0
+      ],
+      "median_ratio": 0.9237011867398776,
+      "ci_low": 0.9008753575254972,
+      "ci_high": 0.9477257838448864,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "faster"
+    }
+  ]
+}

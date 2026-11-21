@@ -1,0 +1,78 @@
+{
+  "harness": "aot",
+  "b4": true,
+  "not_b4_reason": null,
+  "warnings": [],
+  "rule": {
+    "ratio": "median(B) / median(A) of the per-launch medians; below 1.0 means B is faster",
+    "confidence": 0.999,
+    "resamples": 10000,
+    "seed": 410,
+    "min_change": 0.03
+  },
+  "a": {
+    "dir": "/home/fhbench/fh-round/work/step0-2026-11-12/fh-amd/bin/aot/net11-ra-off",
+    "variant": "net11-ra-off: tfm=net11.0 runtime-async=off\ncommit=fe784c30819ea342cd9b42270c0a5c8cb367720b\nsdk=11.0.100\nlibrary=this repository's src/ModernLibs.FileHelpers\nlibrary_sha256=61e00a3a2f5f6e119e2506d5afb2b45aff0644a4568c2465b1362d96883b46c1\nrid=linux-x64\naot=true",
+    "startup": {
+      "variant": "tfm=net11.0 runtime-async=off",
+      "library": "project",
+      "build": "native-aot=yes app-tfm=net11.0 rid=linux-x64",
+      "runtime": ".NET 11.0.0"
+    },
+    "executable_sha256": "b5cc32a5d0e9b89921a80415b44bd26262fc5277fbfaac698e95bf1e533befa1"
+  },
+  "b": {
+    "dir": "/home/fhbench/fh-round/work/step0-2026-11-12/fh-amd/bin/aot/net11-ra-on",
+    "variant": "net11-ra-on: tfm=net11.0 runtime-async=on\ncommit=fe784c30819ea342cd9b42270c0a5c8cb367720b\nsdk=11.0.100\nlibrary=this repository's src/ModernLibs.FileHelpers\nlibrary_sha256=6dcabaee2b47a2f28f810022dc3e0306bf19349a386a590824a065f37e9729ba\nrid=linux-x64\naot=true",
+    "startup": {
+      "variant": "tfm=net11.0 runtime-async=on",
+      "library": "project",
+      "build": "native-aot=yes app-tfm=net11.0 rid=linux-x64",
+      "runtime": ".NET 11.0.0"
+    },
+    "executable_sha256": "754b06d848191454430272c9777c162b7be7592d9772e00332f887eddbb34c67"
+  },
+  "launches": 7,
+  "filter": "*PackageAssets_ParseAndDiscard",
+  "bdn_args": [],
+  "program_args": [
+    "--rows",
+    "100000",
+    "--warmup",
+    "5",
+    "--iterations",
+    "20"
+  ],
+  "aot_checksum": "0x4c62b9d3f9848d79",
+  "only_in_a": [],
+  "only_in_b": [],
+  "benchmarks": [
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Aot.PackageAssets_ParseAndDiscard(Rows: 100000)",
+      "a_median_ns": [
+        67882281.0,
+        68521890.5,
+        69270501.0,
+        69614517.5,
+        69089280.0,
+        67127154.0,
+        67003256.0
+      ],
+      "b_median_ns": [
+        69012005.0,
+        69084687.0,
+        67980211.5,
+        67805904.5,
+        69742276.5,
+        68977480.0,
+        67692621.5
+      ],
+      "median_ratio": 1.0066488168478072,
+      "ci_low": 0.9740196001502129,
+      "ci_high": 1.0389577442833342,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    }
+  ]
+}

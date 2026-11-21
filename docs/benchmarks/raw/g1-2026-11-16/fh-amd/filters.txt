@@ -1,0 +1,70 @@
+# Filter file for benchmarks/tools/round.sh, same format as filters-step0.txt (read its header for the columns, the
+# pair names and the "not run" rule). Part 2 of the 4.10 plan (T59). Run with --max-rows 100000 (design D10) and
+# --max-iterations 20.
+#
+# filters-g1.txt: the T19 round. D6: the ra pair is on every scenario line that both builds can run; the component
+# group has none (code shapes that runtime async does not change, Global Constraints). Coverage that T19 must keep
+# (rulings P7 and P9): MultiRecordWriteBenchmarks.WriteStream_Null, QuotedWriteBenchmarks.WriteStream_Null and
+# QuotedWriteBenchmarks.WriteString in net10, net11-ra-on and net11-ra-off, and ConverterCallShapeBenchmarks
+# .Format_WriterDirectCall (the component line). Classes that a later task adds (TokensPassingBenchmarks,
+# FixedSliceBenchmarks) are "not run" until their task has landed.
+
+# 25-column delimited read (PackageAssets): parse-and-discard is the primary metric (B2), ReadFile the array read
+read25     v410-net10,v410-net11,ra                             *DelimitedParseBenchmarks.FileHelpers_ParseAndDiscard
+read25     v410-net10,v410-net11,ra                             *OptimizedParseBenchmarks.ReadFile
+
+# Quoted reads
+quoted     v410-net10,v410-net11,ra                             *QuotedFieldsBenchmarks.FileHelpers_ParseAndDiscard
+quoted     v410-net10,v410-net11,ra                             *QuotedFieldsBenchmarks.ReadAllRows_FileHelpers
+quoted     v410-net10,v410-net11,ra                             *QuotedFieldsPeriodicBenchmarks.FileHelpers_ParseAndDiscard
+quoted     v410-net10,v410-net11,ra                             *SparseQuoteBenchmarks.ReadFile_ParseAndDiscard
+quoted     v410-net10,v410-net11,ra                             *MultilineBenchmarks.ReadFile_ParseAndDiscard
+
+# Other plain reads
+read-other v410-net10,v410-net11,ra                             *LongLineBenchmarks.ReadFile_ParseAndDiscard
+read-other v410-net10,v410-net11,ra                             *WideRecordBenchmarks.ReadFile_ParseAndDiscard
+
+# Fixed-width reads
+fixed      v410-net10,v410-net11,ra                             *FixedWidthParseBenchmarks.FileHelpers_ParseAndDiscard
+fixed      v410-net10,v410-net11,ra                             *FixedWidthParseBenchmarks.ReadAllRows_Struct
+fixed      v410-net10,v410-net11,ra                             *FixedWidthParseBenchmarks.ReadAllRows_Class
+
+# Writes (runtime-410: the 4.10 build on .NET 10 against .NET 11)
+write      v410-net10,v410-net11,ra,runtime-410                 *WriteBenchmarks.WriteString_FileHelpers
+write      v410-net10,v410-net11,ra,runtime-410                 *WriteBenchmarks.WriteFile_FileHelpers
+write      v410-net10,v410-net11,ra,runtime-410                 *QuotedWriteBenchmarks.WriteString
+write      v410-net10,v410-net11,ra,runtime-410                 *QuotedWriteBenchmarks.WriteStream_Null
+write      v410-net10,v410-net11,ra,runtime-410                 *FixedWidthWriteBenchmarks.WriteString
+write      v410-net10,v410-net11,ra,runtime-410                 *FixedWidthWriteBenchmarks.WriteStream_Null
+write      v410-net10,v410-net11,ra,runtime-410                 *MultiRecordWriteBenchmarks.WriteStream_Null
+# 4.10 API (T43): the 4.9.1 builds leave it out, so it runs in the pairs of 4.10 builds only (ruling F11)
+write      ra,runtime-410                                       *EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null
+
+# Async (runtime async changes only these method bodies)
+async      v410-net10,v410-net11,ra                             *EngineAsyncBenchmarks.Engine_ReadAsync_Path
+async      v410-net10,v410-net11,ra                             *EngineAsyncBenchmarks.Engine_ReadFileAsync_Callback
+async      v410-net10,v410-net11,ra                             *AsyncStreamingBenchmarks.ReadAsync_MultiRecord
+async      v410-net10,v410-net11,ra                             *OptimizedParseBenchmarks.ReadFileAsync_Callback_ProcessAndDiscard
+# 4.10-only API (T43, T46): ReadAsync(Stream), ReadAsync(TextReader), the fault-path write (also in the exception table)
+async      ra                                                   *EngineAsyncBenchmarks.Engine_ReadAsync_Stream
+async      ra                                                   *EngineAsyncBenchmarks.Engine_ReadAsync_TextReader
+async,exception ra                                              *EngineAsyncBenchmarks.Engine_WriteStreamAsync_Null_SourceThrows
+
+# Exception path: a conversion error in every 100th row, ErrorMode.SaveAndContinue
+exception  v410-net10,ra                                        *EngineAsyncBenchmarks.Engine_ReadAsync_Path_ExceptionEvery100
+
+# Controls: code that is the same in every build, so their ratios show the noise of a pair
+control    v410-net10,v410-net11,ra                             *DelimitedParseBenchmarks.Sylvan_ParseAndDiscard
+control    v410-net10,v410-net11,ra                             *DelimitedParseBenchmarks.CsvHelper_ParseAndDiscard
+control    v410-net10,v410-net11,ra                             *FixedWidthParseBenchmarks.SliceAllFields_SpanSlicer
+
+# Component benchmarks (B3): the 4.10 build on both runtimes, no ra (Global Constraints, D6 exception)
+component  runtime-410                                          *Components.TokenizerBenchmarks*
+component  runtime-410                                          *TokensPassingBenchmarks*
+component  runtime-410                                          *Components.UnquoteBenchmarks*
+component  runtime-410                                          *Components.CreateStringBenchmarks*
+component  runtime-410                                          *Components.ConverterCallShapeBenchmarks*
+component  runtime-410                                          *FixedSliceBenchmarks*
+
+# Native AOT read (T47): 100,000 rows, the 4.9.1 package against 4.10 and runtime async under AOT
+aot        aot-v410-net10,aot-v410-net11,aot-ra                 *PackageAssets_ParseAndDiscard

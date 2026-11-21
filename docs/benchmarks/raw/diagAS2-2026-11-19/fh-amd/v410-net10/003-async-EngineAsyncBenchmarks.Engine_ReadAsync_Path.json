@@ -1,0 +1,153 @@
+{
+  "harness": "benchmarkdotnet",
+  "b4": true,
+  "not_b4_reason": null,
+  "warnings": [],
+  "rule": {
+    "ratio": "median(B) / median(A) of the per-launch medians; below 1.0 means B is faster",
+    "confidence": 0.999,
+    "resamples": 10000,
+    "seed": 410,
+    "min_change": 0.03
+  },
+  "a": {
+    "dir": "/home/fhbench/fh-round/work/diagAS2-2026-11-19/fh-amd/bin/pkg-net10",
+    "variant": "pkg-net10: tfm=net10.0 runtime-async=off\ncommit=0661962ea3a08291d5abb306bc20a3d21ad40079\nsdk=11.0.100\nlibrary=ModernLibs.FileHelpers 4.9.1 package (lib/net10.0)\nlibrary_sha256=a2a318aac7354eac84866a97660600c8531866bf34e98be30fe4310d355f66b8",
+    "startup": {
+      "variant": "tfm=net10.0 runtime-async=off",
+      "assembly": "/home/fhbench/fh-round/work/diagAS2-2026-11-19/fh-amd/bin/pkg-net10/ModernLibs.FileHelpers.dll",
+      "runtime": ".NET 10.0.15"
+    },
+    "library_sha256": "a2a318aac7354eac84866a97660600c8531866bf34e98be30fe4310d355f66b8"
+  },
+  "b": {
+    "dir": "/home/fhbench/fh-round/work/diagAS2-2026-11-19/fh-amd/bin/net10",
+    "variant": "net10: tfm=net10.0 runtime-async=off\ncommit=0661962ea3a08291d5abb306bc20a3d21ad40079\nsdk=11.0.100",
+    "startup": {
+      "variant": "tfm=net10.0 runtime-async=off",
+      "assembly": "/home/fhbench/fh-round/work/diagAS2-2026-11-19/fh-amd/bin/net10/ModernLibs.FileHelpers.dll",
+      "runtime": ".NET 10.0.15"
+    },
+    "library_sha256": "b7af259caccee7fc7d28bc169325ab1e3428a8e39f752e41b459ffaf259285bf"
+  },
+  "launches": 7,
+  "filter": "*EngineAsyncBenchmarks.Engine_ReadAsync_Path*",
+  "bdn_args": [
+    "--maxIterationCount",
+    "20"
+  ],
+  "program_args": [],
+  "aot_checksum": null,
+  "only_in_a": [],
+  "only_in_b": [],
+  "benchmarks": [
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.EngineAsyncBenchmarks.Engine_ReadAsync_Path(Rows: 10000)",
+      "a_median_ns": [
+        8747998.484375,
+        8789233.828125,
+        8750939.828125,
+        8829630.125,
+        8690051.34375,
+        8586414.21875,
+        8901940.03125
+      ],
+      "b_median_ns": [
+        6025055.1875,
+        6745698.87890625,
+        5926966.4375,
+        5923784.0,
+        6323539.71875,
+        5938816.015625,
+        6106888.66015625
+      ],
+      "median_ratio": 0.688503784260501,
+      "ci_low": 0.6658061519953581,
+      "ci_high": 0.7762553536300848,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "faster"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.EngineAsyncBenchmarks.Engine_ReadAsync_Path(Rows: 100000)",
+      "a_median_ns": [
+        87758606.83333333,
+        88131188.00000001,
+        89004824.83333333,
+        89600037.08333334,
+        87356066.58333334,
+        87733757.83333333,
+        89779785.16666667
+      ],
+      "b_median_ns": [
+        61338554.44444445,
+        68874751.6875,
+        60504101.9375,
+        60717090.0,
+        63577332.625,
+        59881556.333333336,
+        61385483.0
+      ],
+      "median_ratio": 0.6959914626867896,
+      "ci_low": 0.6683206646180284,
+      "ci_high": 0.7850427633379213,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "faster"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.EngineAsyncBenchmarks.Engine_ReadAsync_Path_ExceptionEvery100(Rows: 10000)",
+      "a_median_ns": [
+        9896425.90625,
+        10080238.3984375,
+        10058826.5625,
+        10085724.28125,
+        9950848.7578125,
+        10166434.8125,
+        10313706.28125
+      ],
+      "b_median_ns": [
+        6498000.171875,
+        6583851.40625,
+        6748773.5234375,
+        6464875.078125,
+        6431374.1875,
+        6411394.3359375,
+        7010935.3125
+      ],
+      "median_ratio": 0.6446276283388527,
+      "ci_low": 0.6235754647378353,
+      "ci_high": 0.7045565140356145,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "faster"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.EngineAsyncBenchmarks.Engine_ReadAsync_Path_ExceptionEvery100(Rows: 100000)",
+      "a_median_ns": [
+        102492200.4,
+        104636224.4,
+        101459089.2,
+        103802732.80000001,
+        102752121.4,
+        104188471.69999999,
+        105380202.19999999
+      ],
+      "b_median_ns": [
+        66880752.5,
+        66699160.9375,
+        71025634.25,
+        65903059.0625,
+        65789806.5625,
+        66645090.4375,
+        67829544.25
+      ],
+      "median_ratio": 0.6425568878423593,
+      "ci_low": 0.625383683905097,
+      "ci_high": 0.6912336537975793,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "faster"
+    }
+  ]
+}

@@ -1,0 +1,153 @@
+{
+  "harness": "benchmarkdotnet",
+  "b4": true,
+  "not_b4_reason": null,
+  "warnings": [],
+  "rule": {
+    "ratio": "median(B) / median(A) of the per-launch medians; below 1.0 means B is faster",
+    "confidence": 0.999,
+    "resamples": 10000,
+    "seed": 410,
+    "min_change": 0.03
+  },
+  "a": {
+    "dir": "/home/fhbench/fh-round/work/step0-2026-11-12/fh-intel/bin/net10",
+    "variant": "net10: tfm=net10.0 runtime-async=off\ncommit=fe784c30819ea342cd9b42270c0a5c8cb367720b\nsdk=11.0.100",
+    "startup": {
+      "variant": "tfm=net10.0 runtime-async=off",
+      "assembly": "/home/fhbench/fh-round/work/step0-2026-11-12/fh-intel/bin/net10/ModernLibs.FileHelpers.dll",
+      "runtime": ".NET 10.0.15"
+    },
+    "library_sha256": "96a19c7b492fd6a6b23ab15bd3fbf98435b1ba7c4aa0c329e8e609dfe6e1a708"
+  },
+  "b": {
+    "dir": "/home/fhbench/fh-round/work/step0-2026-11-12/fh-intel/bin/net11-ra-on",
+    "variant": "net11-ra-on: tfm=net11.0 runtime-async=on\ncommit=fe784c30819ea342cd9b42270c0a5c8cb367720b\nsdk=11.0.100",
+    "startup": {
+      "variant": "tfm=net11.0 runtime-async=on",
+      "assembly": "/home/fhbench/fh-round/work/step0-2026-11-12/fh-intel/bin/net11-ra-on/ModernLibs.FileHelpers.dll",
+      "runtime": ".NET 11.0.0"
+    },
+    "library_sha256": "68a63ed47aecfb12ef540a00766ec56e21fffa662893833f7f858c0980a10e23"
+  },
+  "launches": 7,
+  "filter": "*Components.CreateStringBenchmarks*",
+  "bdn_args": [
+    "--maxIterationCount",
+    "20"
+  ],
+  "program_args": [],
+  "aot_checksum": null,
+  "only_in_a": [],
+  "only_in_b": [],
+  "benchmarks": [
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.CreateStringBenchmarks.CreateString_Cached(Dataset: Columns25)",
+      "a_median_ns": [
+        1436222.126953125,
+        1420663.625,
+        1478744.6796875,
+        1472055.091796875,
+        1417977.0458984375,
+        1409172.8896484375,
+        1422502.7734375
+      ],
+      "b_median_ns": [
+        1479434.0390625,
+        1417036.0224609375,
+        1392376.783203125,
+        1393177.86328125,
+        1388687.916015625,
+        1400698.630859375,
+        1439551.453125
+      ],
+      "median_ratio": 0.9846719858932612,
+      "ci_low": 0.9421352325917604,
+      "ci_high": 1.043341317366053,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.CreateStringBenchmarks.CreateString_Cached(Dataset: Quoted)",
+      "a_median_ns": [
+        129134.96142578126,
+        126542.24731445311,
+        125717.48388671876,
+        132892.17333984375,
+        122939.4970703125,
+        123929.20971679686,
+        126241.96459960938
+      ],
+      "b_median_ns": [
+        125284.8203125,
+        122691.73962402344,
+        125892.71142578124,
+        123448.15429687501,
+        124601.2265625,
+        124131.09887695312,
+        121761.40832519531
+      ],
+      "median_ratio": 0.9832792072798368,
+      "ci_low": 0.923242780523012,
+      "ci_high": 1.0190770525183306,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.CreateStringBenchmarks.CreateString_New(Dataset: Columns25)",
+      "a_median_ns": [
+        1508223.1669921875,
+        1471176.1162109375,
+        1482880.2841796875,
+        1467131.44140625,
+        1418246.017578125,
+        1412829.2451171875,
+        1429888.89453125
+      ],
+      "b_median_ns": [
+        1382594.255859375,
+        1480075.7841796875,
+        1476188.0654296875,
+        1424816.35546875,
+        1432486.6484375,
+        1443729.1044921875,
+        1368809.720703125
+      ],
+      "median_ratio": 0.9763860333225884,
+      "ci_low": 0.9167040303568926,
+      "ci_high": 1.0448453488144243,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.CreateStringBenchmarks.CreateString_New(Dataset: Quoted)",
+      "a_median_ns": [
+        199186.79760742188,
+        211982.9580078125,
+        192708.9376220703,
+        201395.87426757812,
+        199969.32275390625,
+        194832.01611328125,
+        188751.28442382812
+      ],
+      "b_median_ns": [
+        189199.68090820312,
+        190953.40673828125,
+        197357.4560546875,
+        187855.83740234375,
+        184074.52563476562,
+        195386.29040527344,
+        192925.3876953125
+      ],
+      "median_ratio": 0.9586649769561141,
+      "ci_low": 0.8861836780078352,
+      "ci_high": 1.0351521103641703,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    }
+  ]
+}

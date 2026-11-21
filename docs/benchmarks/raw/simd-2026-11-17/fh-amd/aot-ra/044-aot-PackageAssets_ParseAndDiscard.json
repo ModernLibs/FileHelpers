@@ -1,0 +1,105 @@
+{
+  "harness": "aot",
+  "b4": true,
+  "not_b4_reason": null,
+  "warnings": [],
+  "rule": {
+    "ratio": "median(B) / median(A) of the per-launch medians; below 1.0 means B is faster",
+    "confidence": 0.999,
+    "resamples": 10000,
+    "seed": 410,
+    "min_change": 0.03
+  },
+  "a": {
+    "dir": "/home/fhbench/fh-round/work/simd-2026-11-17/fh-amd/bin/aot/net11-ra-off",
+    "variant": "net11-ra-off: tfm=net11.0 runtime-async=off\ncommit=5af254d9f858fc6664565c7937261bb3068f670b\nsdk=11.0.100\nlibrary=this repository's src/ModernLibs.FileHelpers\nlibrary_sha256=a5609a4b3908499d3dd0af9f4c7740762bcb1eaa6f9ca12afe764e767b03192a\nrid=linux-x64\naot=true",
+    "startup": {
+      "variant": "tfm=net11.0 runtime-async=off",
+      "library": "project",
+      "build": "native-aot=yes app-tfm=net11.0 rid=linux-x64",
+      "runtime": ".NET 11.0.0"
+    },
+    "executable_sha256": "584e7f32a0717cad62ba77e637e71bfa67cd78c875bdd22449d4d565eb2a03bc"
+  },
+  "b": {
+    "dir": "/home/fhbench/fh-round/work/simd-2026-11-17/fh-amd/bin/aot/net11-ra-on",
+    "variant": "net11-ra-on: tfm=net11.0 runtime-async=on\ncommit=5af254d9f858fc6664565c7937261bb3068f670b\nsdk=11.0.100\nlibrary=this repository's src/ModernLibs.FileHelpers\nlibrary_sha256=f67e81f6dbebc0605cca2a7e921fcc850759ddf3436a7b93354e3202afb11155\nrid=linux-x64\naot=true",
+    "startup": {
+      "variant": "tfm=net11.0 runtime-async=on",
+      "library": "project",
+      "build": "native-aot=yes app-tfm=net11.0 rid=linux-x64",
+      "runtime": ".NET 11.0.0"
+    },
+    "executable_sha256": "31681d7251e65180a368906cec10c0cd6cf74b763d7355c6929152044948d34a"
+  },
+  "launches": 7,
+  "filter": "*PackageAssets_ParseAndDiscard*",
+  "bdn_args": [],
+  "program_args": [
+    "--rows",
+    "100000",
+    "--warmup",
+    "5",
+    "--iterations",
+    "20"
+  ],
+  "aot_checksum": "0x4c62b9d3f9848d79",
+  "only_in_a": [],
+  "only_in_b": [],
+  "benchmarks": [
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Aot.PackageAssets_ParseAndDiscard(Rows: 100000)",
+      "a_median_ns": [
+        76730572.5,
+        76190785.0,
+        76357260.5,
+        76474220.5,
+        76243936.0,
+        76063644.0,
+        76097539.0
+      ],
+      "b_median_ns": [
+        75575053.5,
+        75438720.0,
+        75374423.0,
+        75608117.5,
+        75707264.0,
+        76726141.5,
+        75306991.0
+      ],
+      "median_ratio": 0.9912270727995994,
+      "ci_low": 0.982325825862957,
+      "ci_high": 1.0082604839559923,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Aot.PackageAssets_ParseAndDiscard_NoVector(Rows: 100000)",
+      "a_median_ns": [
+        86527391.5,
+        87037266.0,
+        85393334.5,
+        85501465.5,
+        85237943.5,
+        84910341.5,
+        85911773.5
+      ],
+      "b_median_ns": [
+        85594517.0,
+        84605472.5,
+        84477803.0,
+        85658483.5,
+        84678604.5,
+        84992519.5,
+        84990499.5
+      ],
+      "median_ratio": 0.9940238919062738,
+      "ci_low": 0.9720603183928135,
+      "ci_high": 1.008057622757294,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    }
+  ]
+}

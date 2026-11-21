@@ -38,6 +38,20 @@ commit, mode or filter file than the first call recorded in `machine.txt`, and i
 for another glob, by other folders or from other binaries. A result file cut off by a kill is listed by
 `round-report.py` under "Damaged results" and is run again by `--resume`.
 
+## Rounds committed here
+
+| Round | What | VMs | Archive (outside the repository) | SHA-256 |
+|---|---|---|---|---|
+| `step0-2026-11-12` | Step 0 (design 3.6) | fh-amd, fh-intel | `step0-fh-amd.tgz`; `step0-fh-intel.tgz` | `cd65925e9e76ad8b9b46d60362b7b758ec61fb16522f812badaf52a7cf7ffe38`; `8f7b5341345b0cda0cc6631e7c656a0b729ba0e9d91129af37ae4edeefd2928e` |
+| `g1-2026-11-16` | T19 A/B round (`filters-g1.txt`) | fh-amd, fh-intel | `g1-fh-amd.tar.gz`; `g1-fh-intel.tar.gz`, and the archives of the next row | see the next row |
+| `simd-2026-11-17`, `noavx2-2026-11-17` (fh-amd only), `recheck-2026-11-17`, `write-2026-11-17` | round 2 (T21/T25 and the recheck of the T19 findings) | fh-amd, fh-intel | `all-fh-amd-2026-11-20.tar.gz`; `all-fh-intel-2026-11-20.tar.gz` (every round of this table after Step 0, with the `*.runs` folders and the VMs' console logs) | `fcc39b4a13917fc1e9eb8a0a9daa859921f49c3a1292a7bdebb9a929ab672392`; `7ba95352469cd42424990c246a85f988262a125c546f854a1e957903c64662de` |
+| `diagA1-2026-11-19` (fh-intel only), `diagAS-2026-11-19`, `diagFW-2026-11-19`, `diagAS2-2026-11-19`, `diagFW2-2026-11-19` | A/Bs of the async and fixed-width write diagnoses; `diagAS` and `diagFW` stopped at the checks (a harness defect, fixed by `0f55b0e`) and hold no result | fh-amd, fh-intel | as above | as above |
+| `r3cmp-2026-11-19`, `r3q-2026-11-20` | library comparison (T50 step 2, `round.sh --compare`); the quoted line of `r3cmp` failed in every configuration (its glob took `FileHelpers_ParseAndDiscard_ScanOnly`) and `r3q` reran it at `1ad7b18` | fh-amd, fh-intel | as above | as above |
+
+The `*.runs` folders are not committed; they are in the archives. A comparison round keeps, per launch, `console.log`
+and BenchmarkDotNet's `*-report-full.json` (what `round-report.py --compare` reads). The archives are kept by the
+owner, outside the repository.
+
 ## Building the report
 
 ```bash

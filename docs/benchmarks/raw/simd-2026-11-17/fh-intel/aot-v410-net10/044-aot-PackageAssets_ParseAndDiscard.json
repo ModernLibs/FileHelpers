@@ -1,0 +1,105 @@
+{
+  "harness": "aot",
+  "b4": true,
+  "not_b4_reason": null,
+  "warnings": [],
+  "rule": {
+    "ratio": "median(B) / median(A) of the per-launch medians; below 1.0 means B is faster",
+    "confidence": 0.999,
+    "resamples": 10000,
+    "seed": 410,
+    "min_change": 0.03
+  },
+  "a": {
+    "dir": "/home/fhbench/fh-round/work/simd-2026-11-17/fh-intel/bin/aot/pkg-net10",
+    "variant": "pkg-net10: tfm=net10.0 runtime-async=off\ncommit=5af254d9f858fc6664565c7937261bb3068f670b\nsdk=11.0.100\nlibrary=ModernLibs.FileHelpers 4.9.1 package (lib/net10.0)\nlibrary_sha256=a2a318aac7354eac84866a97660600c8531866bf34e98be30fe4310d355f66b8\nrid=linux-x64\naot=true",
+    "startup": {
+      "variant": "tfm=net10.0 runtime-async=off",
+      "library": "package 4.9.1",
+      "build": "native-aot=yes app-tfm=net10.0 rid=linux-x64",
+      "runtime": ".NET 10.0.15"
+    },
+    "executable_sha256": "592107ac87e58dec8b4dbb212bceb13165dc318131e8a144e0680ffdfc4d7102"
+  },
+  "b": {
+    "dir": "/home/fhbench/fh-round/work/simd-2026-11-17/fh-intel/bin/aot/net10",
+    "variant": "net10: tfm=net10.0 runtime-async=off\ncommit=5af254d9f858fc6664565c7937261bb3068f670b\nsdk=11.0.100\nlibrary=this repository's src/ModernLibs.FileHelpers\nlibrary_sha256=c612002434e5f9f1f3fe6f482e2472ba5253c16dee403c25d2d6fd898e348cda\nrid=linux-x64\naot=true",
+    "startup": {
+      "variant": "tfm=net10.0 runtime-async=off",
+      "library": "project",
+      "build": "native-aot=yes app-tfm=net10.0 rid=linux-x64",
+      "runtime": ".NET 10.0.15"
+    },
+    "executable_sha256": "839ae00eb6ccc83a6993a8a3b03b220ce3d8b231a7313c2911267fc56b6dc47c"
+  },
+  "launches": 7,
+  "filter": "*PackageAssets_ParseAndDiscard*",
+  "bdn_args": [],
+  "program_args": [
+    "--rows",
+    "100000",
+    "--warmup",
+    "5",
+    "--iterations",
+    "20"
+  ],
+  "aot_checksum": "0x4c62b9d3f9848d79",
+  "only_in_a": [],
+  "only_in_b": [],
+  "benchmarks": [
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Aot.PackageAssets_ParseAndDiscard(Rows: 100000)",
+      "a_median_ns": [
+        100185972.5,
+        100115289.0,
+        100138086.0,
+        100100935.5,
+        100303758.5,
+        100255900.0,
+        100525518.5
+      ],
+      "b_median_ns": [
+        100716892.5,
+        101141831.0,
+        100906971.0,
+        100883556.5,
+        101004827.0,
+        100868088.5,
+        100927734.5
+      ],
+      "median_ratio": 1.0071966013006461,
+      "ci_low": 1.003407791425617,
+      "ci_high": 1.010253598728562,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Aot.PackageAssets_ParseAndDiscard_NoVector(Rows: 100000)",
+      "a_median_ns": [
+        100204458.0,
+        100286130.0,
+        100702046.0,
+        100620015.5,
+        100362714.0,
+        100333698.5,
+        101966678.5
+      ],
+      "b_median_ns": [
+        92429526.5,
+        92595095.0,
+        92245309.5,
+        92719462.0,
+        92611845.5,
+        92511881.5,
+        92701767.0
+      ],
+      "median_ratio": 0.9226045341898585,
+      "ci_low": 0.9064679546269618,
+      "ci_high": 0.9251261755240471,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "faster"
+    }
+  ]
+}

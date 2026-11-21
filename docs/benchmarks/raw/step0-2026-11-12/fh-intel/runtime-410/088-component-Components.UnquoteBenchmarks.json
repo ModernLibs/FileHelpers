@@ -1,0 +1,153 @@
+{
+  "harness": "benchmarkdotnet",
+  "b4": true,
+  "not_b4_reason": null,
+  "warnings": [],
+  "rule": {
+    "ratio": "median(B) / median(A) of the per-launch medians; below 1.0 means B is faster",
+    "confidence": 0.999,
+    "resamples": 10000,
+    "seed": 410,
+    "min_change": 0.03
+  },
+  "a": {
+    "dir": "/home/fhbench/fh-round/work/step0-2026-11-12/fh-intel/bin/net10",
+    "variant": "net10: tfm=net10.0 runtime-async=off\ncommit=fe784c30819ea342cd9b42270c0a5c8cb367720b\nsdk=11.0.100",
+    "startup": {
+      "variant": "tfm=net10.0 runtime-async=off",
+      "assembly": "/home/fhbench/fh-round/work/step0-2026-11-12/fh-intel/bin/net10/ModernLibs.FileHelpers.dll",
+      "runtime": ".NET 10.0.15"
+    },
+    "library_sha256": "96a19c7b492fd6a6b23ab15bd3fbf98435b1ba7c4aa0c329e8e609dfe6e1a708"
+  },
+  "b": {
+    "dir": "/home/fhbench/fh-round/work/step0-2026-11-12/fh-intel/bin/net11-ra-on",
+    "variant": "net11-ra-on: tfm=net11.0 runtime-async=on\ncommit=fe784c30819ea342cd9b42270c0a5c8cb367720b\nsdk=11.0.100",
+    "startup": {
+      "variant": "tfm=net11.0 runtime-async=on",
+      "assembly": "/home/fhbench/fh-round/work/step0-2026-11-12/fh-intel/bin/net11-ra-on/ModernLibs.FileHelpers.dll",
+      "runtime": ".NET 11.0.0"
+    },
+    "library_sha256": "68a63ed47aecfb12ef540a00766ec56e21fffa662893833f7f858c0980a10e23"
+  },
+  "launches": 7,
+  "filter": "*Components.UnquoteBenchmarks*",
+  "bdn_args": [
+    "--maxIterationCount",
+    "20"
+  ],
+  "program_args": [],
+  "aot_checksum": null,
+  "only_in_a": [],
+  "only_in_b": [],
+  "benchmarks": [
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.UnquoteBenchmarks.Unquote_Current(Values: All)",
+      "a_median_ns": [
+        608429.7958984375,
+        662389.8447265625,
+        637146.2846679688,
+        609593.626953125,
+        619386.443359375,
+        616553.7685546875,
+        623012.96875
+      ],
+      "b_median_ns": [
+        637240.3515625,
+        601917.64453125,
+        613335.861328125,
+        617417.7265625,
+        619249.7143554688,
+        616080.3115234375,
+        594970.794921875
+      ],
+      "median_ratio": 0.9946622470165701,
+      "ci_low": 0.9087060276108615,
+      "ci_high": 1.0453527126711595,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.UnquoteBenchmarks.Unquote_Current(Values: DoubledOnly)",
+      "a_median_ns": [
+        456607.9052734375,
+        497908.087890625,
+        471308.9885253906,
+        452487.35888671875,
+        467723.33935546875,
+        454923.90576171875,
+        461703.9670410156
+      ],
+      "b_median_ns": [
+        461211.9208984375,
+        460109.1623535156,
+        459573.10986328125,
+        461344.9636230469,
+        464279.1787109375,
+        458467.6826171875,
+        449675.9609375
+      ],
+      "median_ratio": 0.9965458284932641,
+      "ci_low": 0.9207877794463517,
+      "ci_high": 1.0205644786539727,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.UnquoteBenchmarks.Unquote_IndexOf(Values: All)",
+      "a_median_ns": [
+        552449.5966796875,
+        541444.681640625,
+        546695.314453125,
+        541672.4951171875,
+        540938.779296875,
+        543661.9814453125,
+        542530.7368164062
+      ],
+      "b_median_ns": [
+        526033.05859375,
+        545068.6591796875,
+        537277.716796875,
+        542597.5625,
+        542664.974609375,
+        542770.0302734375,
+        533597.8857421875
+      ],
+      "median_ratio": 1.000123174004824,
+      "ci_low": 0.962205171119778,
+      "ci_high": 1.0066931630542229,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    },
+    {
+      "name": "ModernLibs.FileHelpers.Benchmarks.Benchmarks.Components.UnquoteBenchmarks.Unquote_IndexOf(Values: DoubledOnly)",
+      "a_median_ns": [
+        426886.95654296875,
+        410591.28369140625,
+        418886.05126953125,
+        416391.50390625,
+        412106.1726074219,
+        414712.46923828125,
+        410989.8317871094
+      ],
+      "b_median_ns": [
+        404027.82080078125,
+        421821.6396484375,
+        414803.47021484375,
+        414943.68603515625,
+        412062.66455078125,
+        413670.3603515625,
+        410874.93896484375
+      ],
+      "median_ratio": 0.9974871532350286,
+      "ci_low": 0.9624911997597816,
+      "ci_high": 1.0263554156905248,
+      "confidence": 0.999,
+      "resamples": 10000,
+      "verdict": "no-change"
+    }
+  ]
+}

@@ -545,11 +545,74 @@ These are not differences, but they surprise people who expect them to be fixed:
 - `[FieldQuoted(QuoteMode.OptionalForWrite)]` cannot read back its own unquoted output. The mode adds
   quotes on write only when a value needs them, but it requires the quote on read, so a value written
   without quotes (`x,1`) is rejected on read with "does not begin with the quote char". Use
-  `QuoteMode.OptionalForBoth` for a round trip. FileHelpers 3.5.2 behaves the same.
+  `QuoteMode.OptionalForBoth` for a round trip. FileHelpers 3.5.2 and 4.x behave the same
+  (probed with the plain `,` delimiter on 3.5.2 and 4.9.1: five of six values written unquoted are rejected).
 - A fixed-length value that is longer than its field is cut silently on write, also for a right-aligned
   field (`[FieldAlign(AlignMode.Right, '0')]`): the value is cut at its end to the first n
   characters (the field width of `[FieldFixedLength(n)]`; `12345` in a field of length 3 is written as `123`). This is the default in 3.x too. To get
   an error instead, set `[FieldFixedLength(n, OverflowMode = OverflowMode.Error)]`.
+
+### 3.11 Upgrading from 4.8 or 4.9
+
+4.10 reads and writes faster through two new paths that the source generator opts a record type into: a
+**tokenized read path** (the runtime finds the field boundaries of a record once, with vector code, and the
+generated code converts the fields from them) and a **record writer** (generated code formats a record straight
+into the engine's buffer). Records, errors, `HeaderText`, `FooterText`, `LineNumber` and `TotalRecords` are the same on
+the new and the old paths for every input; the layout errors, their text, type, line and column are produced by the
+4.9 code.
+
+- **Old binaries keep working; recompile for the speed-up.** A library compiled against 4.8 or 4.9 carries
+  descriptors without the new interfaces, so it takes the 4.9 read and write paths on a 4.10 runtime (the other behaviour changes of
+  4.10, such as the `NewLineForWrite` default, apply to it as well). Rebuild it with the 4.10 package to get the new paths. The reverse does not hold: a library compiled against 4.10 needs a 4.10
+  or later runtime.
+- **Not every record type is tokenized.** The runtime reads a record type through the tokenized path when it is
+  delimited with a one-char delimiter, has one line per record, no field has its own `[FieldDelimiter]`, and its quoted
+  fields use one quote char other than the delimiter. A record type with a `[FieldQuoted]` field that also has
+  `[FieldTrim(TrimMode.Both)]` or `[FieldTrim(TrimMode.Left)]` is read by the 4.9 path, because 3.x skips the
+  characters before the opening quote of such a field. Fixed-length records are read as in 4.9. A record the tokenized
+  path cannot handle falls back to the 4.9 code for that record.
+- **Two one-character `string` values may be the same instance.** `string.Empty` for an empty value and one cached
+  string per character below U+0080 for a one-character value; see the [changelog](../CHANGELOG.md).
+- **`NewLineForWrite`, `[FieldTrim]` characters and the stream read and write overloads changed in 4.10**; see
+  [3.2](#32-line-endings-and-empty-headerfooter), [2.5](#trim-characters-and-trimgivenchars) and
+  [4](#4-what-is-new).
+
+#### Switches back to the 4.9 code paths
+
+If a 4.10 path ever gives a result you cannot accept, three switches send the runtime back to the 4.9 code without
+a rebuild:
+
+| Switch | When it is on |
+|---|---|
+| `ModernLibs.FileHelpers.DisableTokenizedParse` | The runtime never calls `ITokenizedDescriptor<T>`: every record is read by the 4.9 `Parse` and `ParseInto`. |
+| `ModernLibs.FileHelpers.DisableVectorizedTokenizer` | The tokenizer of the 4.10 read path uses none of its own vector loops; it finds delimiters and quotes with `IndexOf` and `IndexOfAny`. The vector code of the .NET base library stays on. |
+| `ModernLibs.FileHelpers.DisableRecordWriter` | The runtime never calls the record writer of generated code (`IRecordWriterDescriptor<T>`): every record is written by the 4.9 `Format(T, IBufferWriter<char>)`. |
+
+Each switch is a boolean `AppContext` switch. Set it in one of three ways:
+
+```json
+// <app>.runtimeconfig.json
+{ "configProperties": { "ModernLibs.FileHelpers.DisableTokenizedParse": true } }
+```
+
+```xml
+<!-- the project file: written into runtimeconfig.json -->
+<ItemGroup>
+  <RuntimeHostConfigurationOption Include="ModernLibs.FileHelpers.DisableTokenizedParse" Value="true" />
+</ItemGroup>
+```
+
+```csharp
+// the first statement of Main, before any engine exists
+AppContext.SetSwitch("ModernLibs.FileHelpers.DisableTokenizedParse", true);
+```
+
+The switches are read once, when the first engine is created, so **set them before the first engine is created**: a
+change after that is ignored. They apply to every engine of the process (`FileHelperEngine<T>`,
+`FileHelperAsyncEngine<T>`, `MultiRecordEngine`, `MasterDetailEngine` and the parallel reads). They are a safety valve
+and **may be removed in 5.0**; if you need one, please [open an issue](https://github.com/ModernLibs/FileHelpers/issues)
+with the record type that behaves differently. They are not trimmer feature switches: the 4.9 code paths stay in a
+trimmed or Native AOT application, so the switch works there too.
 
 ## 4. What is new
 

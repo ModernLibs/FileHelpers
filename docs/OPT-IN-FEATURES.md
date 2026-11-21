@@ -184,6 +184,47 @@ Product[] products = new FileHelperEngine<Product>().ParallelReadFile("products.
 
 `[FieldQuoted(QuoteMode.OptionalForRead, MultilineMode.NotAllow)]` does the same for one field.
 
+## Switches to the 4.9 code paths
+
+4.10 reads and writes through a tokenized read path and a record writer that the source generator opts a record
+type into. Three `AppContext` switches turn them off, for the whole process, if one of them ever gives a result you
+cannot accept. Nothing else changes: the records, errors and written text are the same on both paths.
+
+| Switch | When it is on |
+|---|---|
+| `ModernLibs.FileHelpers.DisableTokenizedParse` | The runtime never calls `ITokenizedDescriptor<T>`: every record is read by the 4.9 `Parse` and `ParseInto`. |
+| `ModernLibs.FileHelpers.DisableVectorizedTokenizer` | The tokenizer of the 4.10 read path uses none of its own vector loops; it finds delimiters and quotes with `IndexOf` and `IndexOfAny`. The vector code of the .NET base library stays on. |
+| `ModernLibs.FileHelpers.DisableRecordWriter` | The runtime never calls the record writer of generated code (`IRecordWriterDescriptor<T>`): every record is written by the 4.9 `Format(T, IBufferWriter<char>)`. |
+
+Each switch is a boolean `AppContext` switch. Set it in one of three ways:
+
+```json
+// <app>.runtimeconfig.json
+{ "configProperties": { "ModernLibs.FileHelpers.DisableTokenizedParse": true } }
+```
+
+```xml
+<!-- the project file: written into runtimeconfig.json -->
+<ItemGroup>
+  <RuntimeHostConfigurationOption Include="ModernLibs.FileHelpers.DisableTokenizedParse" Value="true" />
+</ItemGroup>
+```
+
+```csharp
+// the first statement of Main, before any engine exists
+AppContext.SetSwitch("ModernLibs.FileHelpers.DisableTokenizedParse", true);
+```
+
+The switches are read once, when the first engine is created, so **set them before the first engine is created**: a
+change after that is ignored. They apply to every engine of the process (`FileHelperEngine<T>`,
+`FileHelperAsyncEngine<T>`, `MultiRecordEngine`, `MasterDetailEngine` and the parallel reads). They are a safety valve
+and **may be removed in 5.0**; if you need one, please [open an issue](https://github.com/ModernLibs/FileHelpers/issues)
+with the record type that behaves differently. They are not trimmer feature switches: the 4.9 code paths stay in a
+trimmed or Native AOT application, so the switch works there too.
+
+See the [migration guide](MIGRATION.md#311-upgrading-from-48-or-49) for what a record type needs to take the
+tokenized path and why a library built against 4.8 or 4.9 takes the 4.9 paths without a switch.
+
 ## Choosing a read method
 
 | Method | Result array | Per-record allocation | Use for |

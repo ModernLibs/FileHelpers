@@ -142,9 +142,10 @@ public sealed class FileHelperEngine<T> : IFileHelperEngine<T>, IRecordReadHost<
     /// Line terminator written after the header, each record and the footer, and inside records with
     /// <see cref="FieldInNewLineAttribute"/> fields. Defaults to <see cref="Environment.NewLine"/> (<c>"\n"</c> on
     /// Linux and macOS, <c>"\r\n"</c> on Windows), as in FileHelpers 3.x; 4.8 to 4.9.1 wrote <c>"\r\n"</c> on every
-    /// platform, so set <c>"\r\n"</c> to keep that output. One exception on Linux and macOS: a
-    /// <see cref="HeaderText"/>/<see cref="FooterText"/> captured on read keeps <c>"\n"</c> after each line, so writing
-    /// it back with <c>"\r\n"</c> gives mixed line endings; set the text yourself before the write, for example
+    /// platform, so set <c>"\r\n"</c> to keep that output. A <see cref="HeaderText"/>/<see cref="FooterText"/> captured on
+    /// read ends every line with <see cref="Environment.NewLine"/>, whatever this property is, so a read-then-write
+    /// with another value gives mixed line endings (<c>"\n"</c> in the text with <c>"\r\n"</c> here on Linux and macOS,
+    /// <c>"\r\n"</c> in the text with <c>"\n"</c> here on Windows); set the text yourself before the write, for example
     /// <c>engine.HeaderText = engine.HeaderText.Replace(Environment.NewLine, "\r\n")</c>. Reading does not use it.
     /// </summary>
     /// <exception cref="ArgumentException">Thrown when the value is <see langword="null"/> or empty, with the

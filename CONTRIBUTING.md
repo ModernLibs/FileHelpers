@@ -75,17 +75,23 @@ The HTML report is written to `StrykerOutput/`. Stryker builds Release (`"config
 file). A full run takes a long time (the whole `mutate` list has 1326 mutants to test and did not finish
 in 2 hours on a hosted runner); to try a change, mutate only the files you touched and lower the
 parallelism with `--concurrency`. Stryker runs in its own workflow (`mutation.yml`, started manually and
-once a week), not on every push. The `break` threshold in `stryker-config.json` is 80: it is the score
-of the first finished run (manual run 43173427050 of `QuoteBalanceScanner.cs` and `RecordReadCore.cs`, 86.58%) minus 5, rounded down
-to a multiple of 5. A run with a score under 80 fails the workflow (the Stryker step is not
-`continue-on-error`). `high` and `low` are also 80 (Stryker needs `break` <= `low` <= `high`; they only colour the report). The reports are uploaded
-as the `mutation-report` artifact, with `mutation-report.json` next to the HTML.
+once a week), not on every push. The `break` threshold in `stryker-config.json` is 80. It applies to the
+overall mutation score of a run (all mutated files together), not to each file. It is the score of the first
+finished run (manual run 43173427050 of `QuoteBalanceScanner.cs` and `RecordReadCore.cs`, 86.58%) minus 5,
+rounded down to a multiple of 5. A run with a score under 80 fails the workflow (the Stryker step is not
+`continue-on-error`). `high` and `low` are also 80 (Stryker needs `break` <= `low` <= `high`; they only
+colour the report). The message of commit `6ada846` says low 85 and high 95; commit `888775e` supersedes it with
+80 and 80. The reports are uploaded as the `mutation-report` artifact, with `mutation-report.json` next to
+the HTML.
 
 To start the workflow manually, run it from the Actions tab (Mutation Testing, Run workflow) or with
 `gh workflow run mutation.yml --ref <branch> -f mutate='<glob>,<glob>'`. The `mutate` input is a
 comma-separated list of Stryker `--mutate` globs, one `--mutate` per glob; it defaults to
 `QuoteBalanceScanner.cs` and `RecordReadCore.cs`. The weekly run uses those two files plus
-`FixedLengthSlicer.cs`. The job has a 350 minute limit and writes one character per finished mutant to the
+`FixedLengthSlicer.cs`. The 80 was measured on the two-file scope only: the three-file score has not been
+measured, because the schedule runs on the default branch and the workflow reaches it with the 4.10.0 merge.
+If the first weekly run fails under 80 with no code change, take the score of that run minus 5, rounded down
+to a multiple of 5, as the new `break`, and record it here. The job has a 350 minute limit and writes one character per finished mutant to the
 log (`.` killed, `T` timeout, `S` survived, `E` error), 100 per line with a time stamp, so a run cut off by
 the limit still shows how far it got.
 
@@ -221,7 +227,7 @@ link to that section. Messages say what is wrong and how to fix it.
   Add new record shapes or emission paths to the corpus in `GeneratedCodeWarningTests`, which requires
   warning-free generated code.
 - Parsing changes should keep the allocation tests passing. Mutation runs fail under the `break`
-  threshold (80) in `stryker-config.json`; parsing changes must keep the score above it.
+  threshold (80) in `stryker-config.json`; parsing changes must keep the score at or above it.
 
 ## Commits and pull requests
 

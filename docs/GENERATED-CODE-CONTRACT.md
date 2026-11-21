@@ -11,7 +11,9 @@ So the members below are a public contract, even where they are hidden from Inte
 - Source: `src/ModernLibs.FileHelpers.Generator/Emission/DescriptorEmitter.cs` at `3a045e0` (tag `v4.9.1`).
   The 4.8.0 descriptors in `tests/ModernLibs.FileHelpers.Tests/Compat/Generated48/` bind to the same set.
   The 4.9.1 descriptors in `tests/ModernLibs.FileHelpers.Tests/Compat/Generated49/` are the output of that
-  emitter for 19 record shapes.
+  emitter for 19 record shapes. The 4.10.0 descriptors in `tests/ModernLibs.FileHelpers.Tests/Compat/Generated410/`
+  are the output of the 4.10.0 generator for the same 19 shapes and one more (`Compat49NotEmpty`); they bind to the
+  members of "Added in 4.10", "4.10 members" and the write contract below too.
 - "Bound at" gives the line in `DescriptorEmitter.cs` (`Emitter:`) that emits the reference. Every line number
   was checked against the file at `3a045e0`.
 - Members of the .NET base library that generated code uses (`MemoryExtensions`, `ArrayPool<char>`, `Unsafe`,
@@ -105,15 +107,18 @@ descriptor, and `GetValue` never reallocates it (a value that does not fit is a 
 stores the tokens or the spans; `RecordTokens` is a `ref struct`, so it cannot escape to the heap.
 
 The runtime tokenizes a record type only when its descriptor implements `ITokenizedDescriptor<T>`, it is
-delimited with a one-char delimiter and one line per record, no field has its own `[FieldDelimiter]`, no field is
-quoted (4.10.0 adds quoted fields in T20), it has 1 to 4096 fields, and the switch below is off. A record of
-2^30 chars or more, or with a field count out of range, takes the legacy path. 4.8 and 4.9 descriptors do not
-implement the interface and always take the legacy path.
+delimited with a one-char delimiter and one line per record, no field has its own `[FieldDelimiter]`, its quoted
+fields (if any) all use one quote char other than the delimiter and none of them has `[FieldTrim]` with
+`TrimMode.Left` or `Both` (3.x skips blanks before the opening quote of such a field), it has 1 to 4096 fields, and
+the switch below is off. A record of 2^30 chars or more, or with a field count out of range, takes the legacy path.
+4.8 and 4.9 descriptors do not implement the interface and always take the legacy path.
 
 `AppContext` switches, read once into a static field before the first engine is created (a safety valve, may be
 removed in 5.0): `ModernLibs.FileHelpers.DisableTokenizedParse` (the runtime never calls
-`ITokenizedDescriptor<T>`) and `ModernLibs.FileHelpers.DisableVectorizedTokenizer` (the tokenizer uses no vector
-code of its own, only `IndexOf`, which the BCL may vectorize).
+`ITokenizedDescriptor<T>`), `ModernLibs.FileHelpers.DisableVectorizedTokenizer` (the tokenizer uses no vector
+code of its own, only `IndexOf`, which the BCL may vectorize) and `ModernLibs.FileHelpers.DisableRecordWriter`
+(see the write contract). They are set in `runtimeconfig.json`, with `<RuntimeHostConfigurationOption>` or with
+`AppContext.SetSwitch` at the start of `Main`; see the [migration guide](MIGRATION.md#311-upgrading-from-48-or-49).
 
 ### Bound by 4.10 generated code
 
@@ -287,6 +292,11 @@ target `paths-switch` (the switch).
   default binder, which would accept a widened type), the `RecordOptions` setters are `init`, and the enum
   values are as listed.
 - `Compat48Tests` runs the 4.8.0 descriptors in `Generated48/` against the current runtime.
+- `Compat410Tests` runs the 4.10.0 descriptors in `Generated410/` for the 19 shapes of `Compat49Tests` and the
+  path-only `Compat49NotEmpty`: the read and the round trip against the 4.9.1 golden texts (`Golden49/`), the default,
+  scalar-tokenizer and legacy read paths and the record writer and legacy writer against each other, and that every
+  descriptor implements `IRecordWriterDescriptor<T>`. It is the check that 4.10.1 and later keep 4.10.0 descriptors
+  working. How the snapshot was made: `Generated410/README.md`.
 - `Compat49Tests` runs the 4.9.1 descriptors in `Generated49/` for 19 record shapes (all quote modes,
   `MultilineMode.NotAllow`, `[FieldInNewLine]`, `[FieldTrim]` with characters, `[FieldOptional]`,
   `[FieldDelimiter]`, a struct, a constructor, a recyclable class, the four `FixedMode` values with both

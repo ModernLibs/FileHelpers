@@ -48,8 +48,9 @@ internal static class RecordTokenizer
     /// <item>x64 with <c>Vector256.IsHardwareAccelerated</c> (AVX2), also with AVX-512: <see cref="TokenizerLoop.Vector256"/>.
     /// Round <c>simd-2026-11-17</c> kept it on <c>fh-amd</c> and <c>fh-intel</c>. The <c>Vector512</c> gate passed on
     /// <c>fh-intel</c> (long lines), but the owner deferred <c>Vector512</c> to 4.10.1 or 4.11 (2026-11-21). Under
-    /// Native AOT on .NET 10 the round measured this loop 1.172 times slower than <see cref="TokenizerLoop.IndexOfHop"/>
-    /// on <c>fh-amd</c>; the owner deferred that change to 4.10.1 or 4.11 as well (2026-11-21).</item>
+    /// Native AOT on .NET 10 the default read took 1.172 (<c>fh-amd</c>) and 1.090 (<c>fh-intel</c>) times the
+    /// <see cref="TokenizerLoop.IndexOfHop"/> read (round <c>simd-2026-11-17</c>); the owner deferred that change to
+    /// 4.10.1 or 4.11 (2026-11-21).</item>
     /// <item>x64 without AVX2: <see cref="TokenizerLoop.Vector128"/>. Round <c>noavx2-2026-11-17</c> (<c>fh-amd</c> with
     /// <c>DOTNET_EnableAVX2=0</c>) found it slower than <see cref="TokenizerLoop.IndexOfHop"/> on long lines; the owner
     /// kept <c>Vector128</c> (2026-11-21).</item>

@@ -190,9 +190,11 @@ jobs:
 
   # Native AOT: publish the smoke app for each target (ILC warnings are trim/AOT incompatibilities in the
   # library or the generated descriptors) and run the native binary. One extra net11.0 leg (T18, design 4.7)
-  # publishes with -p:FhAotLegacy=true, which sets ModernLibs.FileHelpers.DisableTokenizedParse in the app's runtime
-  # configuration: the smoke checks then pass on the legacy read path, so the trimmer kept it. That the switch
-  # reaches the runtime is the fuzz target paths-switch's proof (fuzz.yml).
+  # publishes with -p:FhAotLegacy=true, which sets ModernLibs.FileHelpers.DisableTokenizedParse (legacy read path) and
+  # ModernLibs.FileHelpers.DisableRecordWriter (legacy write path) in the app's runtime configuration: the smoke
+  # checks then pass on both legacy paths, so the trimmer kept them. The program prints legacy-switch= and
+  # legacy-write-switch=, and the run step greps both, which shows that the switches reach the AOT runtime
+  # configuration. That they select the legacy paths is the fuzz target paths-switch's proof (fuzz.yml).
   aot-smoke:
     name: aot-smoke (${{ matrix.tfm }}${{ matrix.legacy && ', legacy switch' || '' }})
     runs-on: ubuntu-latest

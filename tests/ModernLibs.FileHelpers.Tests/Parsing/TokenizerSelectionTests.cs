@@ -61,7 +61,7 @@ public sealed class TokenizerSelectionTests
         await Assert.That(RecordTokenizer.QuotedLoop).IsEqualTo(row.Quoted).Because(because);
     }
 
-    /// <summary>Bounds-checked span loads on .NET 10 and .NET 11 because round simd-2026-11-17 found no dataset on which both VMs agree that <c>LoadUnsafe</c> is faster (freeze F-8, F5, ruling P41).</summary>
+    /// <summary>Bounds-checked span loads on .NET 10 and .NET 11 because round simd-2026-11-17 found no dataset on which both VMs agree that <c>LoadUnsafe</c> is faster (freeze F-8, F5, ruling P41). The test name is historical: it dates from before the round.</summary>
     [Test]
     public async Task Span_Loads_Before_The_Round()
     {

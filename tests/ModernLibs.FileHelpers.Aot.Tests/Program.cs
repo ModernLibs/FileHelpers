@@ -6,7 +6,9 @@ using ModernLibs.FileHelpers.Aot.Tests;
 string nl = Environment.NewLine;
 int passed = 0;
 
-// The CI legacy leg publishes with -p:FhAotLegacy=true (the csproj sets the switch) and greps legacy-switch=on and legacy-write-switch=on.
+// The CI legacy leg publishes with -p:FhAotLegacy=true (the csproj sets both switches: DisableTokenizedParse for the
+// legacy read path, DisableRecordWriter for the legacy write path). The program prints legacy-switch= and
+// legacy-write-switch=, and CI greps both for on.
 Console.WriteLine(AppContext.TryGetSwitch("ModernLibs.FileHelpers.DisableTokenizedParse", out bool legacy) && legacy
     ? "legacy-switch=on"
     : "legacy-switch=off");

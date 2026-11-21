@@ -245,6 +245,7 @@ jobs:
           "./out/${{ matrix.tfm }}/ModernLibs.FileHelpers.Aot.Tests" | tee aot-run.log
           grep -Eq 'AOT smoke: 9 checks passed' aot-run.log
           grep -Eqx "legacy-switch=$SWITCH" aot-run.log || { echo "::error::expected legacy-switch=$SWITCH"; exit 1; }
+          grep -Eqx "legacy-write-switch=$SWITCH" aot-run.log || { echo "::error::expected legacy-write-switch=$SWITCH"; exit 1; }
 
       # The Native AOT timing harness of the Step 0 round (T47, BENCHMARKS.md): publishes the 4.9.1 package build
       # and this build for the leg's runtime (the script stops on any ILxxxx diagnostic and checks the compiled-in

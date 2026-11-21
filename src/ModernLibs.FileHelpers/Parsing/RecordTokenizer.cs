@@ -20,21 +20,22 @@ internal static class RecordTokenizer
 
     /// <summary>
     /// The walk loop of <see cref="TokenizeQuoted(ReadOnlySpan{char}, char, char, ReadOnlySpan{char}, TokenBuffer, bool, out int, out bool)"/>
-    /// with <c>vectors: true</c>; same table as <see cref="PlainLoop"/> until the T21 round decides each separately.
+    /// with <c>vectors: true</c>; same table as <see cref="PlainLoop"/>; the rounds <c>simd-2026-11-17</c> and <c>noavx2-2026-11-17</c> kept
+    /// the same loop for both.
     /// </summary>
     public static readonly TokenizerLoop QuotedLoop = DefaultLoop();
 
     /// <summary>
     /// The block loops of the plain tokenizer load with <c>Vector*.LoadUnsafe</c> from a <c>ref</c> instead of
-    /// bounds-checked span loads (freeze F-8). <see langword="false"/> on every runtime until the T21 round has
-    /// measured both forms; the round sets it per <see cref="Environment.Version"/> major (finding F5: on .NET 11 only
-    /// if it beats the span form there).
+    /// bounds-checked span loads (freeze F-8). <see langword="false"/> on every runtime: round <c>simd-2026-11-17</c>
+    /// measured both forms and found no dataset on which both VMs agree that the unsafe form is faster, on .NET 10 or
+    /// on .NET 11 (finding F5), so it stays <see langword="false"/> (lead ruling P41).
     /// </summary>
     public static readonly bool UseUnsafeLoad;
 
     /// <summary>
-    /// The loop of <see cref="PlainLoop"/> and <see cref="QuotedLoop"/> before the T21 round. Each row names the
-    /// measurement of the round that confirms or changes it (T21 step 5).
+    /// The loop of <see cref="PlainLoop"/> and <see cref="QuotedLoop"/> of 4.10.0. Each row names the decision of
+    /// the rounds <c>simd-2026-11-17</c> and <c>noavx2-2026-11-17</c> (gate table of <c>docs/benchmarks/v4.10.0.md</c>).
     /// </summary>
     /// <returns>
     /// <list type="bullet">
@@ -44,11 +45,14 @@ internal static class RecordTokenizer
     /// <item>Not x64 (Arm64 and any other architecture): <see cref="TokenizerLoop.IndexOfHop"/>. Arm64 was not measured
     /// (owner waiver of 2026-11-16, branch B); the existing 4.9 scan <c>QuoteBalanceScanner.ScanSingleQuote</c> keeps
     /// its vector code there.</item>
-    /// <item>x64 with <c>Vector256.IsHardwareAccelerated</c> (AVX2), also with AVX-512 until the <c>Vector512</c> gate
-    /// passes: <see cref="TokenizerLoop.Vector256"/>; the round reads it on <c>fh-amd</c> and <c>fh-intel</c>
-    /// (<c>Vector512</c>: <c>fh-intel</c>, long lines).</item>
-    /// <item>x64 without AVX2: <see cref="TokenizerLoop.Vector128"/>; the round reads it on <c>fh-amd</c> with
-    /// <c>DOTNET_EnableAVX2=0</c>.</item>
+    /// <item>x64 with <c>Vector256.IsHardwareAccelerated</c> (AVX2), also with AVX-512: <see cref="TokenizerLoop.Vector256"/>.
+    /// Round <c>simd-2026-11-17</c> kept it on <c>fh-amd</c> and <c>fh-intel</c>. The <c>Vector512</c> gate passed on
+    /// <c>fh-intel</c> (long lines), but the owner deferred <c>Vector512</c> to 4.10.1 or 4.11 (2026-11-21). Under
+    /// Native AOT on .NET 10 the round measured this loop 1.172 times slower than <see cref="TokenizerLoop.IndexOfHop"/>
+    /// on <c>fh-amd</c>; the owner deferred that change to 4.10.1 or 4.11 as well (2026-11-21).</item>
+    /// <item>x64 without AVX2: <see cref="TokenizerLoop.Vector128"/>. Round <c>noavx2-2026-11-17</c> (<c>fh-amd</c> with
+    /// <c>DOTNET_EnableAVX2=0</c>) found it slower than <see cref="TokenizerLoop.IndexOfHop"/> on long lines; the owner
+    /// kept <c>Vector128</c> (2026-11-21).</item>
     /// </list>
     /// </returns>
     private static TokenizerLoop DefaultLoop()

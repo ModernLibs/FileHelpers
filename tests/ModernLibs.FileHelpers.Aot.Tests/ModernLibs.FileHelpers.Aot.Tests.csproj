@@ -19,10 +19,12 @@
                       ReferenceOutputAssembly="false" />
   </ItemGroup>
 
-  <!-- CI aot-smoke legacy leg (T18, design 4.7): the 4.9 read path must stay in a trimmed application. The switch goes
-       into the runtime configuration that Native AOT compiles in; the program prints legacy-switch=on|off. -->
+  <!-- CI aot-smoke legacy leg (T18, design 4.7): the 4.9 read path and the legacy write path (DisableRecordWriter) must stay in a trimmed
+       application. The switches go into the runtime configuration that Native AOT compiles in; the program prints
+       legacy-switch=on|off and legacy-write-switch=on|off. -->
   <ItemGroup Condition="'$(FhAotLegacy)' == 'true'">
     <RuntimeHostConfigurationOption Include="ModernLibs.FileHelpers.DisableTokenizedParse" Value="true" />
+    <RuntimeHostConfigurationOption Include="ModernLibs.FileHelpers.DisableRecordWriter" Value="true" />
   </ItemGroup>
 
 </Project>

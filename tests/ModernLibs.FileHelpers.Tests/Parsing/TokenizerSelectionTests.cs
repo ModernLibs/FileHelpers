@@ -34,7 +34,7 @@ public sealed class TokenizerSelectionTests
     private static bool X64 => RuntimeInformation.ProcessArchitecture == Architecture.X64;
 
     /// <summary>
-    /// The default table before the SIMD round (T21 step 2, branch B: the owner waived Arm64 on 2026-11-16; ruling
+    /// The default table of 4.10.0, as decided by rounds simd-2026-11-17 and noavx2-2026-11-17 (T21 step 2, branch B: the owner waived Arm64 on 2026-11-16; ruling
     /// F24 adds the row without <c>Vector128</c>). The first row whose condition holds on this machine applies; a
     /// Native AOT process takes the row of its architecture.
     /// </summary>
@@ -43,7 +43,7 @@ public sealed class TokenizerSelectionTests
         ("DisableVectorizedTokenizer set", () => RuntimeSwitches.DisableVectorizedTokenizer, TokenizerLoop.IndexOfHop, TokenizerLoop.IndexOfHop),
         ("no Vector128.IsHardwareAccelerated", () => !Vector128.IsHardwareAccelerated, TokenizerLoop.IndexOfHop, TokenizerLoop.IndexOfHop),
         ("Arm64, branch B (owner waiver of 2026-11-16)", () => RuntimeInformation.ProcessArchitecture == Architecture.Arm64, TokenizerLoop.IndexOfHop, TokenizerLoop.IndexOfHop),
-        ("x64 with AVX-512, until the Vector512 gate passes", () => X64 && Vector512.IsHardwareAccelerated, TokenizerLoop.Vector256, TokenizerLoop.Vector256),
+        ("x64 with AVX-512 (Vector512 gate passed, deferred by the owner 2026-11-21)", () => X64 && Vector512.IsHardwareAccelerated, TokenizerLoop.Vector256, TokenizerLoop.Vector256),
         ("x64, Vector256.IsHardwareAccelerated", () => X64 && Vector256.IsHardwareAccelerated, TokenizerLoop.Vector256, TokenizerLoop.Vector256),
         ("x64 without AVX2", () => X64, TokenizerLoop.Vector128, TokenizerLoop.Vector128),
         ("another architecture (not measured)", () => true, TokenizerLoop.IndexOfHop, TokenizerLoop.IndexOfHop),
@@ -61,7 +61,7 @@ public sealed class TokenizerSelectionTests
         await Assert.That(RecordTokenizer.QuotedLoop).IsEqualTo(row.Quoted).Because(because);
     }
 
-    /// <summary>Bounds-checked span loads on .NET 10 and .NET 11 until the SIMD round has measured <c>LoadUnsafe</c> (freeze F-8, F5).</summary>
+    /// <summary>Bounds-checked span loads on .NET 10 and .NET 11 because round simd-2026-11-17 found no dataset on which both VMs agree that <c>LoadUnsafe</c> is faster (freeze F-8, F5, ruling P41).</summary>
     [Test]
     public async Task Span_Loads_Before_The_Round()
     {

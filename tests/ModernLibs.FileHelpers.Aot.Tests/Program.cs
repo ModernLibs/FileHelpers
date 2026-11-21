@@ -6,10 +6,13 @@ using ModernLibs.FileHelpers.Aot.Tests;
 string nl = Environment.NewLine;
 int passed = 0;
 
-// The CI legacy leg publishes with -p:FhAotLegacy=true (the csproj sets the switch) and greps legacy-switch=on.
+// The CI legacy leg publishes with -p:FhAotLegacy=true (the csproj sets the switch) and greps legacy-switch=on and legacy-write-switch=on.
 Console.WriteLine(AppContext.TryGetSwitch("ModernLibs.FileHelpers.DisableTokenizedParse", out bool legacy) && legacy
     ? "legacy-switch=on"
     : "legacy-switch=off");
+Console.WriteLine(AppContext.TryGetSwitch("ModernLibs.FileHelpers.DisableRecordWriter", out bool legacyWrite) && legacyWrite
+    ? "legacy-write-switch=on"
+    : "legacy-write-switch=off");
 
 static int Fail(int code, string what, string? got)
 {

@@ -144,6 +144,7 @@ internal sealed class PooledStringWriter : TextWriter
                 ? Math.Max(Math.Min(Storage.Length * 2, MaxChunk), needed)
                 : RentedBufferWriter.NextSize(used, needed);
 
+            CheckRetire();
             char[] next = ArrayPool<char>.Shared.Rent(size);
             Storage.AsSpan(Committed, used).CopyTo(next);
             Retire(next);
@@ -166,8 +167,21 @@ internal sealed class PooledStringWriter : TextWriter
         }
 
         /// <summary>The current chunk is full: retires it and starts one twice as long, up to <see cref="MaxChunk"/>.</summary>
-        private void NextChunk() =>
+        private void NextChunk()
+        {
+            CheckRetire();
             Retire(ArrayPool<char>.Shared.Rent(Math.Min(Storage.Length * 2, MaxChunk)));
+        }
+
+        /// <summary>
+        /// Does the size check of <see cref="Retire"/> before a chunk is rented, so that an overflow throws with
+        /// nothing rented and nothing to return.
+        /// </summary>
+        private void CheckRetire()
+        {
+            if (Committed != 0)
+                _ = checked(_retiredLength + Committed);
+        }
 
         /// <summary>
         /// Makes <paramref name="next"/> the current chunk, empty. The old one is retired with its text, or returned

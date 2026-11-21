@@ -546,24 +546,24 @@ These are not differences, but they surprise people who expect them to be fixed:
   quotes on write only when a value needs them, but it requires the quote on read, so a value written
   without quotes (`x,1`) is rejected on read with "does not begin with the quote char". Use
   `QuoteMode.OptionalForBoth` for a round trip. FileHelpers 3.5.2 and 4.x behave the same.
-- A fixed-length value that is longer than its field is cut silently on write, also for a right-aligned
-  field (`[FieldAlign(AlignMode.Right, '0')]`): the value is cut at its end to the first n
-  characters (the field width of `[FieldFixedLength(n)]`; `12345` in a field of length 3 is written as `123`). This is the default in 3.x too. To get
+- A fixed-length value that is longer than its field is cut silently on write, also for a right-aligned field
+  (`[FieldAlign(AlignMode.Right, '0')]`): the value is cut at its end to the first n characters (the field width of
+  `[FieldFixedLength(n)]`; `12345` in a field of length 3 is written as `123`). This is the default in 3.x too. To get
   an error instead, set `[FieldFixedLength(n, OverflowMode = OverflowMode.Error)]`.
 
 ### 3.11 Upgrading from 4.8 or 4.9
 
-4.10 reads and writes faster through two new paths that the source generator opts a record type into: a
-**tokenized read path** (the runtime finds the field boundaries of a record once (with its own vector loops on x64; on Arm64 and other architectures with `IndexOf`), and the
-generated code converts the fields from them) and a **record writer** (generated code formats a record straight
-into the engine's buffer). Records, errors, `HeaderText`, `FooterText`, `LineNumber` and `TotalRecords` are the same on
-the new and the old paths for every input; the layout errors, their text, type, line and column are produced by the
-4.9 code.
+4.10 reads and writes faster through two new paths that the source generator opts a record type into: a **tokenized
+read path** (the runtime finds the field boundaries of a record once (with its own vector loops on x64; on Arm64 and
+other architectures with `IndexOf`), and the generated code converts the fields from them) and a **record writer**
+(generated code formats a record straight into the engine's buffer). Records, errors, `HeaderText`, `FooterText`,
+`LineNumber` and `TotalRecords` are the same on the new and the old paths for every input; the layout errors, their
+text, type, line and column are produced by the 4.9 code.
 
-- **Old binaries keep working; recompile for the speed-up.** A library compiled against 4.8 or 4.9 carries
-  descriptors without the new interfaces, so it takes the 4.9 read and write paths on a 4.10 runtime (the other behaviour changes of
-  4.10, such as the `NewLineForWrite` default, apply to it as well). Rebuild it with the 4.10 package to get the new paths. The reverse does not hold: a library compiled against 4.10 needs a 4.10
-  or later runtime.
+- **Old binaries keep working; recompile for the speed-up.** A library compiled against 4.8 or 4.9 carries descriptors
+  without the new interfaces, so it takes the 4.9 read and write paths on a 4.10 runtime (the other behaviour changes
+  of 4.10, such as the `NewLineForWrite` default, apply to it as well). Rebuild it with the 4.10 package to get the
+  new paths. The reverse does not hold: a library compiled against 4.10 needs a 4.10 or later runtime.
 - **Not every record type is tokenized.** The runtime reads a record type through the tokenized path when it is
   delimited with a one-char delimiter, has one line per record, no field has its own `[FieldDelimiter]`, and its quoted
   fields use one quote char other than the delimiter. A record type with a `[FieldQuoted]` field that also has
@@ -622,9 +622,9 @@ None of this is needed to migrate, but it is available once you have:
 
 - **Source generation and AOT.** No reflection at run time; works with `PublishAot=true` and trimming.
   Layout errors are reported at compile time ([diagnostics reference](diagnostics.md)).
-- **Structs and records.** `struct`, `record struct`, positional records, classes without a
-  parameterless constructor, and C# 11 `required` members. Value-type-only structs are read without per-record allocations through
-  callbacks and `ReadSync`.
+- **Structs and records.** `struct`, `record struct`, positional records, classes without a parameterless constructor,
+  and C# 11 `required` members. Value-type-only structs are read without per-record allocations through callbacks and
+  `ReadSync`.
 - **More field types.** `DateOnly`, `TimeOnly`, `DateTimeOffset`, `TimeSpan`, nullable value types and
   enums without a custom converter.
 - **Span input and callbacks.** `ReadSpan(ReadOnlySpan<char>)`, callback overloads of `ReadFile`,

@@ -18,9 +18,10 @@ compiled against 4.10.0, as a consumer library built against 4.10.0 would carry.
 - The snapshot has all 20 shapes, every descriptor implements `IRecordWriterDescriptor<T>`, and the plain, the quoted
   and the `[FieldNotEmpty]` shape are read through `ITokenizedDescriptor<T>`.
 
-The record types are the plain `Compat410X` types of `../Compat410Records.cs`: the members of `Compat49XTwin`, no record
-attributes, so the current generator makes no second descriptor. The inputs, the write cases and the golden texts are those
-of the shape `Compat49X` (`Compat49Matrix.ShapeName` maps the name). The custom converters of `Compat49Twins.cs` are shared.
+The record types are the plain `Compat410X` types of `../Compat410Records.cs`: the members of `Compat49XTwin`, no
+record attributes, so the current generator makes no second descriptor. The inputs, the write cases and the golden
+texts are those of the shape `Compat49X` (`Compat49Matrix.ShapeName` maps the name). The custom converters of
+`Compat49Twins.cs` are shared.
 
 **Do not regenerate the `*.g.cs` files with a newer generator.** They must stay 4.10.0 output. When a `Compat410Tests`
 case fails against `Golden49`, the runtime changed what a 4.10.0 consumer sees: fix the runtime, not the snapshot. When
@@ -30,10 +31,10 @@ the generator changes what it emits, the current descriptors (the twins) change 
 
 1. The generator is the one of this repository at commit `6739f20` (branch `task/T50-docs`); its output is equal at
    `20a6e7d`. If a commit changes `src/ModernLibs.FileHelpers.Generator` (other than the `Version` line) before the
-   `v4.10.0` tag, the files are no longer 4.10.0 output and must be made again (check:
-   `git diff 6739f20..<tag commit> -- src/ModernLibs.FileHelpers.Generator` shows the `Version` line only). Its `[GeneratedCode]` version string is the build `Version`, which was
-   still `4.9.1` in the project files, so the build ran with `-p:Version=4.10.0`; the files say `4.10.0`, as the generator
-   of the release does. Build in WSL, SDK 11.0.100 (`global.json`):
+   `v4.10.0` tag, the files are no longer 4.10.0 output and must be made again (check: `git diff 6739f20..<tag commit>
+   -- src/ModernLibs.FileHelpers.Generator` shows the `Version` line only). Its `[GeneratedCode]` version string is
+   the build `Version`, which was still `4.9.1` in the project files, so the build ran with `-p:Version=4.10.0`; the
+   files say `4.10.0`, as the generator of the release does. Build in WSL, SDK 11.0.100 (`global.json`):
 
    ```bash
    dotnet build tests/ModernLibs.FileHelpers.Tests -c Release -f net10.0 -p:Version=4.10.0 \
@@ -42,8 +43,8 @@ the generator changes what it emits, the current descriptors (the twins) change 
    ```
 
    `0 Warning(s)`, `0 Error(s)`. The generator ran on the `Compat49...Twin` types of the test project, which carry the
-   attributes, and wrote one `ModernLibs.FileHelpers.Tests.Compat.Compat49<Shape>Twin.<hash>.<Kind>.g.cs` for each, 20 in all
-   (the output folder is outside the repository).
+   attributes, and wrote one `ModernLibs.FileHelpers.Tests.Compat.Compat49<Shape>Twin.<hash>.<Kind>.g.cs` for each, 20
+   in all (the output folder is outside the repository).
 
 2. Copy: for each of the 20 files:
    - the file is named `Compat410<Shape>.<Kind>.g.cs`;

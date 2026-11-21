@@ -177,9 +177,15 @@ internal static class Compat49Matrix
 
     private static int DescriptorFieldCount<T>() => FileHelperRegistry<T>.Descriptor.Fields.Length;
 
-    /// <summary>The shape name of a record type: the twin's name without <c>Twin</c>.</summary>
+    /// <summary>
+    /// The shape name of a record type: the twin's name without <c>Twin</c>; the name of a <c>Compat410</c> type
+    /// (Generated410) is mapped to the <c>Compat49</c> shape it was made from, so it shares the inputs, the write cases
+    /// and the golden texts of that shape.
+    /// </summary>
     private static string ShapeName(Type type) =>
-        type.Name.EndsWith("Twin", StringComparison.Ordinal) ? type.Name[..^"Twin".Length] : type.Name;
+        type.Name.EndsWith("Twin", StringComparison.Ordinal) ? type.Name[..^"Twin".Length]
+        : type.Name.StartsWith("Compat410", StringComparison.Ordinal) ? "Compat49" + type.Name["Compat410".Length..]
+        : type.Name;
 
     /// <summary>
     /// Reads <paramref name="input"/> three times: an array read with <see cref="ErrorMode.SaveAndContinue"/>
@@ -234,7 +240,7 @@ internal static class Compat49Matrix
     /// Reads <paramref name="input"/>, writes the records back with the same engine, then writes each hand-made
     /// record of <see cref="Compat49WriteCases"/> with its own engine (prefix <c>written-extra:</c>).
     /// </summary>
-    private static string RoundTrip<T>(string input)
+    internal static string RoundTrip<T>(string input)
     {
         // Golden49 pins the 4.9.1 bytes, written with "\r\n" on every OS (T49: the default is now Environment.NewLine).
         var engine = new FileHelperEngine<T> { ErrorMode = ErrorMode.SaveAndContinue, NewLineForWrite = "\r\n" };

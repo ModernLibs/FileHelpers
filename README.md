@@ -5,9 +5,9 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/ModernLibs/FileHelpers/blob/main/LICENSE)
 
 Typed reading and writing of fixed-length and delimited (CSV, TSV, pipe, ...) text files for
-.NET 10, with the [FileHelpers](https://github.com/MarcosMeli/FileHelpers) 3.x API. You describe a
-record layout with attributes; a source generator in the package writes the parsing and formatting
-code at compile time. No runtime reflection, so it works with Native AOT and trimming.
+.NET 10 and .NET 11, with the [FileHelpers](https://github.com/MarcosMeli/FileHelpers) 3.x API. You
+describe a record layout with attributes; a source generator in the package writes the parsing and
+formatting code at compile time. No runtime reflection, so it works with Native AOT and trimming.
 
 - **The fastest fixed-width reader in our benchmarks:** about twice as fast as FileHelpers 3.5.2
   reading into objects (2.4 times on our AMD test machine, 1.9 on the Intel one) and ahead of
@@ -34,20 +34,26 @@ runtime async on:
 | Quoted-field read | **43.98 / 44.24 ms**, 20.5 MB | - | 41.77 / 42.33 ms, 20.5 MB | 50.65 / 51.88 ms, 22.8 MB | 35.42 / 36.17 ms, 21.7 MB | 62.95 / 61.33 ms, 22.8 MB |
 | 25-column write | **33.74 / 33.58 ms**, 55.4 MB | - | 123.8 / 122.7 ms, 110.6 MB | - | - | - |
 
-Measured on an Azure `Standard_D4ads_v5` virtual machine (AMD EPYC 9V74, 4 vCPUs, Ubuntu 24.04,
-.NET 10.0.15 and 11.0.0) with BenchmarkDotNet 0.15.8, default job capped at 20 iterations, 3
-launches per configuration; each cell is the median of the launches. Where we are behind, the table
-says so: CsvHelper and Sep read quoted fields faster. Sylvan and CsvHelper are not in the 4.10
-comparison of the 25-column read into objects. In the parse-and-discard read of the same file (round
-`simd-2026-11-17`, 100K rows, .NET 10) Sylvan is level with ModernLibs.FileHelpers on this machine
-(60.85 ms against 61.36 ms) and faster on an Intel Xeon Platinum 8370C one (55.67 ms against 66.59
-ms), and CsvHelper takes 81.99 ms. The 4.10 rounds did not measure CsvHelper's write. Sep and Sylvan
-do not read fixed-width files.
+The same rounds on the Intel test machine (times only; the allocation is the same as in the table
+above):
 
-Against 4.9.1, measured A/B on both test machines and both runtimes at 100K rows (rounds
-`simd-2026-11-17` and `write-2026-11-17`): the 25-column parse and discard takes 0.79 to 0.80 of the
-4.9.1 time, the quoted parse and discard 0.76 and `WriteString` of the 25 columns 0.48 to 0.62. The results page
-lists every line, including those that did not change.
+| Scenario | ModernLibs.FileHelpers 4.10.0 | FileHelpers 3.5.2 | Sep 0.17.1 | Sylvan.Data.Csv 1.4.4 | CsvHelper 34.0.0 | RecordParser 2.3.0 |
+|---|---:|---:|---:|---:|---:|---:|
+| Fixed-width read, 7 fields | **51.81 / 52.02 ms** | 100.9 / 100.3 ms | - | - | - | 55.07 / 55.21 ms |
+| 25-column read | **125.8 to 127.2 / 125.9 to 126.7 ms** | 430.2 / 420.5 ms | 150.4 / 146.7 ms | - | - | 187.8 to 188.2 / 185.5 to 186.8 ms |
+| Quoted-field read | **49.30 / 47.91 ms** | - | 45.15 / 45.42 ms | 51.87 / 51.63 ms | 30.67 / 27.41 ms | 71.18 / 70.26 ms |
+| 25-column write | **43.23 / 43.02 ms** | - | 89.69 / 88.72 ms | - | - | - |
+
+Measured on two Azure virtual machines, a `Standard_D4ads_v5` (AMD EPYC 9V74, 4 vCPUs; the
+reference machine, first table) and a `Standard_D4ds_v5` (Intel Xeon Platinum 8370C, 4 vCPUs;
+second table), both Ubuntu 24.04, .NET 10.0.15 and 11.0.0, with BenchmarkDotNet 0.15.8, default job
+capped at 20 iterations, 3 launches per configuration; each cell is the median of the launches.
+Where we are behind, the tables say so: CsvHelper and Sep read quoted fields faster. Sylvan and
+CsvHelper are not in the 4.10 comparison of the 25-column read into objects. In the parse-and-discard
+read of the same file (round `simd-2026-11-17`, 100K rows, .NET 10) Sylvan is level with
+ModernLibs.FileHelpers on the AMD machine (60.85 ms against 61.36 ms) and faster on the Intel one
+(55.67 ms against 66.59 ms), and CsvHelper takes 81.99 ms on the AMD machine. The 4.10 rounds did
+not measure CsvHelper's write. Sep and Sylvan do not read fixed-width files.
 
 A dash means the suite does not measure that library. ModernLibs.FileHelpers and FileHelpers 3.5.2
 produce typed records through their attributes and converters; the other libraries are measured with
@@ -59,6 +65,46 @@ ModernLibs.FileHelpers is an independent reimplementation modelled on the API of
 Marcos Meli and contributors. FileHelpers 3.x is the reference for its behaviour. It is not the
 original project: please report problems with this library
 [here](https://github.com/ModernLibs/FileHelpers/issues), not upstream.
+
+### 4.10.0 against 4.9.1
+
+Each cell is the 4.10.0 time divided by the 4.9.1 time for the same benchmark, machine and runtime;
+below 1 is faster. On .NET 11 the 4.10.0 side is the package's `net11.0` asset; 4.9.1 has no
+`net11.0` asset, so it runs its `net10.0` library there. A cell with no word after the ratio is
+faster; `no-change` and `slower` are the verdicts of the rule below the table.
+
+| Scenario | Rows | AMD, .NET 10 | AMD, .NET 11 | Intel, .NET 10 | Intel, .NET 11 | Round |
+|---|---:|---:|---:|---:|---:|---|
+| 25-column parse and discard | 100K | 0.804 | 0.792 | 0.804 | 0.800 | `simd-2026-11-17` |
+| 25-column read into objects (`ReadFile`) | 100K | 0.923 | 0.913 | 0.963 | 0.996, no-change | `simd-2026-11-17` |
+| Quoted fields, parse and discard | 100K | 0.758 | 0.758 | 0.758 | 0.762 | `simd-2026-11-17` |
+| 150 columns (`WideRecord`, 10K is the largest size) | 10K | 0.431 | 0.414 | 0.498 | 0.497 | `simd-2026-11-17` |
+| Long lines (20K is the largest size) | 20K | 0.911 | 0.899 | 0.945 | 0.950 | `simd-2026-11-17` |
+| Async read from a path (`ReadAsync`) | 100K | 0.696 | 0.750 | 0.738 | 0.683 | `diagAS2-2026-11-19` |
+| 25-column `WriteString` | 100K | 0.475 | 0.510 | 0.601 | 0.617 | `write-2026-11-17` |
+| Fixed-width `WriteString` | 100K | 0.657 | 0.507 | 0.798 | 0.726 | `diagFW2-2026-11-19` |
+| Quoted `WriteString` | 100K | 0.784 | 0.811 | 0.836 | 0.827 | `write-2026-11-17` |
+| Multi-record write to a stream | 100K | 0.848 | 0.806 | 0.773 | 0.771 | `write-2026-11-17` |
+| Native AOT, 25-column parse and discard | 100K | 0.954 | 0.964 | 1.007, no-change | 0.984, no-change | `simd-2026-11-17` |
+| Native AOT, the same with `DisableVectorizedTokenizer` set | 100K | 0.815 | 1.088, slower | 0.923 | 1.059, slower | `simd-2026-11-17` |
+
+A ratio counts as faster or slower (rule B4) when its 99.9 % bootstrap interval, over 7 interleaved
+launches per side, excludes 1.0 and it differs from 1.0 by at least 3 %; a slowdown of up to 3 %
+against 4.9.1 is treated as noise. The AMD machine ran `simd-2026-11-17` on an AMD EPYC 9V74 and the
+other three rounds on an AMD EPYC 7763; every ratio compares two builds on one CPU. The only line
+slower than 4.9.1 by more than 3 % is the Native AOT read with `DisableVectorizedTokenizer` set on
+.NET 11, accepted as a tradeoff; the default AOT read is not slower. The
+[4.10.0 results](https://github.com/ModernLibs/FileHelpers/blob/main/docs/benchmarks/v4.10.0.md)
+give the intervals, times and allocation of every line, including those that did not change.
+
+**Known gaps.** CsvHelper and Sep read quoted fields faster, and Sylvan parses the 25-column file
+faster on the Intel machine (see above); the remaining read gap to Sylvan and Sep is a 4.11 topic.
+Two 4.10 performance targets were missed, and neither line is slower than 4.9.1: `ReadFile` at 100K
+rows on the Intel machine was to take at most 0.95 of the 4.9.1 time (0.963 and 0.996 above), and
+quoted `WriteString` at most 0.50 (0.784 to 0.836 above). Two tokenizer gates that the 4.10 rounds
+triggered are deferred to 4.10.1 or 4.11, so 4.10.0 does not apply them: a `Vector512` loop on x64
+with AVX-512 (measured on the Intel machine only), and the `IndexOfHop` loop instead of the vector
+loop under Native AOT on .NET 10.
 
 ## Install
 

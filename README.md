@@ -95,7 +95,7 @@ give the intervals, times and allocation of every line, including those that did
 
 **Known gaps.** CsvHelper and Sep read quoted fields faster, and Sylvan parses the 25-column file
 faster on the Intel machine (see above); the remaining read gap to Sylvan and Sep is a 4.11 topic.
-Two 4.10 performance targets were missed, and neither line is slower than 4.9.1: `ReadFile` at 100K
+Two of the 4.10 targets against 4.9.1 were missed, and neither line is slower than 4.9.1: `ReadFile` at 100K
 rows on the Intel machine was to take at most 0.95 of the 4.9.1 time (0.963 and 0.996 above), and
 quoted `WriteString` at most 0.50 (0.784 to 0.836 above). Two tokenizer gates that the 4.10 rounds
 triggered are deferred to 4.10.1 or 4.11, so 4.10.0 does not apply them: a `Vector512` loop on x64

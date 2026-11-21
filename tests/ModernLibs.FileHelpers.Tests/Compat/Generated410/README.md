@@ -28,8 +28,10 @@ the generator changes what it emits, the current descriptors (the twins) change 
 
 ## How the files were made
 
-1. The generator is the one of this repository at commit `6739f20` (branch `task/T50-docs`, no change under
-   `src/ModernLibs.FileHelpers.Generator` since). Its `[GeneratedCode]` version string is the build `Version`, which was
+1. The generator is the one of this repository at commit `6739f20` (branch `task/T50-docs`); its output is equal at
+   `20a6e7d`. If a commit changes `src/ModernLibs.FileHelpers.Generator` (other than the `Version` line) before the
+   `v4.10.0` tag, the files are no longer 4.10.0 output and must be made again (check:
+   `git diff 6739f20..<tag commit> -- src/ModernLibs.FileHelpers.Generator` shows the `Version` line only). Its `[GeneratedCode]` version string is the build `Version`, which was
    still `4.9.1` in the project files, so the build ran with `-p:Version=4.10.0`; the files say `4.10.0`, as the generator
    of the release does. Build in WSL, SDK 11.0.100 (`global.json`):
 

@@ -50,7 +50,8 @@ public sealed class Compat410Tests
         yield return Shape<Compat410FixedVariable>();
         yield return Shape<Compat410ConverterBase>();
         yield return Shape<Compat410SpanConverter>();
-        yield return Shape<Compat410NotEmpty>();
+        yield return Shape<Compat410NotEmpty>(
+            input => Compat49Matrix.Read(input, static () => new FileHelperEngine<Compat49NotEmptyTwin>()));
     }
 
     public static IEnumerable<Func<Compat410Shape>> Cases() => Shapes().Select(s => (Func<Compat410Shape>)(() => s));
@@ -61,7 +62,18 @@ public sealed class Compat410Tests
     public async Task Descriptor_From_4_10_0_Matches_Golden49(Compat410Shape shape)
     {
         if (!shape.HasGolden)
+        {
+            // No 4.9.1 type, no Golden49 file: the reference is the descriptor the current generator makes (the twin).
+            int n = 0;
+            foreach (string input in Compat49Inputs.For(shape.Golden))
+            {
+                await Assert.That(shape.Read(input)).IsEqualTo(shape.ReferenceRead!(input)).Because($"{shape.Name} input {n}: read against the twin");
+                n++;
+            }
+
+            Skip.Test($"{shape.Name} has no Golden49 file; it was compared with the current descriptor, by read only (it has no write cases).");
             return;
+        }
 
         int index = 0;
         foreach (string input in Compat49Inputs.For(shape.Golden))
@@ -100,7 +112,10 @@ public sealed class Compat410Tests
     {
         await Assert.That(shape.RecordWriter).IsTrue().Because($"{shape.Name}: the descriptor implements IRecordWriterDescriptor<T>");
         if (!shape.HasGolden)
-            return;   // the path-only shape has no write cases
+        {
+            Skip.Test($"{shape.Name} has no write cases.");   // the path-only shape
+            return;
+        }
 
         int index = 0;
         foreach (string input in Compat49Inputs.For(shape.Golden))
@@ -141,7 +156,7 @@ public sealed class Compat410Tests
             await Assert.That(shape.RecordWriter).IsTrue().Because(shape.Name);
     }
 
-    private static Compat410Shape Shape<T>()
+    private static Compat410Shape Shape<T>(Func<string, string>? referenceRead = null)
     {
         string name = typeof(T).Name;
         var descriptor = FileHelperRegistry<T>.Descriptor;
@@ -160,7 +175,8 @@ public sealed class Compat410Tests
             (input, newLine, events) => Compat49Matrix.RoundTripWith(input, newLine, events, static () => new FileHelperEngine<T>()),
             (input, newLine, events) => Compat49Matrix.RoundTripWith(input, newLine, events, () => new FileHelperEngine<T>(descriptor, Encoding.UTF8, legacyWriter)),
             descriptor is IRecordWriterDescriptor<T>,
-            descriptor is ITokenizedDescriptor<T>);
+            descriptor is ITokenizedDescriptor<T>,
+            referenceRead);
     }
 
     /// <summary>The reads and writes of one Generated410 shape; <c>Golden</c> is the Compat49 shape it was made from.</summary>
@@ -176,7 +192,8 @@ public sealed class Compat410Tests
         Func<string, string, bool, string> WriteDefault,
         Func<string, string, bool, string> WriteLegacy,
         bool RecordWriter,
-        bool TokenizedDescriptor)
+        bool TokenizedDescriptor,
+        Func<string, string>? ReferenceRead = null)
     {
         /// <summary>Whether Golden49 has a file for the shape (not the path-only shape).</summary>
         public bool HasGolden => !Compat49Matrix.PathOnlyShapes.Contains(Golden, StringComparer.Ordinal);

@@ -90,10 +90,9 @@ comma-separated list of Stryker `--mutate` globs, one `--mutate` per glob; it de
 `QuoteBalanceScanner.cs` and `RecordReadCore.cs`. The weekly run uses those two files plus
 `FixedLengthSlicer.cs`. The 80 was measured on the two-file scope only: the three-file score has not been
 measured, because the schedule runs on the default branch and the workflow reaches it with the 4.10.0 merge.
-If the first weekly run fails under 80 with no code change, take the score of that run minus 5, rounded down
-to a multiple of 5, as the new `break`, and record it here. The job has a 350 minute limit and writes one character per finished mutant to the
-log (`.` killed, `T` timeout, `S` survived, `E` error), 100 per line with a time stamp, so a run cut off by
-the limit still shows how far it got.
+If the first weekly run fails under 80 with no code change, report it to the maintainer. The job has a
+350 minute limit and writes one character per finished mutant to the log (`.` killed, `T` timeout, `S` survived,
+`E` error), 100 per line with a time stamp, so a run cut off by the limit still shows how far it got.
 
 ### Fuzzing
 

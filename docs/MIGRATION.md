@@ -545,8 +545,7 @@ These are not differences, but they surprise people who expect them to be fixed:
 - `[FieldQuoted(QuoteMode.OptionalForWrite)]` cannot read back its own unquoted output. The mode adds
   quotes on write only when a value needs them, but it requires the quote on read, so a value written
   without quotes (`x,1`) is rejected on read with "does not begin with the quote char". Use
-  `QuoteMode.OptionalForBoth` for a round trip. FileHelpers 3.5.2 and 4.x behave the same
-  (probed with the plain `,` delimiter on 3.5.2 and 4.9.1: five of six values written unquoted are rejected).
+  `QuoteMode.OptionalForBoth` for a round trip. FileHelpers 3.5.2 and 4.x behave the same.
 - A fixed-length value that is longer than its field is cut silently on write, also for a right-aligned
   field (`[FieldAlign(AlignMode.Right, '0')]`): the value is cut at its end to the first n
   characters (the field width of `[FieldFixedLength(n)]`; `12345` in a field of length 3 is written as `123`). This is the default in 3.x too. To get
@@ -555,7 +554,7 @@ These are not differences, but they surprise people who expect them to be fixed:
 ### 3.11 Upgrading from 4.8 or 4.9
 
 4.10 reads and writes faster through two new paths that the source generator opts a record type into: a
-**tokenized read path** (the runtime finds the field boundaries of a record once, with vector code, and the
+**tokenized read path** (the runtime finds the field boundaries of a record once (with its own vector loops on x64; on Arm64 and other architectures with `IndexOf`), and the
 generated code converts the fields from them) and a **record writer** (generated code formats a record straight
 into the engine's buffer). Records, errors, `HeaderText`, `FooterText`, `LineNumber` and `TotalRecords` are the same on
 the new and the old paths for every input; the layout errors, their text, type, line and column are produced by the
@@ -573,9 +572,12 @@ the new and the old paths for every input; the layout errors, their text, type, 
   path cannot handle falls back to the 4.9 code for that record.
 - **Two one-character `string` values may be the same instance.** `string.Empty` for an empty value and one cached
   string per character below U+0080 for a one-character value; see the [changelog](../CHANGELOG.md).
-- **`NewLineForWrite`, `[FieldTrim]` characters and the stream read and write overloads changed in 4.10**; see
+- **`NewLineForWrite` default changed; `TrimGivenChars` and the stream overloads are new**; see
   [3.2](#32-line-endings-and-empty-headerfooter), [2.5](#trim-characters-and-trimgivenchars) and
   [4](#4-what-is-new).
+- **Build breaks on upgrade.** The new generator diagnostics `MLFH030`, `MLFH031` and `MLFH033` fail a build that treats
+  warnings as errors (suppress them with `<NoWarn>$(NoWarn);MLFH030;MLFH031;MLFH033</NoWarn>`), and `ReadStream(null)`
+  and `ReadAsync(null)` are ambiguous now; both are described in the [changelog](../CHANGELOG.md).
 
 #### Switches back to the 4.9 code paths
 
@@ -591,7 +593,7 @@ a rebuild:
 Each switch is a boolean `AppContext` switch. Set it in one of three ways:
 
 ```json
-// <app>.runtimeconfig.json
+// runtimeconfig.template.json, next to the project file
 { "configProperties": { "ModernLibs.FileHelpers.DisableTokenizedParse": true } }
 ```
 

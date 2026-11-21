@@ -199,7 +199,7 @@ cannot accept. Nothing else changes: the records, errors and written text are th
 Each switch is a boolean `AppContext` switch. Set it in one of three ways:
 
 ```json
-// <app>.runtimeconfig.json
+// runtimeconfig.template.json, next to the project file
 { "configProperties": { "ModernLibs.FileHelpers.DisableTokenizedParse": true } }
 ```
 

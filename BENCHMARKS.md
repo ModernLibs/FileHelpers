@@ -41,6 +41,20 @@ than Sylvan at 10K and 100K rows (equal at 1M); `WriteString` is faster than Sep
 CsvHelper; Sep, Sylvan and CsvHelper still read the quoted file faster. The 4.8.0 numbers above are
 kept as the baseline against FileHelpers 3.5.2.
 
+**[docs/benchmarks/v4.10.0.md](docs/benchmarks/v4.10.0.md)** records the Azure rounds of 4.10: two
+VMs (`Standard_D4ads_v5`, AMD, AVX2, the reference; `Standard_D4ds_v5`, Intel Xeon Platinum 8370C,
+AVX-512), A/B against the published 4.9.1 package on .NET 10 and .NET 11 with 7 launches per side and
+rule B4, runtime async on against off, and a comparison with other libraries. At 100K rows the
+25-column parse and discard takes 0.79 to 0.80 of the 4.9.1 time, the quoted read 0.76, and
+`WriteString` of the 25 columns 0.48 to 0.62, on both VMs and runtimes; the page lists the gates of
+the release plan, the lines that did not change, and the two targets that were missed (`ReadFile` at
+100K rows on the Intel VM, quoted `WriteString`). The comparison (AMD EPYC 9V74, 100K rows, .NET 10)
+reads the 25-column file into objects in 168.4 ms against 196.3 ms for Sep and 523.1 ms for
+FileHelpers 3.5.2, and writes it in 33.74 ms against 123.8 ms for Sep; CsvHelper and Sep read quoted
+fields faster, and Sylvan reads the 25-column file faster on the Intel VM. Its raw files are under
+[docs/benchmarks/raw/](docs/benchmarks/raw/README.md), and the Step 0 baseline of 4.9.1 is in
+[docs/benchmarks/step0-4.10.md](docs/benchmarks/step0-4.10.md).
+
 Performance depends heavily on hardware, record shape and field types, so run the suite on a machine
 like your production one.
 
@@ -536,10 +550,14 @@ python3 -I benchmarks/tools/ab.py --aot --a ~/fh-aot/pkg-net10 --b ~/fh-aot/net1
   this build only, so an AOT 4.9.1-against-4.10 ratio contains both the code change and the compiler and SDK
   change. Read it as "what a consumer gets", not as "what our code changed".
 - Instruction set: the publish sets no `IlcInstructionSet` (the `.ilc.rsp` has no `--instruction-set` line), so the
-  AOT compiler targets its default x64 baseline, which does not assume AVX2 (design 2.1: .NET 11 raises the x64
-  minimum to x86-64-v2; Native AOT still does not assume AVX2). Code that the JIT compiles for AVX2 on the same machine can
-  take a narrower vector path under AOT. SIMD comparisons between JIT and AOT (T21) must keep this in mind; an
-  AVX2 AOT build would need `-p:IlcInstructionSet=x86-64-v3`, which the script does not pass.
+  AOT compiler targets its default x64 baseline. That this baseline does not assume AVX2, so that code the JIT compiles
+  for AVX2 on the same machine takes a narrower vector path under AOT, is [unverified]: the rounds of 4.10 do not record
+  it (each round's `machine.txt` names the native toolchain, clang 18.1.3, and `variants.txt` the AOT folders, but
+  neither prints the instruction set or the loop the tokenizer chose). What the scenarios showed (round
+  `simd-2026-11-17`, docs/benchmarks/v4.10.0.md, "Native AOT"): under AOT the default read is slower than the read with
+  `DisableVectorizedTokenizer` set on .NET 10 (1.172 on `fh-amd`, 1.090 on `fh-intel`) and faster on .NET 11 (0.889 and
+  0.932), while under the JIT the vector loops are faster than `IndexOfHop` on both runtimes. An AVX2 AOT build would
+  need `-p:IlcInstructionSet=x86-64-v3`, which the script does not pass.
 - No memory diagnoser: no Gen0/Gen1/Gen2 or allocation columns.
 - One scenario. Another one needs code in the harness and an entry in `AOT_SCENARIOS` of `ab.py`.
 - The published program has the feature switches `PublishAot` sets for every AOT application (for example

@@ -19,8 +19,6 @@ code at compile time. No runtime reflection, so it works with Native AOT and tri
 
 ## Benchmarks
 
-![Read 100K records into typed objects. Fixed-width file: ModernLibs.FileHelpers 48 to 51 ms, CsvHelper 34 54 ms, FileHelpers 3.5.2 111 ms. Delimited file: Sylvan 131 ms, ModernLibs.FileHelpers 155 ms, CsvHelper 34 165 ms, Sep 171 ms, FileHelpers 3.5.2 459 ms.](https://raw.githubusercontent.com/ModernLibs/FileHelpers/main/assets/readme/benchmarks.png)
-
 Time and allocation for 100K records read into objects or written to a string (fixed-width: 7
 fields, class records; 25-column file with dates), from the
 [4.10.0 results](https://github.com/ModernLibs/FileHelpers/blob/main/docs/benchmarks/v4.10.0.md)
